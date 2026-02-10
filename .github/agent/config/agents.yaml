@@ -1,0 +1,72 @@
+# ============================================
+# AGENT CONFIGURATION
+# ============================================
+# Defines available agents and auto-spawn rules
+
+agents:
+  - name: "meta-agent"
+    type: "orchestrator"
+    description: "Main agent that manages other agents"
+    enabled: true
+
+  - name: "report-agent"
+    type: "task"
+    description: "Updates REPORT.md with stats"
+    enabled: true
+    schedule: "0 */6 * * *"
+
+  - name: "cleanup-agent"
+    type: "task"
+    description: "Cleans up old logs and artifacts"
+    enabled: true
+    schedule: "0 0 * * *"
+
+# Auto-spawn configuration
+auto_spawn:
+  enabled: true
+  max_agents_per_run: 1
+  max_total_agents: 10
+
+  # Conditions to trigger agent spawn
+  triggers:
+    - type: "new_job_type"
+      description: "Spawn agent when new job type is detected"
+    - type: "performance_issue"
+      description: "Spawn helper agent when task takes too long"
+    - type: "error_pattern"
+      description: "Spawn fix agent when repeated errors occur"
+
+  # Template for new agent
+  template: |
+    """
+    Auto-generated agent: {agent_name}
+    Created: {timestamp}
+    Purpose: {purpose}
+    """
+    from .base_agent import BaseAgent
+
+    class {class_name}(BaseAgent):
+        def __init__(self):
+            super().__init__(name="{agent_name}")
+
+        def run(self, context: dict) -> dict:
+            # TODO: Implement agent logic
+            return {"status": "success", "message": "Task completed"}
+
+# Safety limits
+safety:
+  max_retries: 3
+  timeout_seconds: 300
+  allowed_paths:
+    - "artifacts/"
+    - "blogs/"
+    - "logs/"
+    - "REPORT.md"
+    - ".github/agent/agents/generated/"
+  forbidden_paths:
+    - "apps/"
+    - ".github/workflows/"
+    - "package.json"
+    - "package-lock.json"
+    - ".env"
+    - "vertex-sa.json"

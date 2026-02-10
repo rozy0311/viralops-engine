@@ -1,0 +1,101 @@
+name: OpenHands Issue Resolver
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  resolve-issue:
+    if: |
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'openhands')) ||
+      (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '@openhands') || contains(github.event.comment.body, '/openhands')))
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Process with OpenHands
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+          ISSUE_TITLE="${{ github.event.issue.title }}"
+          ISSUE_BODY=$(cat << 'EOF'
+          ${{ github.event.issue.body }}
+          EOF
+          )
+          
+          echo "## OpenHands Processing" >> $GITHUB_STEP_SUMMARY
+          echo "**Issue**: #$ISSUE_NUMBER - $ISSUE_TITLE" >> $GITHUB_STEP_SUMMARY
+          
+          # Check if API key is available
+          if [ -n "$OPENHANDS_API_KEY" ]; then
+            echo "Using OpenHands API..." >> $GITHUB_STEP_SUMMARY
+            
+            # Call OpenHands API
+            RESPONSE=$(curl -s -X POST "https://api.all-hands.dev/v1/tasks" \
+              -H "Authorization: Bearer $OPENHANDS_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"repository\": \"${{ github.repository }}\",
+                \"issue_number\": $ISSUE_NUMBER,
+                \"task\": \"$ISSUE_BODY\",
+                \"model\": \"claude-sonnet-4-20250514\",
+                \"auto_pr\": true
+              }")
+            
+            TASK_ID=$(echo $RESPONSE | jq -r '.task_id // empty')
+            
+            if [ -n "$TASK_ID" ]; then
+              echo "**Task ID**: $TASK_ID" >> $GITHUB_STEP_SUMMARY
+              gh issue comment "$ISSUE_NUMBER" --body "🤖 OpenHands AI agent has started working on this issue.
+
+Task ID: \`$TASK_ID\`
+Model: Claude Sonnet 4
+
+A PR will be created when the fix is ready."
+            else
+              echo "**Error**: Failed to create task" >> $GITHUB_STEP_SUMMARY
+              echo "$RESPONSE" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "No OPENHANDS_API_KEY configured" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To enable OpenHands:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Get API key from https://app.all-hands.dev" >> $GITHUB_STEP_SUMMARY
+            echo "2. Add as secret: Settings -> Secrets -> OPENHANDS_API_KEY" >> $GITHUB_STEP_SUMMARY
+            
+            # Add helpful comment
+            gh issue comment "$ISSUE_NUMBER" --body "⚠️ OpenHands API key not configured.
+
+To enable OpenHands AI:
+1. Sign up at https://app.all-hands.dev (\$10 free credit)
+2. Get your API key
+3. Add it as repository secret: \`OPENHANDS_API_KEY\`
+
+Alternatively, use \`@github-copilot\` for Copilot (free with subscription)."
+          fi
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

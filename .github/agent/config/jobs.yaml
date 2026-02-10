@@ -1,0 +1,81 @@
+# ============================================
+# JOBS CONFIGURATION
+# ============================================
+# Defines tasks that agents will execute
+
+jobs:
+  - name: "update-report"
+    description: "Update REPORT.md with current system statistics"
+    agent: "report-agent"
+    schedule: "0 */6 * * *"
+    enabled: true
+
+    context:
+      business_background: "Shopify Blog Automation system that publishes blogs automatically"
+      goal: "Update REPORT.md with current system status and statistics"
+      input:
+        - "artifacts/blogs_sitemap.csv"
+        - "blogs/"
+      output: "REPORT.md"
+
+    checks:
+      - "test -f REPORT.md"
+      - "head -1 REPORT.md | grep -q '#'"
+
+    on_failure: "skip"
+
+  - name: "cleanup-logs"
+    description: "Remove log files older than 7 days"
+    agent: "cleanup-agent"
+    schedule: "0 0 * * *"
+    enabled: true
+
+    context:
+      business_background: "System generates logs that need periodic cleanup"
+      goal: "Remove log files older than 7 days"
+      input:
+        - "logs/"
+      output: "Cleaned logs folder"
+
+    checks:
+      - "test -d logs || mkdir -p logs"
+
+    on_failure: "skip"
+
+  - name: "sync-artifacts"
+    description: "Sync and validate artifact files"
+    agent: "meta-agent"
+    schedule: "0 */12 * * *"
+    enabled: true
+
+    context:
+      business_background: "Artifacts need to be validated and synced"
+      goal: "Ensure artifact files are valid and up-to-date"
+      input:
+        - "artifacts/"
+      output: "Validated artifacts"
+
+    checks:
+      - "test -d artifacts"
+
+    on_failure: "log"
+
+# Job templates for LLM-generated jobs
+templates:
+  basic_task:
+    structure: |
+      [Business task description]
+
+      Context:
+      - Business background: {background}
+      - Goal: {goal}
+      - Input: {input}
+      - Output: {output}
+
+      Constraints:
+      - Allowed paths: {allowed_paths}
+      - Forbidden paths: {forbidden_paths}
+      - Risk / safety notes: {safety_notes}
+
+      Checks:
+      - {checks}
