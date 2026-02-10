@@ -31,6 +31,9 @@ feedparser>=6.0
 # ── Token counting ──
 tiktoken>=0.7.0
 
+# ── Trends (optional — for TrendResearcher) ──
+pytrends>=4.9.0
+
 # ── Testing ──
 pytest>=8.0
 pytest-asyncio>=0.23
