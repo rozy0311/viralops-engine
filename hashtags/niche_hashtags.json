@@ -1,0 +1,906 @@
+{
+  "_schema": {
+    "version": "2.0",
+    "layers": [
+      "broad",
+      "local",
+      "micro1",
+      "micro2",
+      "micro3",
+      "creator",
+      "trend"
+    ],
+    "description": "7-Layer Hashtag Matrix from Micro Niche Blogs spec",
+    "note": "highest_search = top 5 biggest volume hashtags for Instagram 5-cap strategy"
+  },
+  "plant_based_raw": {
+    "broad": [
+      "#PlantBased",
+      "#RawVegan",
+      "#PlantPower",
+      "#HealthyEating",
+      "#CleanEating"
+    ],
+    "local": [
+      "#ChicagoWinter",
+      "#NYCWinter",
+      "#USAHealthy"
+    ],
+    "micro1": [
+      "#BusyPeople"
+    ],
+    "micro2": [
+      "#ApartmentLiving"
+    ],
+    "micro3": [
+      "#BeginnerGardeners"
+    ],
+    "creator": [
+      "#PlantBasedUGC",
+      "#RawVeganCreator"
+    ],
+    "trend": [
+      "#PlantBased2026",
+      "#CleanEating2026"
+    ],
+    "highest_search": [
+      "#plantbased",
+      "#vegan",
+      "#healthyfood",
+      "#cleaneating",
+      "#organic"
+    ]
+  },
+  "raw_almonds": {
+    "broad": [
+      "#PlantBasedProtein",
+      "#HealthySnacks"
+    ],
+    "local": [
+      "#CostcoBulk",
+      "#CaliforniaAlmonds",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#FitnessMoms"
+    ],
+    "micro2": [
+      "#BusyWomen"
+    ],
+    "micro3": [
+      "#SnackBeginners"
+    ],
+    "creator": [
+      "#AlmondCreator",
+      "#NutButterUGC"
+    ],
+    "trend": [
+      "#ProteinSnacks2026",
+      "#RawAlmonds2026"
+    ],
+    "highest_search": [
+      "#plantbasedprotein",
+      "#rawalmonds",
+      "#veganprotein",
+      "#highprotein",
+      "#snackhacks"
+    ]
+  },
+  "chickpeas": {
+    "broad": [
+      "#PlantBasedRecipes",
+      "#HighProtein"
+    ],
+    "local": [
+      "#WalmartBulk",
+      "#MediterraneanDiet",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#BusyMillennials"
+    ],
+    "micro2": [
+      "#BudgetShoppers"
+    ],
+    "micro3": [
+      "#MealPrepBeginners"
+    ],
+    "creator": [
+      "#ChickpeaCreator",
+      "#HummusUGC"
+    ],
+    "trend": [
+      "#PlantMeals2026",
+      "#Chickpeas2026"
+    ],
+    "highest_search": [
+      "#plantbasedrecipes",
+      "#chickpeas",
+      "#garbanzo",
+      "#rawvegan",
+      "#mealprep"
+    ]
+  },
+  "quinoa": {
+    "broad": [
+      "#PlantBasedDiet",
+      "#Superfood"
+    ],
+    "local": [
+      "#AmazonBulk",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#HealthCoaches"
+    ],
+    "micro2": [
+      "#MealPrepPeople"
+    ],
+    "micro3": [
+      "#PlantBasedBeginners"
+    ],
+    "creator": [
+      "#QuinoaCreator",
+      "#BowlUGC"
+    ],
+    "trend": [
+      "#Superfood2026",
+      "#QuinoaBowl2026"
+    ],
+    "highest_search": [
+      "#quinoa",
+      "#plantbaseddiet",
+      "#rawgrains",
+      "#superfood",
+      "#bowls"
+    ]
+  },
+  "chia_seeds": {
+    "broad": [
+      "#PlantBasedPudding",
+      "#Superfood"
+    ],
+    "local": [
+      "#WalmartHacks",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#KetoVegans"
+    ],
+    "micro2": [
+      "#GutHealthSeekers"
+    ],
+    "micro3": [
+      "#PuddingBeginners"
+    ],
+    "creator": [
+      "#ChiaCreator",
+      "#PuddingUGC"
+    ],
+    "trend": [
+      "#ChiaPudding2026",
+      "#GutHealth2026"
+    ],
+    "highest_search": [
+      "#chiaseeds",
+      "#plantbasedpudding",
+      "#rawsuperfood",
+      "#omegas",
+      "#guthealth"
+    ]
+  },
+  "flaxseeds": {
+    "broad": [
+      "#PlantBasedOmega",
+      "#AntiInflammatory"
+    ],
+    "local": [
+      "#TargetFinds",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#Runners"
+    ],
+    "micro2": [
+      "#AthleteNutrition"
+    ],
+    "micro3": [
+      "#SmoothieBeginners"
+    ],
+    "creator": [
+      "#FlaxCreator",
+      "#SmoothieUGC"
+    ],
+    "trend": [
+      "#Omega2026",
+      "#PlantOmega2026"
+    ],
+    "highest_search": [
+      "#flaxseeds",
+      "#rawsmoothie",
+      "#plantbasedomega",
+      "#antiinflam",
+      "#runfuel"
+    ]
+  },
+  "hemp_hearts": {
+    "broad": [
+      "#PlantBasedMuscle",
+      "#RawProtein"
+    ],
+    "local": [
+      "#CostcoHaul",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#Bodybuilders"
+    ],
+    "micro2": [
+      "#VeganAthletes"
+    ],
+    "micro3": [
+      "#SaladLovers"
+    ],
+    "creator": [
+      "#HempCreator",
+      "#PlantGainsUGC"
+    ],
+    "trend": [
+      "#PlantProtein2026",
+      "#HempHearts2026"
+    ],
+    "highest_search": [
+      "#hempseeds",
+      "#plantbasedmuscle",
+      "#rawprotein",
+      "#saladtopper",
+      "#veganlift"
+    ]
+  },
+  "overnight_oats": {
+    "broad": [
+      "#PlantBasedBreakfast",
+      "#MealPrep"
+    ],
+    "local": [
+      "#AldiBudget",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#CollegeStudents"
+    ],
+    "micro2": [
+      "#BudgetEaters"
+    ],
+    "micro3": [
+      "#BreakfastBeginners"
+    ],
+    "creator": [
+      "#OatsCreator",
+      "#BreakfastUGC"
+    ],
+    "trend": [
+      "#OvernightOats2026",
+      "#StudentFood2026"
+    ],
+    "highest_search": [
+      "#overnightoats",
+      "#rawoats",
+      "#plantbasedbreakfast",
+      "#cheap",
+      "#studentfood"
+    ]
+  },
+  "pumpkin_seeds": {
+    "broad": [
+      "#RawSnacks",
+      "#Magnesium"
+    ],
+    "local": [
+      "#TraderJoes",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#KetoDieters"
+    ],
+    "micro2": [
+      "#SleepOptimizers"
+    ],
+    "micro3": [
+      "#TrailMixLovers"
+    ],
+    "creator": [
+      "#SeedsCreator",
+      "#SnackUGC"
+    ],
+    "trend": [
+      "#KetoPepitas2026",
+      "#SleepHack2026"
+    ],
+    "highest_search": [
+      "#pumpkinseeds",
+      "#pepitas",
+      "#rawsnacks",
+      "#magnesium",
+      "#ketoplant"
+    ]
+  },
+  "sunflower_seeds": {
+    "broad": [
+      "#RawButter",
+      "#PlantBasedSpread"
+    ],
+    "local": [
+      "#AldiBudget",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#BudgetVegans"
+    ],
+    "micro2": [
+      "#AllergyFriendly"
+    ],
+    "micro3": [
+      "#DIYFood"
+    ],
+    "creator": [
+      "#ButterCreator",
+      "#DIYUGC"
+    ],
+    "trend": [
+      "#SunflowerButter2026",
+      "#NutFree2026"
+    ],
+    "highest_search": [
+      "#sunflowerseeds",
+      "#rawbutter",
+      "#plantbasedspread",
+      "#diy",
+      "#allergy"
+    ]
+  },
+  "lentils": {
+    "broad": [
+      "#PlantBasedBowl",
+      "#BudgetMeals"
+    ],
+    "local": [
+      "#AmazonBulk",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#MealPreppers"
+    ],
+    "micro2": [
+      "#BudgetCookers"
+    ],
+    "micro3": [
+      "#SoupLovers"
+    ],
+    "creator": [
+      "#LentilCreator",
+      "#SoupUGC"
+    ],
+    "trend": [
+      "#LentilSoup2026",
+      "#BudgetVegan2026"
+    ],
+    "highest_search": [
+      "#lentils",
+      "#rawlentils",
+      "#plantbasedbowl",
+      "#soup",
+      "#mealprep"
+    ]
+  },
+  "sesame_seeds": {
+    "broad": [
+      "#PlantBasedMed",
+      "#Hummus"
+    ],
+    "local": [
+      "#EthnicStores",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#MediterraneanVegans"
+    ],
+    "micro2": [
+      "#HomeCooks"
+    ],
+    "micro3": [
+      "#TahiniBeginners"
+    ],
+    "creator": [
+      "#TahiniCreator",
+      "#MedFoodUGC"
+    ],
+    "trend": [
+      "#Tahini2026",
+      "#HummusDIY2026"
+    ],
+    "highest_search": [
+      "#sesameseeds",
+      "#tahinidiy",
+      "#rawtahini",
+      "#plantbasedmed",
+      "#hummus"
+    ]
+  },
+  "raw_walnuts": {
+    "broad": [
+      "#RawOmega",
+      "#PlantBasedBrain"
+    ],
+    "local": [
+      "#CostcoBulk",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#Seniors"
+    ],
+    "micro2": [
+      "#BrainHealth"
+    ],
+    "micro3": [
+      "#NutLovers"
+    ],
+    "creator": [
+      "#WalnutCreator",
+      "#BrainFoodUGC"
+    ],
+    "trend": [
+      "#BrainFood2026",
+      "#Omega2026"
+    ],
+    "highest_search": [
+      "#walnuts",
+      "#rawomega",
+      "#plantbasedbrain",
+      "#seniorhealth",
+      "#nuts"
+    ]
+  },
+  "black_beans": {
+    "broad": [
+      "#PlantBasedBurger",
+      "#BBQVegan"
+    ],
+    "local": [
+      "#GoyaBulk",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#BBQVegans"
+    ],
+    "micro2": [
+      "#GrillLovers"
+    ],
+    "micro3": [
+      "#PattyBeginners"
+    ],
+    "creator": [
+      "#BeanCreator",
+      "#GrillUGC"
+    ],
+    "trend": [
+      "#PlantBurger2026",
+      "#GoyaBeans2026"
+    ],
+    "highest_search": [
+      "#blackbeans",
+      "#plantbasedburger",
+      "#rawpatties",
+      "#bbqvegan",
+      "#goya"
+    ]
+  },
+  "raw_pecans": {
+    "broad": [
+      "#PlantBasedHoliday",
+      "#Baking"
+    ],
+    "local": [
+      "#SamsClub",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#HolidayBakers"
+    ],
+    "micro2": [
+      "#VeganBakers"
+    ],
+    "micro3": [
+      "#PieLovers"
+    ],
+    "creator": [
+      "#PecanCreator",
+      "#BakingUGC"
+    ],
+    "trend": [
+      "#VeganPie2026",
+      "#HolidayBaking2026"
+    ],
+    "highest_search": [
+      "#pecans",
+      "#rawpie",
+      "#plantbasedholiday",
+      "#pecanpie",
+      "#baking"
+    ]
+  },
+  "psyllium_husk": {
+    "broad": [
+      "#KetoBread",
+      "#RawFiber"
+    ],
+    "local": [
+      "#AmazonBulk",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#KetoDieters"
+    ],
+    "micro2": [
+      "#GutHealthSeekers"
+    ],
+    "micro3": [
+      "#BreadLovers"
+    ],
+    "creator": [
+      "#HuskCreator",
+      "#KetoUGC"
+    ],
+    "trend": [
+      "#KetoBread2026",
+      "#GutHealth2026"
+    ],
+    "highest_search": [
+      "#psylliumhusk",
+      "#rawfiber",
+      "#ketoplant",
+      "#guthealth",
+      "#bread"
+    ]
+  },
+  "raw_cashews": {
+    "broad": [
+      "#VeganCheese",
+      "#PlantBasedDairy"
+    ],
+    "local": [
+      "#Nutricost",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#DairyFree"
+    ],
+    "micro2": [
+      "#CheeseLovers"
+    ],
+    "micro3": [
+      "#FermentBeginners"
+    ],
+    "creator": [
+      "#CashewCreator",
+      "#CheeseUGC"
+    ],
+    "trend": [
+      "#VeganCheese2026",
+      "#DairyFree2026"
+    ],
+    "highest_search": [
+      "#rawcashews",
+      "#vegancheese",
+      "#plantbaseddairy",
+      "#cashewcheese",
+      "#raw"
+    ]
+  },
+  "coconut_raw": {
+    "broad": [
+      "#PlantBasedTropical",
+      "#CoconutMeat"
+    ],
+    "local": [
+      "#AsianMarkets",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#TropicalVegans"
+    ],
+    "micro2": [
+      "#CurryLovers"
+    ],
+    "micro3": [
+      "#CoconutBeginners"
+    ],
+    "creator": [
+      "#CoconutCreator",
+      "#TropicalUGC"
+    ],
+    "trend": [
+      "#CoconutHack2026",
+      "#Tropical2026"
+    ],
+    "highest_search": [
+      "#rawcoconut",
+      "#plantbasedtropical",
+      "#coconutmeat",
+      "#flakes",
+      "#piña"
+    ]
+  },
+  "raw_pumpkin": {
+    "broad": [
+      "#PlantBasedFall",
+      "#SeasonalCooking"
+    ],
+    "local": [
+      "#FarmersMarket",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#FallBakers"
+    ],
+    "micro2": [
+      "#PieBakers"
+    ],
+    "micro3": [
+      "#SeasonalCookers"
+    ],
+    "creator": [
+      "#PumpkinCreator",
+      "#FallUGC"
+    ],
+    "trend": [
+      "#PumpkinSeason2026",
+      "#FallBaking2026"
+    ],
+    "highest_search": [
+      "#rawpumpkin",
+      "#plantbasedfall",
+      "#puree",
+      "#pie",
+      "#seasonal"
+    ]
+  },
+  "spirulina": {
+    "broad": [
+      "#GreenSmoothie",
+      "#Superfood"
+    ],
+    "local": [
+      "#NOWFoods",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#SuperfoodFans"
+    ],
+    "micro2": [
+      "#DetoxSeekers"
+    ],
+    "micro3": [
+      "#SmoothieBeginners"
+    ],
+    "creator": [
+      "#SpirulinaCreator",
+      "#GreenUGC"
+    ],
+    "trend": [
+      "#GreenDetox2026",
+      "#Algae2026"
+    ],
+    "highest_search": [
+      "#spirulina",
+      "#rawsuperfood",
+      "#greensmoothie",
+      "#algae",
+      "#detox"
+    ]
+  },
+  "raw_cacao": {
+    "broad": [
+      "#PlantBasedChocolate",
+      "#MoodFood"
+    ],
+    "local": [
+      "#AmazonBulk",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#ChocolateLovers"
+    ],
+    "micro2": [
+      "#MoodBoosters"
+    ],
+    "micro3": [
+      "#SnackDIY"
+    ],
+    "creator": [
+      "#CacaoCreator",
+      "#ChocolateUGC"
+    ],
+    "trend": [
+      "#RawChocolate2026",
+      "#MoodFood2026"
+    ],
+    "highest_search": [
+      "#rawcacao",
+      "#plantbasedchocolate",
+      "#nibs",
+      "#moodfood",
+      "#antioxidant"
+    ]
+  },
+  "goya_beans": {
+    "broad": [
+      "#PlantBasedBurger",
+      "#BudgetMeals"
+    ],
+    "local": [
+      "#WalmartGoya",
+      "#TexasDad"
+    ],
+    "micro1": [
+      "#PrediabetesDiet"
+    ],
+    "micro2": [
+      "#BudgetDads"
+    ],
+    "micro3": [
+      "#BeanBeginners"
+    ],
+    "creator": [
+      "#GoyaCreator",
+      "#DadCookUGC"
+    ],
+    "trend": [
+      "#GoyaBeans2026",
+      "#BGLow2026"
+    ],
+    "highest_search": [
+      "#WalmartGoya",
+      "#PrediabetesSprouts",
+      "#TXDadVegan",
+      "#DailyBeans",
+      "#BGLow"
+    ]
+  },
+  "banana_peel": {
+    "broad": [
+      "#ZeroWaste",
+      "#IndoorPlants"
+    ],
+    "local": [
+      "#NYCRenter",
+      "#ApartmentLiving"
+    ],
+    "micro1": [
+      "#PlantMoms"
+    ],
+    "micro2": [
+      "#ApartmentGardeners"
+    ],
+    "micro3": [
+      "#ZeroWasteBeginners"
+    ],
+    "creator": [
+      "#BananaPeelCreator",
+      "#PlantMomUGC"
+    ],
+    "trend": [
+      "#BananaPeel2026",
+      "#ZeroWaste2026"
+    ],
+    "highest_search": [
+      "#ApartmentPlants",
+      "#BananaPeelHack",
+      "#NYCRenter",
+      "#ZeroWasteDaily",
+      "#PlantMom"
+    ]
+  },
+  "green_onion_regrow": {
+    "broad": [
+      "#Gardening",
+      "#ZeroWaste"
+    ],
+    "local": [
+      "#KitchenGarden",
+      "#OfficeHack"
+    ],
+    "micro1": [
+      "#OfficeWorkers"
+    ],
+    "micro2": [
+      "#HomeCooks"
+    ],
+    "micro3": [
+      "#RegrowBeginners"
+    ],
+    "creator": [
+      "#RegrowCreator",
+      "#KitchenUGC"
+    ],
+    "trend": [
+      "#RegrowHerbs2026",
+      "#WinterGardening2026"
+    ],
+    "highest_search": [
+      "#OnionRegrow",
+      "#FridgeHack",
+      "#OfficeLunch",
+      "#DailyGreen",
+      "#NoWaste"
+    ]
+  },
+  "strawberry_tops_vinegar": {
+    "broad": [
+      "#ZeroWaste",
+      "#SaladDressing"
+    ],
+    "local": [
+      "#FarmersMarket",
+      "#ChicagoWinter"
+    ],
+    "micro1": [
+      "#SaladMoms"
+    ],
+    "micro2": [
+      "#ZeroWasteChefs"
+    ],
+    "micro3": [
+      "#DressingBeginners"
+    ],
+    "creator": [
+      "#StrawTopCreator",
+      "#ZeroWasteUGC"
+    ],
+    "trend": [
+      "#StrawberryHack2026",
+      "#ZeroWasteCooking2026"
+    ],
+    "highest_search": [
+      "#StrawTopVinegar",
+      "#SaladHack",
+      "#FarmersMarket",
+      "#DailyDressing",
+      "#ZeroWaste"
+    ]
+  },
+  "indoor_gardening": {
+    "broad": [
+      "#Gardening",
+      "#Plants"
+    ],
+    "local": [
+      "#ChicagoWinter",
+      "#NYCWinter"
+    ],
+    "micro1": [
+      "#BusyPeople"
+    ],
+    "micro2": [
+      "#ApartmentLiving"
+    ],
+    "micro3": [
+      "#BeginnerGardeners"
+    ],
+    "creator": [
+      "#GardenCreator",
+      "#PlantUGC"
+    ],
+    "trend": [
+      "#IndoorGarden2026",
+      "#GrowLight2026"
+    ],
+    "highest_search": [
+      "#garden",
+      "#plants",
+      "#gardening",
+      "#zerowaste",
+      "#sustainableliving"
+    ]
+  }
+}

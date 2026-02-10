@@ -1,0 +1,147 @@
+# Guardrails Configuration — ViralOps Engine
+# Safety rules, kill-switch thresholds, content policy
+
+# ═══════════════════════════════════════════
+# CONTENT POLICY
+# ═══════════════════════════════════════════
+content_policy:
+  transform_minimum: 0.70          # ≥70% biến đổi so với nguồn gốc
+  spacing_hours: 24                 # Khoảng cách tối thiểu cùng niche
+  max_same_content_platforms: 3     # Không đăng y chang >3 platforms
+  no_celeb_voice: true              # Chỉ dùng licensed TTS voice
+  watermark_check: true             # Phát hiện watermark nguồn
+  pii_scan: true                    # Quét PII trước khi đăng
+  profanity_filter: true            # Block nội dung nhạy cảm
+  
+  # Transformation rules
+  required_transforms:
+    - hook_variation                # Mỗi platform có hook khác nhau
+    - caption_rewrite               # Không copy-paste caption
+    - hashtag_variation             # Hashtag khác nhau theo platform
+  
+  # Brand safety keywords (block if found)
+  brand_safety_blacklist:
+    - "hate"
+    - "violence"
+    - "scam"
+    - "fake"
+    - "illegal"
+
+# ═══════════════════════════════════════════
+# KILL-SWITCH THRESHOLDS
+# ═══════════════════════════════════════════
+kill_switch:
+  # Account restriction/flag → STOP immediately
+  account_restriction:
+    threshold: 1
+    action: "STOP_PLATFORM"
+    alert: "critical"
+    cooldown_hours: 168             # 7 days cooldown
+
+  # Reach drop over 7 days → reduce frequency
+  reach_drop_7d:
+    threshold: 0.30                 # 30% drop
+    action: "REDUCE_FREQUENCY"
+    alert: "warning"
+    reduce_factor: 0.5              # Post at 50% rate
+
+  # Upload error rate → STOP all
+  error_rate_daily:
+    threshold: 0.03                 # 3% error rate
+    action: "STOP_ALL"
+    alert: "critical"
+    cooldown_hours: 24
+
+  # Duplicate content detection → STOP and review
+  duplicate_rate:
+    threshold: 0.05                 # 5% duplicate rate
+    action: "STOP_REVIEW"
+    alert: "warning"
+
+  # Budget burn → downgrade model
+  budget_burn:
+    threshold: 0.80                 # 80% of monthly budget
+    action: "DOWNGRADE_MODEL"
+    alert: "info"
+
+# ═══════════════════════════════════════════
+# RISK SCORING (0-12 scale)
+# ═══════════════════════════════════════════
+risk_scoring:
+  levels:
+    low:    { min: 0, max: 3, action: "auto_execute", reviewers: 1 }
+    medium: { min: 4, max: 7, action: "explicit_approval", reviewers: 1 }
+    high:   { min: 8, max: 12, action: "multi_stakeholder", reviewers: 2 }
+  
+  factors:
+    platform_risk:
+      tiktok: 3
+      instagram: 3
+      youtube: 3
+      facebook: 2
+      pinterest: 1
+      linkedin: 1
+      twitter: 1
+    
+    content_type_risk:
+      original: 0
+      repurposed: 2
+      curated: 1
+      repost: 4                     # HIGH RISK — near-duplicate
+    
+    volume_risk:
+      under_10: 0
+      10_to_50: 1
+      50_to_100: 2
+      over_100: 3
+
+# ═══════════════════════════════════════════
+# HUMAN REVIEW RULES
+# ═══════════════════════════════════════════
+human_review:
+  required_when:
+    - risk_score_gte: 4
+    - first_post_new_platform: true
+    - content_flagged_by_safety: true
+    - new_niche_first_run: true
+  
+  approval_channels:
+    - "slack"                       # Slack notification
+    - "dashboard"                   # ViralOps dashboard review
+    - "email"                       # Email approval
+
+  max_wait_hours: 48                # Auto-reject if no response
+  escalation_after_hours: 24        # Escalate to senior after 24h
+
+# ═══════════════════════════════════════════
+# RATE LIMITING
+# ═══════════════════════════════════════════
+rate_limiting:
+  global_max_posts_per_hour: 10
+  global_max_posts_per_day: 50
+  per_account_max_per_day: 10
+  jitter_enabled: true
+  jitter_range_seconds: [300, 1800] # 5-30 min random delay
+  
+  retry:
+    max_retries: 3
+    backoff_base_seconds: 60
+    backoff_multiplier: 2           # Exponential backoff
+    max_backoff_seconds: 3600       # 1 hour max
+
+# ═══════════════════════════════════════════
+# AUDIT & COMPLIANCE
+# ═══════════════════════════════════════════
+audit:
+  log_every_action: true
+  retention_days: 90
+  log_fields:
+    - timestamp
+    - agent_name
+    - action_type
+    - platform
+    - content_hash
+    - risk_score
+    - human_approved
+    - result_status
+    - error_details

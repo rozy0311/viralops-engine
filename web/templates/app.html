@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ViralOps Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dark: { 800: '#1e293b', 900: '#0f172a', 950: '#020617' },
+            brand: { 50:'#eef2ff', 100:'#e0e7ff', 200:'#c7d2fe', 400:'#818cf8', 500:'#6366f1', 600:'#4f46e5', 700:'#4338ca' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .page { display: none; }
+    .page.active { display: block; }
+    .toast { animation: slideIn 0.3s ease-out, fadeOut 0.3s ease-in 2.7s forwards; }
+    @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } }
+    @keyframes fadeOut { to { opacity: 0; } }
+    .chip { transition: all 0.15s; }
+    .chip.selected { ring: 2px; }
+    .modal-backdrop { background: rgba(0,0,0,0.5); }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- ═══ SIDEBAR ═══ -->
+<div class="fixed left-0 top-0 bottom-0 w-64 bg-dark-900 text-white flex flex-col z-40">
+  <!-- Logo -->
+  <div class="p-5 border-b border-dark-800">
+    <h1 class="text-xl font-bold text-brand-400">⚡ ViralOps</h1>
+    <p class="text-xs text-gray-400 mt-1">Content Factory — EMADS-PR v1.0</p>
+  </div>
+
+  <!-- Nav -->
+  <nav class="flex-1 p-3 space-y-1">
+    <a href="/" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'dashboard' %}bg-brand-600 text-white{% endif %}">
+      <span>📊</span> Dashboard
+    </a>
+    <a href="/compose" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'compose' %}bg-brand-600 text-white{% endif %}">
+      <span>✍️</span> Create Post
+    </a>
+    <a href="/content" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'content' %}bg-brand-600 text-white{% endif %}">
+      <span>📚</span> Content Library
+    </a>
+    <a href="/calendar" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'calendar' %}bg-brand-600 text-white{% endif %}">
+      <span>📅</span> Calendar
+    </a>
+    <a href="/rss" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'rss' %}bg-brand-600 text-white{% endif %}">
+      <span>📡</span> RSS Feeds
+    </a>
+    <a href="/hashtags" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'hashtags' %}bg-brand-600 text-white{% endif %}">
+      <span>#️⃣</span> Hashtags
+    </a>
+    <a href="/analytics" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'analytics' %}bg-brand-600 text-white{% endif %}">
+      <span>📈</span> Analytics
+    </a>
+
+    <div class="pt-3 mt-3 border-t border-dark-800">
+      <p class="px-3 py-1 text-xs text-gray-500 uppercase tracking-wider">Channels</p>
+      <div class="space-y-1 mt-1">
+        <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400">
+          <span class="w-2 h-2 rounded-full bg-orange-500"></span> Reddit
+        </div>
+        <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400">
+          <span class="w-2 h-2 rounded-full bg-green-500"></span> Medium
+        </div>
+        <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400">
+          <span class="w-2 h-2 rounded-full bg-blue-500"></span> Tumblr
+        </div>
+        <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400">
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Shopify Blog
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Settings -->
+  <a href="/settings" class="p-3 border-t border-dark-800 flex items-center gap-3 text-sm text-gray-400 hover:text-white transition {% if page == 'settings' %}text-brand-400{% endif %}">
+    <span>⚙️</span> Settings
+  </a>
+</div>
+
+<!-- ═══ MAIN CONTENT ═══ -->
+<main class="ml-64 p-6 min-h-screen">
+  <!-- Toast container -->
+  <div id="toasts" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+  <!-- ═══ DASHBOARD PAGE ═══ -->
+  <div class="page {% if page == 'dashboard' %}active{% endif %}" id="page-dashboard">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">Dashboard</h2>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-4 gap-4 mb-6" id="stats-grid">
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">Total Posts</p>
+        <p class="text-3xl font-bold text-gray-800 mt-1" id="stat-total">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">Published</p>
+        <p class="text-3xl font-bold text-green-600 mt-1" id="stat-published">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">Scheduled</p>
+        <p class="text-3xl font-bold text-blue-600 mt-1" id="stat-scheduled">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">Drafts</p>
+        <p class="text-3xl font-bold text-amber-600 mt-1" id="stat-drafts">-</p>
+      </div>
+    </div>
+
+    <!-- Channel Status -->
+    <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">Channel Status</h3>
+        <div class="space-y-2">
+          <div class="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+            <span class="text-sm">🔴 Reddit</span>
+            <button onclick="testConn('reddit')" class="text-xs bg-brand-500 text-white px-3 py-1 rounded-full hover:bg-brand-600">Test</button>
+          </div>
+          <div class="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+            <span class="text-sm">🟢 Medium</span>
+            <button onclick="testConn('medium')" class="text-xs bg-brand-500 text-white px-3 py-1 rounded-full hover:bg-brand-600">Test</button>
+          </div>
+          <div class="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+            <span class="text-sm">🔵 Tumblr</span>
+            <button onclick="testConn('tumblr')" class="text-xs bg-brand-500 text-white px-3 py-1 rounded-full hover:bg-brand-600">Test</button>
+          </div>
+          <div class="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+            <span class="text-sm">🟩 Shopify Blog</span>
+            <button onclick="testConn('shopify_blog')" class="text-xs bg-brand-500 text-white px-3 py-1 rounded-full hover:bg-brand-600">Test</button>
+          </div>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">Scheduler Status</h3>
+        <div id="scheduler-status" class="space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
+            <span class="text-sm">Background scheduler running</span>
+          </div>
+          <p class="text-xs text-gray-500">Checks every 60 seconds for scheduled posts</p>
+          <button onclick="triggerScheduler()" class="text-xs bg-amber-500 text-white px-4 py-1.5 rounded-full hover:bg-amber-600">Run Now</button>
+        </div>
+        <div class="mt-4 pt-3 border-t">
+          <h4 class="font-semibold text-sm mb-2">Budget</h4>
+          <div id="budget-info" class="text-xs text-gray-500">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent Posts -->
+    <div class="bg-white rounded-xl p-5 shadow-sm border">
+      <h3 class="font-semibold mb-3">Recent Posts</h3>
+      <div id="recent-posts" class="space-y-2">Loading...</div>
+    </div>
+  </div>
+
+  <!-- ═══ COMPOSE PAGE ═══ -->
+  <div class="page {% if page == 'compose' %}active{% endif %}" id="page-compose">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">Create Post</h2>
+    <div class="max-w-4xl">
+      <div class="bg-white rounded-xl p-6 shadow-sm border">
+        <!-- Platforms -->
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Platforms</label>
+          <div class="flex flex-wrap gap-2" id="platform-chips">
+            <button type="button" onclick="toggleChip(this,'reddit')" class="chip px-3 py-1.5 rounded-full text-sm border-2 border-orange-300 text-orange-700 hover:bg-orange-50">Reddit</button>
+            <button type="button" onclick="toggleChip(this,'medium')" class="chip px-3 py-1.5 rounded-full text-sm border-2 border-green-300 text-green-700 hover:bg-green-50">Medium</button>
+            <button type="button" onclick="toggleChip(this,'tumblr')" class="chip px-3 py-1.5 rounded-full text-sm border-2 border-blue-300 text-blue-700 hover:bg-blue-50">Tumblr</button>
+            <button type="button" onclick="toggleChip(this,'shopify_blog')" class="chip px-3 py-1.5 rounded-full text-sm border-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50">Shopify Blog</button>
+          </div>
+        </div>
+
+        <!-- Title -->
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
+          <input id="post-title" type="text" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="Enter post title...">
+        </div>
+
+        <!-- Body -->
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Body</label>
+          <textarea id="post-body" rows="10" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-brand-500 focus:border-transparent font-mono text-sm" placeholder="Write your content here..."></textarea>
+          <div class="flex justify-between text-xs text-gray-400 mt-1">
+            <span id="char-count">0 characters</span>
+            <span id="word-count">0 words</span>
+          </div>
+        </div>
+
+        <!-- Category -->
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+          <select id="post-category" class="border rounded-lg px-3 py-2 focus:ring-2 focus:ring-brand-500">
+            {% if categories %}{% for c in categories %}<option value="{{ c.name }}">{{ c.icon }} {{ c.name }}</option>{% endfor %}{% else %}
+            <option value="general">📝 general</option><option value="blog">📰 blog</option><option value="promotion">🔥 promotion</option><option value="evergreen">🌲 evergreen</option><option value="curated">⭐ curated</option>
+            {% endif %}
+          </select>
+        </div>
+
+        <!-- Schedule -->
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Schedule (optional)</label>
+          <input id="post-schedule" type="datetime-local" class="border rounded-lg px-3 py-2 focus:ring-2 focus:ring-brand-500">
+        </div>
+
+        <!-- Platform-specific fields -->
+        <div id="extra-fields" class="space-y-4 mb-4">
+          <div id="reddit-fields" class="hidden bg-orange-50 rounded-lg p-4">
+            <h4 class="font-medium text-orange-800 mb-2">Reddit Settings</h4>
+            <input id="reddit-subreddit" placeholder="Subreddit (e.g., plantbaseddiet)" class="w-full border rounded px-3 py-2 mb-2">
+            <input id="reddit-flair" placeholder="Flair ID (optional)" class="w-full border rounded px-3 py-2">
+          </div>
+          <div id="medium-fields" class="hidden bg-green-50 rounded-lg p-4">
+            <h4 class="font-medium text-green-800 mb-2">Medium Settings</h4>
+            <input id="medium-tags" placeholder="Tags (comma-separated)" class="w-full border rounded px-3 py-2 mb-2">
+            <input id="medium-publication" placeholder="Publication ID (optional)" class="w-full border rounded px-3 py-2">
+          </div>
+          <div id="tumblr-fields" class="hidden bg-blue-50 rounded-lg p-4">
+            <h4 class="font-medium text-blue-800 mb-2">Tumblr Settings</h4>
+            <input id="tumblr-blogname" placeholder="Blog name" class="w-full border rounded px-3 py-2 mb-2">
+            <input id="tumblr-tags" placeholder="Tags (comma-separated)" class="w-full border rounded px-3 py-2">
+          </div>
+          <div id="shopify_blog-fields" class="hidden bg-emerald-50 rounded-lg p-4">
+            <h4 class="font-medium text-emerald-800 mb-2">Shopify Blog Settings</h4>
+            <input id="shopify-blog-id" placeholder="Blog ID" class="w-full border rounded px-3 py-2 mb-2">
+            <input id="shopify-tags" placeholder="Tags (comma-separated)" class="w-full border rounded px-3 py-2">
+          </div>
+        </div>
+
+        <!-- Hashtag Selector -->
+        <div class="mb-4 bg-purple-50 rounded-lg p-4">
+          <h4 class="font-medium text-purple-800 mb-2">#️⃣ Hashtag Collections</h4>
+          <div id="hashtag-selector" class="flex flex-wrap gap-2 mb-2">Loading...</div>
+          <div class="flex gap-2">
+            <button onclick="generateHashtags()" class="text-xs bg-purple-500 text-white px-3 py-1.5 rounded-full hover:bg-purple-600">🎲 Generate Auto</button>
+            <input id="custom-hashtag" placeholder="Add custom #hashtag" class="text-xs border rounded-full px-3 py-1">
+            <button onclick="addCustomHashtag()" class="text-xs bg-gray-500 text-white px-3 py-1.5 rounded-full hover:bg-gray-600">Add</button>
+          </div>
+          <div id="selected-hashtags" class="mt-2 text-sm text-purple-700"></div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex gap-3">
+          <button onclick="savePost('draft')" class="px-5 py-2.5 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-medium">Save Draft</button>
+          <button onclick="savePost('scheduled')" class="px-5 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium">📅 Schedule</button>
+          <button onclick="publishNow()" class="px-5 py-2.5 bg-brand-500 text-white rounded-lg hover:bg-brand-600 font-medium">🚀 Publish Now</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CONTENT LIBRARY PAGE ═══ -->
+  <div class="page {% if page == 'content' %}active{% endif %}" id="page-content">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">Content Library</h2>
+    <div class="flex gap-2 mb-4">
+      <button onclick="filterPosts('all')" class="px-4 py-1.5 rounded-full text-sm bg-brand-500 text-white">All</button>
+      <button onclick="filterPosts('draft')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300">Drafts</button>
+      <button onclick="filterPosts('scheduled')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300">Scheduled</button>
+      <button onclick="filterPosts('published')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300">Published</button>
+      <button onclick="filterPosts('failed')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300">Failed</button>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50"><tr>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Content</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Platforms</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+        </tr></thead>
+        <tbody id="content-table">
+          <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ CALENDAR PAGE ═══ -->
+  <div class="page {% if page == 'calendar' %}active{% endif %}" id="page-calendar">
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-2xl font-bold text-gray-800">Calendar</h2>
+      <div class="flex items-center gap-3">
+        <button onclick="calNav(-1)" class="p-2 rounded-lg hover:bg-gray-100">◀</button>
+        <span id="cal-month" class="text-lg font-medium"></span>
+        <button onclick="calNav(1)" class="p-2 rounded-lg hover:bg-gray-100">▶</button>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border p-4">
+      <div class="grid grid-cols-7 gap-1 mb-2">
+        <div class="text-center text-xs font-medium text-gray-500 py-2">Sun</div>
+        <div class="text-center text-xs font-medium text-gray-500 py-2">Mon</div>
+        <div class="text-center text-xs font-medium text-gray-500 py-2">Tue</div>
+        <div class="text-center text-xs font-medium text-gray-500 py-2">Wed</div>
+        <div class="text-center text-xs font-medium text-gray-500 py-2">Thu</div>
+        <div class="text-center text-xs font-medium text-gray-500 py-2">Fri</div>
+        <div class="text-center text-xs font-medium text-gray-500 py-2">Sat</div>
+      </div>
+      <div id="cal-grid" class="grid grid-cols-7 gap-1"></div>
+    </div>
+  </div>
+
+  <!-- ═══ RSS FEEDS PAGE ═══ -->
+  <div class="page {% if page == 'rss' %}active{% endif %}" id="page-rss">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">📡 RSS Feed Manager</h2>
+
+    <!-- Add Feed -->
+    <div class="bg-white rounded-xl p-5 shadow-sm border mb-6">
+      <h3 class="font-semibold mb-3">Add RSS Feed</h3>
+      <div class="flex gap-3 mb-3">
+        <input id="rss-url" type="url" placeholder="https://example.com/feed.xml" class="flex-1 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-brand-500">
+        <input id="rss-name" placeholder="Feed name" class="w-48 border rounded-lg px-3 py-2">
+        <select id="rss-mode" class="border rounded-lg px-3 py-2">
+          <option value="full">Full Content</option>
+          <option value="excerpt">Excerpt Only</option>
+        </select>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="previewFeed()" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm">👁️ Preview</button>
+        <button onclick="addFeed()" class="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 text-sm">➕ Add Feed</button>
+      </div>
+    </div>
+
+    <!-- Feed Preview -->
+    <div id="rss-preview" class="bg-white rounded-xl p-5 shadow-sm border mb-6 hidden">
+      <h3 class="font-semibold mb-3">Feed Preview</h3>
+      <div id="rss-preview-content"></div>
+    </div>
+
+    <!-- Active Feeds -->
+    <div class="bg-white rounded-xl p-5 shadow-sm border mb-6">
+      <h3 class="font-semibold mb-3">Active Feeds</h3>
+      <div id="rss-feeds-list" class="space-y-3">Loading...</div>
+    </div>
+
+    <!-- Imported Entries -->
+    <div class="bg-white rounded-xl p-5 shadow-sm border">
+      <h3 class="font-semibold mb-3">Latest Entries</h3>
+      <div id="rss-entries" class="space-y-3">Click "Fetch" on a feed to load entries.</div>
+    </div>
+  </div>
+
+  <!-- ═══ HASHTAGS PAGE ═══ -->
+  <div class="page {% if page == 'hashtags' %}active{% endif %}" id="page-hashtags">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">#️⃣ Hashtag Collections</h2>
+
+    <!-- Create Collection -->
+    <div class="bg-white rounded-xl p-5 shadow-sm border mb-6">
+      <h3 class="font-semibold mb-3">Create Collection</h3>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <input id="htag-name" placeholder="Collection name" class="border rounded-lg px-3 py-2">
+        <input id="htag-niche" placeholder="Niche (e.g., plant_based_raw)" class="border rounded-lg px-3 py-2">
+      </div>
+      <textarea id="htag-tags" rows="3" placeholder="Enter hashtags, one per line or comma-separated" class="w-full border rounded-lg px-3 py-2 mb-3 font-mono text-sm"></textarea>
+      <div class="flex gap-3">
+        <button onclick="generateHashtagCollection()" class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-sm">🎲 Auto-Generate</button>
+        <button onclick="saveHashtagCollection()" class="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 text-sm">💾 Save Collection</button>
+      </div>
+    </div>
+
+    <!-- Collections List -->
+    <div class="bg-white rounded-xl p-5 shadow-sm border">
+      <h3 class="font-semibold mb-3">Saved Collections</h3>
+      <div id="hashtag-collections" class="space-y-3">Loading...</div>
+    </div>
+  </div>
+
+  <!-- ═══ ANALYTICS PAGE ═══ -->
+  <div class="page {% if page == 'analytics' %}active{% endif %}" id="page-analytics">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
+    <div class="grid grid-cols-5 gap-4 mb-6" id="analytics-stats">
+      <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p class="text-2xl font-bold text-gray-800" id="a-total">-</p>
+        <p class="text-xs text-gray-500">Total Published</p>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p class="text-2xl font-bold text-green-600" id="a-success">-</p>
+        <p class="text-xs text-gray-500">Successful</p>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p class="text-2xl font-bold text-red-600" id="a-failed">-</p>
+        <p class="text-xs text-gray-500">Failed</p>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p class="text-2xl font-bold text-brand-600" id="a-rate">-</p>
+        <p class="text-xs text-gray-500">Success Rate</p>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p class="text-2xl font-bold text-amber-600" id="a-platforms">-</p>
+        <p class="text-xs text-gray-500">Platforms</p>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">Platform Performance</h3>
+        <div id="platform-bars"></div>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">Recent Publish Log</h3>
+        <div id="publish-log" class="space-y-2 max-h-80 overflow-y-auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SETTINGS PAGE ═══ -->
+  <div class="page {% if page == 'settings' %}active{% endif %}" id="page-settings">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">Settings</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold text-orange-600 mb-3">🔴 Reddit</h3>
+        <div class="space-y-2 text-sm text-gray-600">
+          <p>✅ REDDIT_CLIENT_ID</p><p>✅ REDDIT_CLIENT_SECRET</p>
+          <p>✅ REDDIT_USERNAME</p><p>✅ REDDIT_PASSWORD</p>
+        </div>
+        <button onclick="testConn('reddit')" class="mt-3 text-xs bg-orange-500 text-white px-4 py-1.5 rounded-full">Test Connection</button>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold text-green-600 mb-3">🟢 Medium</h3>
+        <div class="space-y-2 text-sm text-gray-600">
+          <p>✅ MEDIUM_TOKEN</p>
+        </div>
+        <button onclick="testConn('medium')" class="mt-3 text-xs bg-green-500 text-white px-4 py-1.5 rounded-full">Test Connection</button>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold text-blue-600 mb-3">🔵 Tumblr</h3>
+        <div class="space-y-2 text-sm text-gray-600">
+          <p>✅ TUMBLR_ACCESS_TOKEN</p><p>✅ TUMBLR_BLOG_NAME</p>
+        </div>
+        <button onclick="testConn('tumblr')" class="mt-3 text-xs bg-blue-500 text-white px-4 py-1.5 rounded-full">Test Connection</button>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold text-emerald-600 mb-3">🟩 Shopify Blog</h3>
+        <div class="space-y-2 text-sm text-gray-600">
+          <p>✅ SHOPIFY_STORE</p><p>✅ SHOPIFY_ACCESS_TOKEN</p><p>✅ SHOPIFY_BLOG_ID</p>
+        </div>
+        <button onclick="testConn('shopify_blog')" class="mt-3 text-xs bg-emerald-500 text-white px-4 py-1.5 rounded-full">Test Connection</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ═══ JAVASCRIPT ═══ -->
+<script>
+// ── State ──
+let selectedPlatforms = [];
+let selectedHashtags = [];
+let calYear, calMonth;
+const now = new Date();
+calYear = now.getFullYear();
+calMonth = now.getMonth();
+
+// ── Toast ──
+function toast(msg, type='info') {
+  const colors = {info:'bg-blue-500',success:'bg-green-500',error:'bg-red-500',warning:'bg-amber-500'};
+  const el = document.createElement('div');
+  el.className = `toast text-white text-sm px-4 py-2 rounded-lg shadow-lg ${colors[type]||colors.info}`;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ── Platform Chips ──
+function toggleChip(btn, platform) {
+  const idx = selectedPlatforms.indexOf(platform);
+  if (idx >= 0) { selectedPlatforms.splice(idx,1); btn.classList.remove('bg-brand-100','border-brand-500','font-bold'); }
+  else { selectedPlatforms.push(platform); btn.classList.add('bg-brand-100','border-brand-500','font-bold'); }
+  // Show/hide platform-specific fields
+  document.querySelectorAll('#extra-fields > div').forEach(d => d.classList.add('hidden'));
+  selectedPlatforms.forEach(p => { const f=document.getElementById(p+'-fields'); if(f) f.classList.remove('hidden'); });
+}
+
+// ── Character count ──
+document.addEventListener('DOMContentLoaded', () => {
+  const body = document.getElementById('post-body');
+  if(body) body.addEventListener('input', () => {
+    document.getElementById('char-count').textContent = body.value.length + ' characters';
+    document.getElementById('word-count').textContent = (body.value.trim().split(/\s+/).filter(Boolean).length) + ' words';
+  });
+  // Auto-load page data
+  const page = document.querySelector('.page.active');
+  if(page) {
+    if(page.id==='page-dashboard') loadDashboard();
+    else if(page.id==='page-content') filterPosts('all');
+    else if(page.id==='page-calendar') renderCalendar();
+    else if(page.id==='page-analytics') loadAnalytics();
+    else if(page.id==='page-rss') loadRSSFeeds();
+    else if(page.id==='page-hashtags') loadHashtagCollections();
+    else if(page.id==='page-compose') loadHashtagSelector();
+  }
+});
+
+// ── Dashboard ──
+async function loadDashboard() {
+  try {
+    const stats = await fetch('/api/stats').then(r=>r.json());
+    document.getElementById('stat-total').textContent = stats.total;
+    document.getElementById('stat-published').textContent = stats.published;
+    document.getElementById('stat-scheduled').textContent = stats.scheduled;
+    document.getElementById('stat-drafts').textContent = stats.drafts;
+
+    const posts = await fetch('/api/posts').then(r=>r.json());
+    const recent = posts.slice(0,5);
+    const el = document.getElementById('recent-posts');
+    if(recent.length===0) { el.innerHTML='<p class="text-gray-400 text-sm">No posts yet. Create your first post!</p>'; return; }
+    el.innerHTML = recent.map(p => `<div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+      <div><p class="text-sm font-medium">${p.title||'Untitled'}</p><p class="text-xs text-gray-400">${p.category} · ${p.status}</p></div>
+      <span class="text-xs px-2 py-1 rounded-full ${p.status==='published'?'bg-green-100 text-green-700':p.status==='scheduled'?'bg-blue-100 text-blue-700':p.status==='failed'?'bg-red-100 text-red-700':'bg-gray-100 text-gray-600'}">${p.status}</span>
+    </div>`).join('');
+
+    // Budget
+    try {
+      const budget = await fetch('/api/budget').then(r=>r.json());
+      document.getElementById('budget-info').innerHTML = budget.error ? `<span class="text-red-500">${budget.error}</span>` :
+        `<div>Daily: $${budget.spent_today} / $${budget.daily_limit} (${budget.daily_pct}%)</div>
+         <div>Monthly: $${budget.spent_this_month} / $${budget.monthly_limit} (${budget.monthly_pct}%)</div>
+         <div class="mt-1">Model: <strong>${budget.recommended_model}</strong></div>`;
+    } catch(e) {}
+  } catch(e) { toast('Failed to load dashboard', 'error'); }
+}
+
+// ── Test Connection ──
+async function testConn(platform) {
+  toast(`Testing ${platform}...`);
+  try {
+    const r = await fetch(`/api/test-connection/${platform}`, {method:'POST'}).then(r=>r.json());
+    toast(r.connected ? `${platform} connected!` : `${platform} failed: ${r.error||'not configured'}`, r.connected?'success':'error');
+  } catch(e) { toast(`Error testing ${platform}`, 'error'); }
+}
+
+// ── Scheduler ──
+async function triggerScheduler() {
+  toast('Running scheduler...');
+  try {
+    const r = await fetch('/api/scheduler/run-now', {method:'POST'}).then(r=>r.json());
+    toast(`Scheduler: ${r.results?.length||0} posts processed`, 'success');
+  } catch(e) { toast('Scheduler error', 'error'); }
+}
+
+// ── Save Post ──
+function gatherExtra() {
+  const extra = {};
+  if(selectedPlatforms.includes('reddit')) extra.reddit = {subreddit:document.getElementById('reddit-subreddit')?.value||'', flair_id:document.getElementById('reddit-flair')?.value||''};
+  if(selectedPlatforms.includes('medium')) extra.medium = {tags:(document.getElementById('medium-tags')?.value||'').split(',').map(t=>t.trim()).filter(Boolean), publication_id:document.getElementById('medium-publication')?.value||''};
+  if(selectedPlatforms.includes('tumblr')) extra.tumblr = {blog_name:document.getElementById('tumblr-blogname')?.value||'', tags:(document.getElementById('tumblr-tags')?.value||'').split(',').map(t=>t.trim()).filter(Boolean)};
+  if(selectedPlatforms.includes('shopify_blog')) extra.shopify_blog = {blog_id:document.getElementById('shopify-blog-id')?.value||'', tags:(document.getElementById('shopify-tags')?.value||'').split(',').map(t=>t.trim()).filter(Boolean)};
+  if(selectedHashtags.length) extra.hashtags = selectedHashtags;
+  return extra;
+}
+
+async function savePost(status) {
+  const data = {
+    title: document.getElementById('post-title').value,
+    body: document.getElementById('post-body').value,
+    category: document.getElementById('post-category').value,
+    platforms: selectedPlatforms,
+    status: status,
+    scheduled_at: document.getElementById('post-schedule')?.value || '',
+    extra_fields: gatherExtra(),
+  };
+  if(!data.title && !data.body) { toast('Please enter title or body', 'warning'); return; }
+  try {
+    const r = await fetch('/api/posts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(r=>r.json());
+    toast(r.success ? `Post saved as ${status}!` : 'Save failed', r.success?'success':'error');
+    if(r.success) { document.getElementById('post-title').value=''; document.getElementById('post-body').value=''; }
+  } catch(e) { toast('Save error', 'error'); }
+}
+
+async function publishNow() {
+  const data = {
+    title: document.getElementById('post-title').value,
+    body: document.getElementById('post-body').value,
+    category: document.getElementById('post-category').value,
+    platforms: selectedPlatforms,
+    status: 'draft',
+    extra_fields: gatherExtra(),
+  };
+  if(!data.title && !data.body) { toast('Please enter content', 'warning'); return; }
+  if(selectedPlatforms.length===0) { toast('Select at least one platform', 'warning'); return; }
+  try {
+    const save = await fetch('/api/posts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(r=>r.json());
+    if(!save.success) { toast('Save failed', 'error'); return; }
+    toast('Publishing...');
+    const pub = await fetch(`/api/publish/${save.post_id}`, {method:'POST'}).then(r=>r.json());
+    pub.results.forEach(r => toast(`${r.platform}: ${r.success?'✅ Published':'❌ '+r.error}`, r.success?'success':'error'));
+  } catch(e) { toast('Publish error', 'error'); }
+}
+
+// ── Content Library ──
+async function filterPosts(status) {
+  try {
+    const posts = await fetch(`/api/posts?status=${status}`).then(r=>r.json());
+    const el = document.getElementById('content-table');
+    if(posts.length===0) { el.innerHTML='<tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No posts found</td></tr>'; return; }
+    el.innerHTML = posts.map(p => {
+      let platforms = [];
+      try { platforms = JSON.parse(p.platforms||'[]'); } catch(e) {}
+      const statusColors = {draft:'bg-gray-100 text-gray-700',scheduled:'bg-blue-100 text-blue-700',published:'bg-green-100 text-green-700',failed:'bg-red-100 text-red-700'};
+      return `<tr class="border-t hover:bg-gray-50">
+        <td class="px-4 py-3"><p class="text-sm font-medium">${p.title||'Untitled'}</p><p class="text-xs text-gray-400">${(p.body||'').substring(0,80)}...</p></td>
+        <td class="px-4 py-3 text-sm">${p.category||'-'}</td>
+        <td class="px-4 py-3"><div class="flex gap-1">${platforms.map(pl=>`<span class="text-xs px-1.5 py-0.5 bg-brand-100 text-brand-700 rounded">${pl}</span>`).join('')}</div></td>
+        <td class="px-4 py-3"><span class="text-xs px-2 py-1 rounded-full ${statusColors[p.status]||''}">${p.status}</span></td>
+        <td class="px-4 py-3 text-xs text-gray-400">${p.scheduled_at||p.published_at||'-'}</td>
+        <td class="px-4 py-3"><div class="flex gap-1">
+          ${p.status==='draft'?`<button onclick="publishPostById(${p.id})" class="text-xs bg-brand-500 text-white px-2 py-1 rounded">Publish</button>`:''}
+          <button onclick="deletePost(${p.id})" class="text-xs bg-red-500 text-white px-2 py-1 rounded">Delete</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  } catch(e) { toast('Load error', 'error'); }
+}
+
+async function deletePost(id) { if(!confirm('Delete this post?')) return; await fetch(`/api/posts/${id}`,{method:'DELETE'}); filterPosts('all'); toast('Deleted','success'); }
+async function publishPostById(id) { toast('Publishing...'); const r=await fetch(`/api/publish/${id}`,{method:'POST'}).then(r=>r.json()); toast(r.success?'Published!':'Failed','success'); filterPosts('all'); }
+
+// ── Calendar ──
+function calNav(d) { calMonth+=d; if(calMonth>11){calMonth=0;calYear++;} if(calMonth<0){calMonth=11;calYear--;} renderCalendar(); }
+async function renderCalendar() {
+  document.getElementById('cal-month').textContent = new Date(calYear,calMonth).toLocaleDateString('en',{month:'long',year:'numeric'});
+  const events = await fetch('/api/calendar-events').then(r=>r.json()).catch(()=>[]);
+  const firstDay = new Date(calYear,calMonth,1).getDay();
+  const daysInMonth = new Date(calYear,calMonth+1,0).getDate();
+  const today = new Date().toISOString().slice(0,10);
+  let html = '';
+  for(let i=0;i<firstDay;i++) html+='<div class="p-2 h-24"></div>';
+  for(let d=1;d<=daysInMonth;d++) {
+    const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayEvents = events.filter(e=>e.date===dateStr);
+    const isToday = dateStr===today;
+    html+=`<div class="p-2 h-24 border rounded-lg ${isToday?'ring-2 ring-brand-500':'hover:bg-gray-50'}">
+      <span class="text-xs font-medium ${isToday?'text-brand-600':'text-gray-700'}">${d}</span>
+      ${dayEvents.map(e=>`<div class="text-xs mt-1 px-1 py-0.5 rounded ${e.status==='published'?'bg-green-100 text-green-700':'bg-blue-100 text-blue-700'} truncate">${e.title||'Post'}</div>`).join('')}
+    </div>`;
+  }
+  document.getElementById('cal-grid').innerHTML = html;
+}
+
+// ── RSS Feeds ──
+async function loadRSSFeeds() {
+  try {
+    const feeds = await fetch('/api/rss/feeds').then(r=>r.json());
+    const el = document.getElementById('rss-feeds-list');
+    if(feeds.length===0) { el.innerHTML='<p class="text-gray-400 text-sm">No feeds configured. Add one above!</p>'; return; }
+    el.innerHTML = feeds.map(f => `<div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+      <div>
+        <p class="text-sm font-medium">${f.name||f.url}</p>
+        <p class="text-xs text-gray-400">${f.url} · ${f.import_mode} · ${f.last_fetched?'Last: '+f.last_fetched.slice(0,16):'Never fetched'}</p>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="fetchFeed('${f.id}')" class="text-xs bg-brand-500 text-white px-3 py-1 rounded-full">Fetch</button>
+        <button onclick="removeFeed('${f.id}')" class="text-xs bg-red-500 text-white px-3 py-1 rounded-full">Remove</button>
+      </div>
+    </div>`).join('');
+  } catch(e) { toast('Failed to load feeds', 'error'); }
+}
+
+async function addFeed() {
+  const url = document.getElementById('rss-url').value;
+  const name = document.getElementById('rss-name').value;
+  const mode = document.getElementById('rss-mode').value;
+  if(!url) { toast('Enter a feed URL', 'warning'); return; }
+  try {
+    const r = await fetch('/api/rss/feeds', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,import_mode:mode})}).then(r=>r.json());
+    if(r.error) { toast(r.error, 'error'); return; }
+    toast('Feed added!', 'success');
+    document.getElementById('rss-url').value='';
+    document.getElementById('rss-name').value='';
+    loadRSSFeeds();
+  } catch(e) { toast('Error adding feed', 'error'); }
+}
+
+async function previewFeed() {
+  const url = document.getElementById('rss-url').value;
+  if(!url) { toast('Enter a URL first', 'warning'); return; }
+  toast('Fetching preview...');
+  try {
+    const r = await fetch('/api/rss/preview', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})}).then(r=>r.json());
+    if(r.error) { toast(r.error, 'error'); return; }
+    const el = document.getElementById('rss-preview');
+    el.classList.remove('hidden');
+    document.getElementById('rss-preview-content').innerHTML = `
+      <p class="text-sm font-medium mb-2">${r.feed_title||'Unknown feed'} (${r.entry_count} entries)</p>
+      ${r.entries.slice(0,3).map(e=>`<div class="p-3 bg-gray-50 rounded-lg mb-2">
+        <p class="text-sm font-medium">${e.title}</p>
+        <p class="text-xs text-gray-500 mt-1">${e.excerpt?.substring(0,200)||''}...</p>
+        <p class="text-xs text-gray-400 mt-1">${e.published||''} · <a href="${e.url}" target="_blank" class="text-brand-500">Link</a></p>
+      </div>`).join('')}`;
+  } catch(e) { toast('Preview error', 'error'); }
+}
+
+async function fetchFeed(feedId) {
+  toast('Fetching feed...');
+  try {
+    const r = await fetch(`/api/rss/fetch/${feedId}`, {method:'POST'}).then(r=>r.json());
+    if(r.error) { toast(r.error, 'error'); return; }
+    toast(`Fetched ${r.entry_count} entries`, 'success');
+    const el = document.getElementById('rss-entries');
+    el.innerHTML = r.entries.map(e=>`<div class="p-3 bg-gray-50 rounded-lg flex justify-between items-start">
+      <div class="flex-1 mr-4">
+        <p class="text-sm font-medium">${e.title}</p>
+        <p class="text-xs text-gray-500 mt-1">${e.excerpt?.substring(0,200)||''}...</p>
+        <p class="text-xs text-gray-400 mt-1">${e.published||''} · ${e.tags?.join(', ')||'no tags'}</p>
+      </div>
+      <button onclick='importRSSEntry(${JSON.stringify(e).replace(/'/g,"&#39;")})' class="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-full whitespace-nowrap">Import as Draft</button>
+    </div>`).join('');
+    loadRSSFeeds();
+  } catch(e) { toast('Fetch error', 'error'); }
+}
+
+async function removeFeed(feedId) {
+  if(!confirm('Remove this feed?')) return;
+  await fetch(`/api/rss/feeds/${feedId}`, {method:'DELETE'});
+  toast('Feed removed', 'success');
+  loadRSSFeeds();
+}
+
+async function importRSSEntry(entry) {
+  try {
+    const r = await fetch('/api/rss/import', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entry, platforms:['medium','shopify_blog']})}).then(r=>r.json());
+    toast(r.success ? `Imported as draft #${r.post_id}` : 'Import failed', r.success?'success':'error');
+  } catch(e) { toast('Import error', 'error'); }
+}
+
+// ── Hashtag Collections ──
+async function loadHashtagCollections() {
+  try {
+    const collections = await fetch('/api/hashtags').then(r=>r.json());
+    const el = document.getElementById('hashtag-collections');
+    if(collections.length===0) { el.innerHTML='<p class="text-gray-400 text-sm">No collections yet. Create one above!</p>'; return; }
+    el.innerHTML = collections.map(c => {
+      let tags = [];
+      try { tags = JSON.parse(c.hashtags||'[]'); } catch(e) {}
+      return `<div class="p-4 bg-gray-50 rounded-lg">
+        <div class="flex justify-between items-center mb-2">
+          <div>
+            <p class="text-sm font-medium">${c.name}</p>
+            <p class="text-xs text-gray-400">${c.niche} · ${tags.length} tags · ${c.updated_at?.slice(0,16)||''}</p>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="copyHashtags(${c.id})" class="text-xs bg-purple-500 text-white px-3 py-1 rounded-full">Copy</button>
+            <button onclick="deleteHashtagCollection(${c.id})" class="text-xs bg-red-500 text-white px-3 py-1 rounded-full">Delete</button>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-1">${tags.slice(0,20).map(t=>`<span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">${t}</span>`).join('')}${tags.length>20?`<span class="text-xs text-gray-400">+${tags.length-20} more</span>`:''}</div>
+      </div>`;
+    }).join('');
+  } catch(e) { toast('Failed to load collections', 'error'); }
+}
+
+async function saveHashtagCollection() {
+  const name = document.getElementById('htag-name').value;
+  const niche = document.getElementById('htag-niche').value || 'general';
+  const tagsRaw = document.getElementById('htag-tags').value;
+  const tags = tagsRaw.split(/[,\n]/).map(t=>t.trim()).filter(Boolean).map(t=>t.startsWith('#')?t:'#'+t);
+  if(!name) { toast('Enter a collection name', 'warning'); return; }
+  if(tags.length===0) { toast('Add some hashtags', 'warning'); return; }
+  try {
+    const r = await fetch('/api/hashtags', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name,niche,hashtags:tags})}).then(r=>r.json());
+    toast(r.success?'Collection saved!':'Save failed', r.success?'success':'error');
+    if(r.success) { document.getElementById('htag-name').value=''; document.getElementById('htag-tags').value=''; loadHashtagCollections(); }
+  } catch(e) { toast('Save error', 'error'); }
+}
+
+async function generateHashtagCollection() {
+  const niche = document.getElementById('htag-niche').value || 'general';
+  toast('Generating hashtags...');
+  try {
+    const r = await fetch('/api/hashtags/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({niche,platform:'instagram'})}).then(r=>r.json());
+    if(r.success) {
+      const tags = r.hashtags.combined || [];
+      document.getElementById('htag-tags').value = tags.join('\n');
+      toast(`Generated ${tags.length} hashtags`, 'success');
+    } else { toast(r.error||'Generation failed', 'error'); }
+  } catch(e) { toast('Generation error', 'error'); }
+}
+
+async function deleteHashtagCollection(id) {
+  if(!confirm('Delete this collection?')) return;
+  await fetch(`/api/hashtags/${id}`, {method:'DELETE'});
+  toast('Deleted', 'success');
+  loadHashtagCollections();
+}
+
+function copyHashtags(id) {
+  fetch('/api/hashtags').then(r=>r.json()).then(cols => {
+    const col = cols.find(c=>c.id===id);
+    if(col) {
+      let tags = [];
+      try { tags = JSON.parse(col.hashtags||'[]'); } catch(e) {}
+      navigator.clipboard.writeText(tags.join(' '));
+      toast('Copied to clipboard!', 'success');
+    }
+  });
+}
+
+// ── Hashtag Selector (in Compose) ──
+async function loadHashtagSelector() {
+  try {
+    const cols = await fetch('/api/hashtags').then(r=>r.json());
+    const el = document.getElementById('hashtag-selector');
+    if(!el) return;
+    if(cols.length===0) { el.innerHTML='<span class="text-xs text-gray-400">No collections yet — go to Hashtags page to create</span>'; return; }
+    el.innerHTML = cols.map(c => `<button onclick="applyHashtagCollection(${c.id})" class="text-xs bg-purple-100 text-purple-700 px-3 py-1 rounded-full hover:bg-purple-200">${c.name}</button>`).join('');
+  } catch(e) {}
+}
+
+async function applyHashtagCollection(id) {
+  const cols = await fetch('/api/hashtags').then(r=>r.json());
+  const col = cols.find(c=>c.id===id);
+  if(col) {
+    let tags = [];
+    try { tags = JSON.parse(col.hashtags||'[]'); } catch(e) {}
+    selectedHashtags = [...new Set([...selectedHashtags, ...tags])];
+    document.getElementById('selected-hashtags').textContent = selectedHashtags.join(' ');
+    toast(`Applied ${tags.length} hashtags`, 'success');
+  }
+}
+
+async function generateHashtags() {
+  toast('Generating...');
+  try {
+    const r = await fetch('/api/hashtags/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({niche:'general',platform:'instagram'})}).then(r=>r.json());
+    if(r.success) {
+      selectedHashtags = [...new Set([...selectedHashtags, ...(r.hashtags.combined||[])])];
+      document.getElementById('selected-hashtags').textContent = selectedHashtags.join(' ');
+      toast(`Added ${r.hashtags.combined?.length||0} hashtags`, 'success');
+    }
+  } catch(e) { toast('Error', 'error'); }
+}
+
+function addCustomHashtag() {
+  const input = document.getElementById('custom-hashtag');
+  let tag = input.value.trim();
+  if(!tag) return;
+  if(!tag.startsWith('#')) tag = '#' + tag;
+  if(!selectedHashtags.includes(tag)) selectedHashtags.push(tag);
+  document.getElementById('selected-hashtags').textContent = selectedHashtags.join(' ');
+  input.value = '';
+}
+
+// ── Analytics ──
+async function loadAnalytics() {
+  try {
+    const data = await fetch('/api/analytics').then(r=>r.json());
+    const logs = data.logs || [];
+    const stats = data.platform_stats || {};
+
+    const total = logs.length;
+    const success = logs.filter(l=>l.success).length;
+    const failed = total - success;
+    const rate = total>0 ? Math.round(success/total*100) : 0;
+
+    document.getElementById('a-total').textContent = total;
+    document.getElementById('a-success').textContent = success;
+    document.getElementById('a-failed').textContent = failed;
+    document.getElementById('a-rate').textContent = rate + '%';
+    document.getElementById('a-platforms').textContent = Object.keys(stats).length;
+
+    // Platform bars
+    const barsEl = document.getElementById('platform-bars');
+    const platformColors = {reddit:'bg-orange-500',medium:'bg-green-500',tumblr:'bg-blue-500',shopify_blog:'bg-emerald-500'};
+    barsEl.innerHTML = Object.entries(stats).map(([p,s]) => {
+      const pct = s.total>0 ? Math.round(s.success/s.total*100) : 0;
+      return `<div class="mb-3"><div class="flex justify-between text-sm mb-1"><span>${p}</span><span>${pct}% (${s.success}/${s.total})</span></div>
+        <div class="w-full bg-gray-200 rounded-full h-2"><div class="${platformColors[p]||'bg-brand-500'} h-2 rounded-full" style="width:${pct}%"></div></div></div>`;
+    }).join('') || '<p class="text-gray-400 text-sm">No data yet</p>';
+
+    // Log table
+    const logEl = document.getElementById('publish-log');
+    logEl.innerHTML = logs.slice(0,20).map(l => `<div class="flex justify-between items-center text-xs p-2 bg-gray-50 rounded">
+      <span>${l.platform}</span>
+      <span class="${l.success?'text-green-600':'text-red-600'}">${l.success?'✅':'❌'} ${l.post_url?`<a href="${l.post_url}" target="_blank" class="text-brand-500">Link</a>`:l.error||'Failed'}</span>
+      <span class="text-gray-400">${l.published_at?.slice(0,16)||''}</span>
+    </div>`).join('') || '<p class="text-gray-400 text-sm">No publish history</p>';
+  } catch(e) { toast('Analytics error', 'error'); }
+}
+</script>
+</body>
+</html>

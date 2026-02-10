@@ -1,0 +1,51 @@
+{
+  "transforms": {
+    "blog_to_caption": {
+      "description": "Transform blog post into universal caption",
+      "steps": [
+        "Extract key takeaways (max 5 bullet points)",
+        "Generate attention hook from title",
+        "Add CTA matching niche audience",
+        "Validate character count per platform"
+      ],
+      "min_transform_score": 0.70
+    },
+    "long_to_micro": {
+      "description": "Transform long content into micro caption (overlay text)",
+      "rules": [
+        "Max 50 characters",
+        "One key benefit or curiosity gap",
+        "Include 1 emoji",
+        "No hashtags in micro caption"
+      ]
+    },
+    "caption_to_thread": {
+      "description": "Transform caption into Twitter/X thread",
+      "rules": [
+        "Split at logical breakpoints",
+        "Max 280 chars per tweet",
+        "Thread marker (1/N)",
+        "Final tweet = CTA + hashtags"
+      ]
+    },
+    "caption_to_linkedin": {
+      "description": "Transform caption into LinkedIn professional post",
+      "rules": [
+        "Professional tone",
+        "Data/insight-driven opening",
+        "Remove casual emojis (keep ✅ 💡 📊)",
+        "Add 'What do you think?' closing"
+      ]
+    }
+  },
+  "dedup_rules": {
+    "min_transform_score": 0.70,
+    "max_same_content_platforms": 3,
+    "spacing_hours": 24,
+    "checks": [
+      "content_hash_exact",
+      "title_similarity_80pct",
+      "caption_ngram_overlap"
+    ]
+  }
+}

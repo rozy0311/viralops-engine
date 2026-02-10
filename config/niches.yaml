@@ -1,0 +1,1005 @@
+version: '2.0'
+description: Micro-Niche Database — from Micro Niche Blogs spec + Nano Real Life research
+niches:
+  plant_based_raw:
+    display_name: Plant-Based Raw Materials
+    category: food_health
+    sub_niches:
+    - id: raw_almonds
+      name: Raw Almonds
+      persona: Fitness moms 25-40
+      pain: Expensive protein snacks, not sure which are truly healthy
+      desire: Affordable, clean protein source the whole family loves
+      hooks:
+      - Raw almonds = 20g protein/handful?
+      - How to activate almonds for 3x more nutrients
+      - Almonds vs almond butter — which is healthier?
+      hashtags_layer:
+        broad:
+        - '#PlantBased'
+        - '#CleanEating'
+        local:
+        - '#ChicagoEats'
+        - '#NYCFoodie'
+        micro1:
+        - '#RawAlmonds'
+        - '#AlmondProtein'
+        micro2:
+        - '#FitnessMom'
+        - '#HealthyKids'
+        micro3:
+        - '#GymSnack'
+        - '#MealPrep'
+        creator:
+        - '#CleanEatingCreator'
+        trend:
+        - '#SuperfoodTrend2026'
+      search_volume_monthly: 450000
+      competition_gap: high search, low quality videos
+    - id: chickpeas
+      name: Chickpeas / Garbanzo
+      persona: Budget meal-preppers 22-35
+      pain: Need cheap protein, tired of boring recipes
+      desire: Variety of cheap, filling plant-based meals
+      hooks:
+      - 3-minute chickpea snack replacing chips
+      - Why soaking chickpeas overnight is NON-NEGOTIABLE
+      - Chickpea flour — the gluten-free secret weapon
+      hashtags_layer:
+        broad:
+        - '#PlantBasedRecipes'
+        - '#VeganProtein'
+        local:
+        - '#ChicagoVegan'
+        - '#NYCVegan'
+        micro1:
+        - '#Chickpeas'
+        - '#Garbanzo'
+        micro2:
+        - '#BudgetMeals'
+        - '#MealPrepIdeas'
+        micro3:
+        - '#StudentFood'
+        - '#CheapEats'
+        creator:
+        - '#PlantBasedCreator'
+        trend:
+        - '#MealPrepTrend2026'
+      search_volume_monthly: 680000
+      competition_gap: saturated basic recipes, gap in creative/fusion
+    - id: quinoa
+      name: Quinoa
+      persona: Fitness enthusiasts 25-40 tracking macros
+      pain: Rice is boring, need complete protein grains
+      desire: Easy high-protein grain bowls for meal prep
+      hooks:
+      - You're cooking quinoa wrong — here's the fix
+      - Quinoa vs rice — the nutrition breakdown
+      - 5-minute quinoa bowl that keeps me full for hours
+      hashtags_layer:
+        broad:
+        - '#HealthyEating'
+        - '#CompleteProtein'
+        local:
+        - '#ChicagoHealth'
+        - '#LAFitFood'
+        micro1:
+        - '#Quinoa'
+        - '#QuinoaBowl'
+        micro2:
+        - '#MacroFriendly'
+        - '#FitFood'
+        micro3:
+        - '#GymMealPrep'
+        - '#HighProtein'
+        creator:
+        - '#QuinoaCreator'
+        trend:
+        - '#GrainBowl2026'
+      search_volume_monthly: 520000
+      competition_gap: good explainers needed, most videos too basic
+    - id: chia_seeds
+      name: Chia Seeds
+      persona: Wellness millennials into meal prep
+      pain: Morning routine too slow, need overnight solutions
+      desire: Effortless healthy breakfast that saves time and money
+      hooks:
+      - Chia pudding in 2 minutes — better than store-bought
+      - Chia seeds for weight loss — does it actually work?
+      - The overnight chia hack that saves $50/month
+      hashtags_layer:
+        broad:
+        - '#HealthyBreakfast'
+        - '#MealPrep'
+        local:
+        - '#ChicagoWellness'
+        - '#NYCHealth'
+        micro1:
+        - '#ChiaSeeds'
+        - '#ChiaPudding'
+        micro2:
+        - '#OvernightMeals'
+        - '#WeightLoss'
+        micro3:
+        - '#Omega3'
+        - '#SuperfoodBreakfast'
+        creator:
+        - '#ChiaCreator'
+        trend:
+        - '#ChiaTrend2026'
+      search_volume_monthly: 390000
+      competition_gap: high interest, few quality recipe videos
+    - id: flaxseeds
+      name: Flaxseeds
+      persona: Women 30-50 focused on hormone health
+      pain: Hormone imbalance, digestive issues, need natural solutions
+      desire: Natural hormone support + easy ways to add to diet
+      hooks:
+      - Ground vs whole flaxseed — you're choosing wrong
+      - The flaxseed egg replacement that actually works
+      - Flaxseed for hormones — what the research says
+      hashtags_layer:
+        broad:
+        - '#WomensHealth'
+        - '#NaturalRemedies'
+        local:
+        - '#ChicagoWellness'
+        - '#TexasHealth'
+        micro1:
+        - '#Flaxseeds'
+        - '#FlaxEgg'
+        micro2:
+        - '#HormoneHealth'
+        - '#Perimenopause'
+        micro3:
+        - '#GutHealth'
+        - '#Omega3Seeds'
+        creator:
+        - '#FlaxCreator'
+        trend:
+        - '#HormoneBalance2026'
+      search_volume_monthly: 320000
+      competition_gap: science-backed content missing
+    - id: hemp_hearts
+      name: Hemp Hearts
+      persona: Health optimizers 25-40 into superfoods
+      pain: Too many supplements, want whole food solutions
+      desire: One versatile superfood that replaces multiple supplements
+      hooks:
+      - Hemp hearts — the superfood nobody talks about
+      - Hemp hearts vs chia seeds — nutritional showdown
+      - Add hemp hearts to EVERYTHING — here's why
+      hashtags_layer:
+        broad:
+        - '#Superfoods'
+        - '#PlantProtein'
+        local:
+        - '#ChicagoHealth'
+        - '#DenverWellness'
+        micro1:
+        - '#HempHearts'
+        - '#HempSeeds'
+        micro2:
+        - '#Biohacking'
+        - '#WholeFood'
+        micro3:
+        - '#ProteinBowl'
+        - '#SmoothieAdd'
+        creator:
+        - '#HempCreator'
+        trend:
+        - '#SuperfoodTrend2026'
+      search_volume_monthly: 180000
+      competition_gap: very low competition, high curiosity
+    - id: overnight_oats
+      name: Overnight Oats
+      persona: Busy professionals 25-35 wanting quick healthy breakfast
+      pain: No time for breakfast, skip meals or eat junk
+      desire: 5-min Sunday prep = healthy breakfast all week
+      hooks:
+      - 5 overnight oats recipes — prep Sunday eat all week
+      - Overnight oats vs cooked oats — nutrition face-off
+      - Zero-sugar overnight oats that taste like dessert
+      hashtags_layer:
+        broad:
+        - '#HealthyBreakfast'
+        - '#MealPrep'
+        local:
+        - '#ChicagoFoodie'
+        - '#NYCBreakfast'
+        micro1:
+        - '#OvernightOats'
+        - '#OatRecipes'
+        micro2:
+        - '#BusyMornings'
+        - '#QuickBreakfast'
+        micro3:
+        - '#SundayMealPrep'
+        - '#NoSugar'
+        creator:
+        - '#OatCreator'
+        trend:
+        - '#OatTrend2026'
+      search_volume_monthly: 1200000
+      competition_gap: saturated but creative angles still work
+    - id: lentils
+      name: Lentils
+      persona: Budget-conscious family cooks 28-45
+      pain: Feeding family healthy meals on tight budget
+      desire: Cheap, nutritious meals kids actually eat
+      hooks:
+      - Red vs green vs black lentils — which to use when
+      - 15-minute lentil soup feeding a family of 4
+      - Lentils are the CHEAPEST source of plant protein
+      hashtags_layer:
+        broad:
+        - '#BudgetMeals'
+        - '#PlantProtein'
+        local:
+        - '#ChicagoCooking'
+        - '#TexasFamily'
+        micro1:
+        - '#Lentils'
+        - '#LentilSoup'
+        micro2:
+        - '#FamilyMeals'
+        - '#CheapProtein'
+        micro3:
+        - '#MealPrepBudget'
+        - '#KidFriendly'
+        creator:
+        - '#LentilCreator'
+        trend:
+        - '#BudgetFood2026'
+      search_volume_monthly: 550000
+      competition_gap: many basic, few family-angle videos
+    - id: pumpkin_seeds
+      name: Pumpkin Seeds
+      persona: Men 30-50 interested in testosterone/zinc
+      pain: Low energy, need natural mineral sources
+      desire: Easy snack that boosts zinc and energy naturally
+      hooks:
+      - Pumpkin seeds = nature's zinc supplement
+      - Roasted vs raw pumpkin seeds — which is healthier?
+      - The pumpkin seed trick for better sleep
+      hashtags_layer:
+        broad:
+        - '#MensHealth'
+        - '#NaturalSupplements'
+        local:
+        - '#ChicagoFitness'
+        - '#TexasHealth'
+        micro1:
+        - '#PumpkinSeeds'
+        - '#Pepitas'
+        micro2:
+        - '#ZincRich'
+        - '#TestosteroneFood'
+        micro3:
+        - '#HealthySnacking'
+        - '#NutrientDense'
+        creator:
+        - '#SeedCreator'
+        trend:
+        - '#MensWellness2026'
+      search_volume_monthly: 280000
+      competition_gap: mens health angle underserved
+    - id: spirulina
+      name: Spirulina
+      persona: Biohacker/wellness enthusiast 25-45
+      pain: Supplements expensive, want whole-food alternative
+      desire: One powder that replaces multivitamin
+      hooks:
+      - Spirulina — the green powder replacing my multivitamin
+      - How to take spirulina without the horrible taste
+      - Spirulina for energy — 1 week experiment results
+      hashtags_layer:
+        broad:
+        - '#Superfoods'
+        - '#Biohacking'
+        local:
+        - '#LAWellness'
+        - '#AustinHealth'
+        micro1:
+        - '#Spirulina'
+        - '#BlueGreenAlgae'
+        micro2:
+        - '#Detox'
+        - '#GreenSmoothie'
+        micro3:
+        - '#EnergyBoost'
+        - '#WholeFoodSupplements'
+        creator:
+        - '#SpirulinaCreator'
+        trend:
+        - '#AlgaeTrend2026'
+      search_volume_monthly: 350000
+      competition_gap: taste-fix and real experiment videos needed
+    - id: raw_cacao
+      name: Raw Cacao
+      persona: Chocolate lovers 25-40 wanting healthier alternatives
+      pain: Sugar cravings, guilty about chocolate consumption
+      desire: Guilt-free chocolate fix with actual health benefits
+      hooks:
+      - Raw cacao vs cocoa powder — the difference matters
+      - The raw cacao smoothie that tastes like a milkshake
+      - How raw cacao boosts your mood (science-backed)
+      hashtags_layer:
+        broad:
+        - '#HealthyDesserts'
+        - '#ChocolateLovers'
+        local:
+        - '#ChicagoFoodie'
+        - '#NYCSweetTooth'
+        micro1:
+        - '#RawCacao'
+        - '#CacaoNibs'
+        micro2:
+        - '#HealthyChocolate'
+        - '#MoodFood'
+        micro3:
+        - '#GuiltFree'
+        - '#Antioxidants'
+        creator:
+        - '#CacaoCreator'
+        trend:
+        - '#RawChocolate2026'
+      search_volume_monthly: 290000
+      competition_gap: mood-science angle unexploited
+    - id: raw_walnuts
+      name: Raw Walnuts
+      persona: Brain-health conscious adults 35-60
+      pain: Cognitive decline worry, want brain-boosting foods
+      desire: Natural nootropic snack backed by science
+      hooks:
+      - Walnuts look like brains — and they BOOST brains
+      - 7 walnuts a day = what happens to your brain
+      - Raw vs roasted walnuts — which keeps omega-3?
+      hashtags_layer:
+        broad:
+        - '#BrainHealth'
+        - '#HealthyAging'
+        local:
+        - '#ChicagoWellness'
+        micro1:
+        - '#RawWalnuts'
+        - '#WalnutBenefits'
+        micro2:
+        - '#BrainFood'
+        - '#Nootropics'
+        micro3:
+        - '#Omega3'
+        - '#CognitiveHealth'
+        creator:
+        - '#NutCreator'
+        trend:
+        - '#BrainHealth2026'
+      search_volume_monthly: 210000
+      competition_gap: brain-science content rare
+    - id: black_beans
+      name: Black Beans
+      persona: Latino/a home cooks 25-50
+      pain: Time constraints, want quick traditional flavors
+      desire: Fast authentic meals that taste like abuela's cooking
+      hooks:
+      - Black beans from scratch in under 30 minutes
+      - Canned vs dried black beans — honest comparison
+      - Black bean burger that tastes like REAL meat
+      hashtags_layer:
+        broad:
+        - '#LatinFood'
+        - '#PlantBased'
+        local:
+        - '#MiamiFood'
+        - '#TexasCooking'
+        micro1:
+        - '#BlackBeans'
+        - '#FrijolesNegros'
+        micro2:
+        - '#QuickMeals'
+        - '#TraditionalRecipes'
+        micro3:
+        - '#MexicanFood'
+        - '#ComidaCasera'
+        creator:
+        - '#BeanCreator'
+        trend:
+        - '#LatinVegan2026'
+      search_volume_monthly: 480000
+      competition_gap: authentic cultural angle underserved
+    - id: sesame_seeds
+      name: Sesame Seeds
+      persona: Home bakers and Asian cuisine enthusiasts 25-45
+      pain: Want to add nutrition and flavor to everyday cooking
+      desire: Simple ingredient that elevates any dish
+      hooks:
+      - Black vs white sesame seeds — what's the difference?
+      - Homemade tahini in 5 minutes — save $8 every time
+      - Sesame seeds = more calcium than milk?
+      hashtags_layer:
+        broad:
+        - '#AsianCooking'
+        - '#HomeBaking'
+        local:
+        - '#NYCFoodie'
+        - '#LAEats'
+        micro1:
+        - '#SesameSeeds'
+        - '#Tahini'
+        micro2:
+        - '#CalciumRich'
+        - '#HomemadeSauce'
+        micro3:
+        - '#AsianRecipes'
+        - '#BakingTips'
+        creator:
+        - '#SesameCreator'
+        trend:
+        - '#HomemadeSauces2026'
+      search_volume_monthly: 260000
+      competition_gap: tahini DIY and calcium angle wide open
+    - id: coconut_raw
+      name: Raw Coconut
+      persona: Keto/paleo followers 25-45
+      pain: Need healthy fats, tired of avocado everything
+      desire: Versatile healthy fat source for cooking and snacking
+      hooks:
+      - Raw coconut oil vs refined — which one to buy?
+      - Coconut flour baking — the beginner's guide
+      - MCT oil from coconut — the energy hack
+      hashtags_layer:
+        broad:
+        - '#KetoRecipes'
+        - '#HealthyFats'
+        local:
+        - '#MiamiFoodie'
+        - '#HawaiiEats'
+        micro1:
+        - '#RawCoconut'
+        - '#CoconutOil'
+        micro2:
+        - '#MCTOil'
+        - '#PaleoFood'
+        micro3:
+        - '#CoconutFlour'
+        - '#KetoSnacks'
+        creator:
+        - '#CoconutCreator'
+        trend:
+        - '#MCTTrend2026'
+      search_volume_monthly: 420000
+      competition_gap: MCT science + baking crossover needed
+  nano_real_life:
+    display_name: Nano-Niche Real Life Everyday
+    category: everyday_hacks
+    sub_niches:
+    - id: goya_beans
+      name: Goya Beans Hacks
+      persona: Hispanic home cook, 25-50, family meals on budget
+      pain: Time-poor, want quick meals with familiar flavors
+      desire: 5-min recipes using pantry staples the family loves
+      hooks:
+      - The Goya beans hack cutting cooking time in half
+      - Why Goya beans taste different from other brands
+      - 3 Goya bean recipes your abuela would approve
+      hashtags_layer:
+        broad:
+        - '#LatinFood'
+        - '#PantryStaples'
+        local:
+        - '#MiamiCooking'
+        - '#NYCLatino'
+        micro1:
+        - '#GoyaBeans'
+        - '#GoyaRecipes'
+        micro2:
+        - '#HispanicFood'
+        - '#ComidaCasera'
+        micro3:
+        - '#BeansAndRice'
+        - '#QuickDinner'
+        creator:
+        - '#GoyaCreator'
+        trend:
+        - '#PantryMeals2026'
+      search_volume_monthly: 450
+      competition_gap: <10% video coverage, massive cultural community
+    - id: banana_peel
+      name: Banana Peel Uses
+      persona: Zero-waste advocates 20-35, eco-conscious
+      pain: Feel guilty about food waste
+      desire: Turn kitchen scraps into something useful
+      hooks:
+      - STOP throwing away banana peels — 5 uses
+      - Banana peel for your garden — free fertilizer
+      - Banana peel tea for better sleep — does it work?
+      hashtags_layer:
+        broad:
+        - '#ZeroWaste'
+        - '#EcoFriendly'
+        local:
+        - '#PortlandGreen'
+        - '#AustinEco'
+        micro1:
+        - '#BananaPeel'
+        - '#BananaPeelUses'
+        micro2:
+        - '#KitchenHacks'
+        - '#FoodWaste'
+        micro3:
+        - '#GardenTips'
+        - '#NaturalRemedies'
+        creator:
+        - '#ZeroWasteCreator'
+        trend:
+        - '#EcoHacks2026'
+      search_volume_monthly: 380
+      competition_gap: viral potential, very few quality videos
+    - id: green_onion_regrow
+      name: Green Onion Regrow
+      persona: DIY gardener 20-40, apartment dweller
+      pain: Buying green onions weekly is wasteful
+      desire: Infinite supply of green onions from kitchen scraps
+      hooks:
+      - Regrow green onions FOREVER from kitchen scraps
+      - Water vs soil method — which grows faster?
+      - Stop buying green onions — infinite supply hack
+      hashtags_layer:
+        broad:
+        - '#IndoorGardening'
+        - '#KitchenHacks'
+        local:
+        - '#ApartmentGarden'
+        - '#NYCGarden'
+        micro1:
+        - '#RegrowGreenOnions'
+        - '#ScrapGardening'
+        micro2:
+        - '#ZeroWasteKitchen'
+        - '#FreeFood'
+        micro3:
+        - '#GrowYourOwn'
+        - '#WindowsillGarden'
+        creator:
+        - '#RegrowCreator'
+        trend:
+        - '#ScrapGardening2026'
+      search_volume_monthly: 320
+      competition_gap: time-lapse content wins, most videos static
+    - id: strawberry_tops_vinegar
+      name: Strawberry Tops Vinegar
+      persona: DIY fermenter 25-45, homesteading curious
+      pain: Throwing away fruit scraps, want to reduce waste
+      desire: Make artisan vinegar from scraps — feel crafty and sustainable
+      hooks:
+      - Turn strawberry tops into vinegar — free!
+      - The fermentation hack using TRASH
+      - Strawberry scrap vinegar day 1 vs day 30
+      hashtags_layer:
+        broad:
+        - '#Fermentation'
+        - '#ZeroWaste'
+        local:
+        - '#PortlandDIY'
+        - '#AustinFerment'
+        micro1:
+        - '#StrawberryVinegar'
+        - '#FruitScraps'
+        micro2:
+        - '#HomesteadingLife'
+        - '#DIYVinegar'
+        micro3:
+        - '#FermentedFoods'
+        - '#ScrapCooking'
+        creator:
+        - '#FermentCreator'
+        trend:
+        - '#HomesteadTrend2026'
+      search_volume_monthly: 160
+      competition_gap: ultra-niche, zero competition, high save rate
+    - id: indoor_herb_garden
+      name: Indoor Herb Garden
+      persona: Apartment dweller 22-35, wants fresh herbs
+      pain: Buying herbs that wilt in 2 days, wasting money
+      desire: Year-round fresh herbs from windowsill
+      hooks:
+      - Grow herbs indoors with ZERO sunlight
+      - 5 herbs that thrive in apartments
+      - The indoor herb setup costing under $20
+      hashtags_layer:
+        broad:
+        - '#IndoorGardening'
+        - '#UrbanFarming'
+        local:
+        - '#NYCGarden'
+        - '#ChicagoApartment'
+        micro1:
+        - '#IndoorHerbs'
+        - '#HerbGarden'
+        micro2:
+        - '#ApartmentPlants'
+        - '#WindowsillGarden'
+        micro3:
+        - '#FreshHerbs'
+        - '#GrowYourOwn'
+        creator:
+        - '#HerbCreator'
+        trend:
+        - '#IndoorGarden2026'
+      search_volume_monthly: 820000
+      competition_gap: apartment-specific angle underserved
+    - id: rice_water_plants
+      name: Rice Water for Plants
+      persona: Plant parent 20-35, wants free fertilizer
+      pain: Plants dying, expensive fertilizer not working
+      desire: Free, natural fertilizer from cooking waste
+      hooks:
+      - Rice water for plants — free fertilizer from your kitchen
+      - My plants EXPLODED after rice water — 30 day results
+      - Rice water vs store fertilizer — honest test
+      hashtags_layer:
+        broad:
+        - '#PlantCare'
+        - '#GardenHacks'
+        local:
+        - '#NYCPlants'
+        - '#LAPlantMom'
+        micro1:
+        - '#RiceWaterPlants'
+        - '#FreeFertilizer'
+        micro2:
+        - '#PlantParent'
+        - '#IndoorPlants'
+        micro3:
+        - '#ZeroWasteGarden'
+        - '#NaturalFertilizer'
+        creator:
+        - '#PlantCreator'
+        trend:
+        - '#PlantHacks2026'
+      search_volume_monthly: 240
+      competition_gap: comparison/experiment videos almost nonexistent
+    - id: lemon_peel_cleaner
+      name: Lemon Peel All-Purpose Cleaner
+      persona: Eco-mom 28-45, avoiding chemicals
+      pain: Chemical cleaners worry, want safe alternatives for kids
+      desire: Effective natural cleaner from kitchen scraps
+      hooks:
+      - Lemon peel + vinegar = free all-purpose cleaner
+      - I replaced ALL my cleaners with lemon peels
+      - The 2-week lemon cleaner that smells amazing
+      hashtags_layer:
+        broad:
+        - '#NaturalCleaning'
+        - '#EcoFriendly'
+        local:
+        - '#ChicagoMom'
+        - '#TexasMom'
+        micro1:
+        - '#LemonPeelCleaner'
+        - '#DIYCleaner'
+        micro2:
+        - '#ChemicalFree'
+        - '#SafeForKids'
+        micro3:
+        - '#ZeroWasteHome'
+        - '#NaturalHome'
+        creator:
+        - '#CleaningCreator'
+        trend:
+        - '#NaturalCleaning2026'
+      search_volume_monthly: 280
+      competition_gap: kid-safety angle barely covered
+    - id: coffee_grounds_garden
+      name: Coffee Grounds Garden
+      persona: Coffee drinker 25-50 who gardens
+      pain: Throwing away coffee grounds daily
+      desire: Turn daily waste into garden gold
+      hooks:
+      - Coffee grounds in your garden — miracle or myth?
+      - Which plants LOVE coffee grounds (and which HATE them)
+      - Composting coffee grounds — the right way
+      hashtags_layer:
+        broad:
+        - '#GardenTips'
+        - '#Composting'
+        local:
+        - '#SeattleGarden'
+        - '#PortlandGreen'
+        micro1:
+        - '#CoffeeGrounds'
+        - '#CoffeeGarden'
+        micro2:
+        - '#OrganicGardening'
+        - '#FreeCompost'
+        micro3:
+        - '#CoffeeLover'
+        - '#GardenHack'
+        creator:
+        - '#CoffeeGardenCreator'
+        trend:
+        - '#CompostTrend2026'
+      search_volume_monthly: 350
+      competition_gap: myth-busting angle needed badly
+    - id: egg_shell_calcium
+      name: Egg Shell Calcium Powder
+      persona: Frugal wellness person 30-55
+      pain: Calcium supplements expensive
+      desire: Free calcium supplement from kitchen waste
+      hooks:
+      - Turn egg shells into free calcium supplement
+      - Egg shell powder — is it safe? (science check)
+      - Egg shells for plants AND humans — double hack
+      hashtags_layer:
+        broad:
+        - '#ZeroWaste'
+        - '#NaturalSupplements'
+        local:
+        - '#ChicagoWellness'
+        micro1:
+        - '#EggShellCalcium'
+        - '#EggShellPowder'
+        micro2:
+        - '#FreeSupplement'
+        - '#BoneHealth'
+        micro3:
+        - '#FrugalLiving'
+        - '#KitchenHack'
+        creator:
+        - '#WellnessHackCreator'
+        trend:
+        - '#FrugalWellness2026'
+      search_volume_monthly: 190
+      competition_gap: safety + science angle almost zero content
+    - id: apple_cider_vinegar_diy
+      name: DIY Apple Cider Vinegar
+      persona: Homesteader-curious 25-40
+      pain: Buying ACV weekly, want to make at home
+      desire: Endless supply of ACV from apple scraps
+      hooks:
+      - Make apple cider vinegar from apple SCRAPS
+      - ACV at home — day 1 vs day 30 transformation
+      - Store-bought vs homemade ACV — taste test
+      hashtags_layer:
+        broad:
+        - '#Fermentation'
+        - '#Homesteading'
+        local:
+        - '#VermontLiving'
+        - '#TexasHomestead'
+        micro1:
+        - '#DIYACV'
+        - '#AppleCiderVinegar'
+        micro2:
+        - '#HomemadeVinegar'
+        - '#AppleScraps'
+        micro3:
+        - '#FermentedFoods'
+        - '#GutHealth'
+        creator:
+        - '#ACVCreator'
+        trend:
+        - '#FermentTrend2026'
+      search_volume_monthly: 310
+      competition_gap: time-lapse + taste comparison needed
+    - id: avocado_pit_grow
+      name: Grow Avocado from Pit
+      persona: Plant enthusiast 18-30, TikTok native
+      pain: Avocado pits going to trash, curious if they grow
+      desire: Grow an avocado tree from kitchen waste — ultimate flex
+      hooks:
+      - Grow an avocado tree from your lunch — here's how
+      - Avocado pit in water — month 1 vs month 6
+      - Will a pit-grown avocado actually produce fruit?
+      hashtags_layer:
+        broad:
+        - '#PlantTok'
+        - '#IndoorGardening'
+        local:
+        - '#LAPlants'
+        - '#NYCApartment'
+        micro1:
+        - '#AvocadoPit'
+        - '#GrowAvocado'
+        micro2:
+        - '#PlantFromScraps'
+        - '#AvocadoTree'
+        micro3:
+        - '#PlantExperiment'
+        - '#GrowYourOwn'
+        creator:
+        - '#AvocadoCreator'
+        trend:
+        - '#PlantTok2026'
+      search_volume_monthly: 420
+      competition_gap: long-term growth diary videos rare
+    - id: diy_fabric_refresher
+      name: DIY Fabric Refresher Spray
+      persona: Budget-conscious parent 25-40
+      pain: Febreze expensive, chemicals near kids
+      desire: Cheap natural fabric spray that works
+      hooks:
+      - DIY Febreze for $0.50 — smells BETTER
+      - Natural fabric spray safe for baby clothes
+      - 3 ingredients = better than store-bought spray
+      hashtags_layer:
+        broad:
+        - '#DIYCleaning'
+        - '#NaturalHome'
+        local:
+        - '#ChicagoMom'
+        - '#TexasParent'
+        micro1:
+        - '#FabricRefresher'
+        - '#DIYFebreze'
+        micro2:
+        - '#ChemicalFree'
+        - '#BabyS afe'
+        micro3:
+        - '#FrugalMom'
+        - '#CleanHome'
+        creator:
+        - '#DIYCleanCreator'
+        trend:
+        - '#NaturalHome2026'
+      search_volume_monthly: 200
+      competition_gap: baby-safe angle untapped
+  indoor_gardening:
+    display_name: Indoor Gardening & Microgreens
+    category: gardening
+    sub_niches:
+    - id: microgreens
+      name: Microgreens at Home
+      persona: Health-conscious urban dweller 25-40
+      pain: Salad greens expensive and wilting fast
+      desire: Grow fresh greens in kitchen for pennies
+      hooks:
+      - Microgreens harvest in 7 DAYS — fastest food ever
+      - Microgreens vs sprouts — what's healthier?
+      - The $5 microgreen setup that feeds you weekly
+      hashtags_layer:
+        broad:
+        - '#Microgreens'
+        - '#UrbanFarming'
+        local:
+        - '#NYCGarden'
+        - '#ChicagoGrow'
+        micro1:
+        - '#GrowMicrogreens'
+        - '#MicrogreenFarm'
+        micro2:
+        - '#IndoorFarming'
+        - '#KitchenGarden'
+        micro3:
+        - '#FreshGreens'
+        - '#HealthyGrowing'
+        creator:
+        - '#MicrogreenCreator'
+        trend:
+        - '#MicrogreenTrend2026'
+      search_volume_monthly: 380000
+      competition_gap: beginner setup tutorials needed
+    - id: grow_vegetables_indoors
+      name: Grow Vegetables Indoors
+      persona: Apartment dweller 22-35 wanting food independence
+      pain: No yard, no balcony, want to grow food
+      desire: Harvest vegetables from apartment windowsill
+      hooks:
+      - 5 vegetables you can grow in your apartment
+      - No sunlight? These veggies grow in shade
+      - Apartment vegetable garden — $0 to harvest guide
+      hashtags_layer:
+        broad:
+        - '#IndoorGardening'
+        - '#ApartmentLiving'
+        local:
+        - '#NYCApartment'
+        - '#ChicagoLiving'
+        micro1:
+        - '#GrowIndoors'
+        - '#IndoorVegetables'
+        micro2:
+        - '#SmallSpaceGarden'
+        - '#NoYard'
+        micro3:
+        - '#FoodIndependence'
+        - '#UrbanGrow'
+        creator:
+        - '#IndoorGardenCreator'
+        trend:
+        - '#ApartmentGarden2026'
+      search_volume_monthly: 650000
+      competition_gap: no-sunlight specific videos very rare
+    - id: beginner_gardening_mistakes
+      name: Beginner Gardening Mistakes
+      persona: First-time gardener 20-35
+      pain: Plants keep dying, don't know what's wrong
+      desire: Simple rules to keep plants alive
+      hooks:
+      - TOP 5 beginner mistakes killing your plants
+      - Why your seedlings keep dying (and the fix)
+      - The watering mistake 90% of beginners make
+      hashtags_layer:
+        broad:
+        - '#GardeningTips'
+        - '#BeginnerGardener'
+        local:
+        - '#ChicagoGarden'
+        - '#TexasGarden'
+        micro1:
+        - '#GardeningMistakes'
+        - '#PlantCare101'
+        micro2:
+        - '#NewGardener'
+        - '#PlantProblems'
+        micro3:
+        - '#GreenThumb'
+        - '#LearnToGrow'
+        creator:
+        - '#GardeningCreator'
+        trend:
+        - '#GardenTok2026'
+      search_volume_monthly: 420000
+      competition_gap: mistake-format + solutions very engaging
+    - id: harvest_to_table
+      name: Harvest to Table
+      persona: Home cook + gardener 30-50
+      pain: Gap between growing food and cooking it well
+      desire: Farm-to-table experience at home
+      hooks:
+      - Harvest to plate in 10 minutes — garden cooking
+      - I grew this salad from seed — 60 day journey
+      - 'The most satisfying meal: 100% homegrown'
+      hashtags_layer:
+        broad:
+        - '#FarmToTable'
+        - '#HomeGrown'
+        local:
+        - '#ChicagoGarden'
+        - '#TexasHomestead'
+        micro1:
+        - '#HarvestToTable'
+        - '#GardenCooking'
+        micro2:
+        - '#HomegrownFood'
+        - '#GardenToPlate'
+        micro3:
+        - '#SeedToFork'
+        - '#FreshFromGarden'
+        creator:
+        - '#HarvestCreator'
+        trend:
+        - '#HomeGrown2026'
+      search_volume_monthly: 180000
+      competition_gap: seed-to-plate journey content very rare
+    - id: composting_apartment
+      name: Composting in Apartment
+      persona: Eco-conscious apartment dweller 22-35
+      pain: Want to compost but no outdoor space
+      desire: Odor-free composting system for small spaces
+      hooks:
+      - Composting in your apartment — no smell method
+      - The $15 apartment compost bin that actually works
+      - Vermicomposting 101 — worms in your kitchen
+      hashtags_layer:
+        broad:
+        - '#Composting'
+        - '#ZeroWaste'
+        local:
+        - '#NYCGreen'
+        - '#ChicagoEco'
+        micro1:
+        - '#ApartmentCompost'
+        - '#IndoorComposting'
+        micro2:
+        - '#Vermicomposting'
+        - '#WormBin'
+        micro3:
+        - '#SmallSpaceLiving'
+        - '#EcoLiving'
+        creator:
+        - '#CompostCreator'
+        trend:
+        - '#CompostTrend2026'
+      search_volume_monthly: 220000
+      competition_gap: apartment-specific + no-smell angle underserved

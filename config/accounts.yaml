@@ -1,0 +1,272 @@
+﻿# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# Multi-Account Configuration â€” ViralOps Engine
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
+# CHIáº¾N LÆ¯á»¢C: Chia nhiá»u account thay vÃ¬ cá»‘ báº» limit 1 account.
+# Má»—i account cÃ³ OAuth token riÃªng, limit riÃªng, niche assignment riÃªng.
+# Account Router sáº½ tá»± Ä‘á»™ng chá»n account tá»‘i Æ°u cho má»—i post.
+#
+# RULES:
+# 1. Má»—i account KHÃ”NG vÆ°á»£t quÃ¡ 60-70% platform limit â†’ trÃ¡nh flag
+# 2. Má»—i account nÃªn focus 1-3 niches â†’ tÄƒng authority
+# 3. Account má»›i: warm-up 14 ngÃ y (limit tháº¥p hÆ¡n)
+# 4. Account bá»‹ flag â†’ auto-pause, khÃ´ng rotate sang account khÃ¡c ngay
+#    (trÃ¡nh "snowball ban")
+
+accounts:
+  tiktok:
+    - account_id: "tiktok_main"
+      display_name: "Main TikTok"
+      env_token_key: "TIKTOK_MAIN_ACCESS_TOKEN"
+      env_client_key: "TIKTOK_MAIN_CLIENT_KEY"
+      env_client_secret: "TIKTOK_MAIN_CLIENT_SECRET"
+      daily_limit: 15                    # 60% of platform 25/day
+      niches: ["plant-based", "superfoods"]
+      warm_up: false
+      priority: 1                        # Lower = higher priority
+      status: "active"                   # active | paused | warming_up | flagged
+
+    - account_id: "tiktok_alt1"
+      display_name: "TikTok Alt 1"
+      env_token_key: "TIKTOK_ALT1_ACCESS_TOKEN"
+      env_client_key: "TIKTOK_ALT1_CLIENT_KEY"
+      env_client_secret: "TIKTOK_ALT1_CLIENT_SECRET"
+      daily_limit: 10
+      niches: ["fitness-nutrition", "meal-prep"]
+      warm_up: false
+      priority: 2
+      status: "active"
+
+    - account_id: "tiktok_new"
+      display_name: "TikTok New (Warming Up)"
+      env_token_key: "TIKTOK_NEW_ACCESS_TOKEN"
+      env_client_key: "TIKTOK_NEW_CLIENT_KEY"
+      env_client_secret: "TIKTOK_NEW_CLIENT_SECRET"
+      daily_limit: 3                     # Warm-up: very low limit
+      niches: ["organic-skincare"]
+      warm_up: true
+      warm_up_days_remaining: 10
+      priority: 3
+      status: "warming_up"
+
+  instagram_reels:
+    - account_id: "ig_main"
+      display_name: "Main Instagram"
+      env_token_key: "IG_MAIN_ACCESS_TOKEN"
+      env_user_id_key: "IG_MAIN_USER_ID"
+      daily_limit: 15
+      niches: ["plant-based", "superfoods", "fitness-nutrition"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+    - account_id: "ig_alt1"
+      display_name: "Instagram Alt 1"
+      env_token_key: "IG_ALT1_ACCESS_TOKEN"
+      env_user_id_key: "IG_ALT1_USER_ID"
+      daily_limit: 10
+      niches: ["meal-prep", "organic-skincare"]
+      warm_up: false
+      priority: 2
+      status: "active"
+
+  facebook_reels:
+    - account_id: "fb_main"
+      display_name: "Main Facebook Page"
+      env_token_key: "FB_MAIN_PAGE_TOKEN"
+      env_page_id_key: "FB_MAIN_PAGE_ID"
+      daily_limit: 30
+      niches: ["all"]                    # FB less niche-strict
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  youtube_shorts:
+    - account_id: "yt_main"
+      display_name: "Main YouTube Channel"
+      env_token_key: "YT_MAIN_ACCESS_TOKEN"
+      daily_limit: 4                     # YouTube very strict: 6/day max
+      niches: ["plant-based", "superfoods"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  pinterest:
+    - account_id: "pin_main"
+      display_name: "Main Pinterest"
+      env_token_key: "PIN_MAIN_ACCESS_TOKEN"
+      daily_limit: 50                    # Pinterest generous: 100/day
+      niches: ["all"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  linkedin:
+    - account_id: "li_main"
+      display_name: "Main LinkedIn"
+      env_token_key: "LI_MAIN_ACCESS_TOKEN"
+      env_person_urn_key: "LI_MAIN_PERSON_URN"
+      daily_limit: 10
+      niches: ["professional-nutrition", "corporate-wellness"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  twitter_x:
+    - account_id: "tw_main"
+      display_name: "Main Twitter/X"
+      env_token_key: "TW_MAIN_BEARER_TOKEN"
+      daily_limit: 25
+      niches: ["all"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+    - account_id: "tw_alt1"
+      display_name: "Twitter/X Alt 1"
+      env_token_key: "TW_ALT1_BEARER_TOKEN"
+      daily_limit: 20
+      niches: ["fitness-nutrition", "organic-skincare"]
+      warm_up: false
+      priority: 2
+      status: "active"
+
+  # 
+  # TIER 2  Niche-specific, high-engagement
+  # 
+
+  reddit:
+    - account_id: "reddit_main"
+      display_name: "Main Reddit"
+      env_token_key: "REDDIT_MAIN_CLIENT_ID"
+      env_client_secret_key: "REDDIT_MAIN_CLIENT_SECRET"
+      env_username_key: "REDDIT_MAIN_USERNAME"
+      env_password_key: "REDDIT_MAIN_PASSWORD"
+      daily_limit: 15                    # Reddit is strict on spam
+      niches: ["plant-based", "superfoods", "fitness-nutrition"]
+      subreddits: ["r/PlantBased", "r/vegan", "r/MealPrepSunday", "r/nutrition"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  threads:
+    - account_id: "threads_main"
+      display_name: "Main Threads"
+      env_token_key: "THREADS_MAIN_ACCESS_TOKEN"
+      env_user_id_key: "THREADS_MAIN_USER_ID"
+      daily_limit: 30
+      niches: ["plant-based", "superfoods", "fitness-nutrition"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  bluesky:
+    - account_id: "bsky_main"
+      display_name: "Main Bluesky"
+      env_token_key: "BLUESKY_MAIN_HANDLE"
+      env_password_key: "BLUESKY_MAIN_APP_PASSWORD"
+      daily_limit: 50                    # AT Protocol generous limits
+      niches: ["all"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  mastodon:
+    - account_id: "masto_main"
+      display_name: "Main Mastodon"
+      env_token_key: "MASTODON_MAIN_ACCESS_TOKEN"
+      env_instance_url_key: "MASTODON_MAIN_INSTANCE_URL"
+      daily_limit: 50
+      niches: ["all"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  quora:
+    - account_id: "quora_main"
+      display_name: "Main Quora"
+      env_token_key: "QUORA_MAIN_SESSION_COOKIE"
+      env_formkey_key: "QUORA_MAIN_FORMKEY"
+      daily_limit: 5                     # Very conservative  no official API
+      niches: ["plant-based", "nutrition", "wellness"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  medium:
+    - account_id: "medium_main"
+      display_name: "Main Medium"
+      env_token_key: "MEDIUM_MAIN_ACCESS_TOKEN"
+      daily_limit: 3                     # Quality over quantity
+      niches: ["plant-based", "superfoods", "nutrition-science"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  tumblr:
+    - account_id: "tumblr_main"
+      display_name: "Main Tumblr"
+      env_token_key: "TUMBLR_MAIN_ACCESS_TOKEN"
+      env_blog_name_key: "TUMBLR_MAIN_BLOG_NAME"
+      daily_limit: 50                    # Tumblr allows up to 250/day
+      niches: ["plant-based", "organic-skincare", "wellness"]
+      warm_up: false
+      priority: 1
+      status: "active"
+
+  # 
+  # TIER 4  E-commerce / Emerging
+  # 
+
+  lemon8:
+    - account_id: "lemon8_main"
+      display_name: "Main Lemon8"
+      env_token_key: "LEMON8_MAIN_ACCESS_TOKEN"
+      env_session_key: "LEMON8_MAIN_SESSION_COOKIE"
+      daily_limit: 10                    # Conservative  limited API
+      niches: ["plant-based", "wellness", "organic-skincare"]
+      categories: ["food", "lifestyle", "wellness"]
+      warm_up: true
+      warm_up_days_remaining: 14
+      priority: 1
+      status: "warming_up"
+
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# Routing Strategy
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+  shopify_blog:
+    accounts:
+      - account_id: shopify_main
+        env_token_key: SHOPIFY_ACCESS_TOKEN
+        env_shop_key: SHOPIFY_SHOP
+        env_blog_id_key: SHOPIFY_BLOG_ID
+        daily_limit: 10
+        niches: ["all"]             # Blog covers all niches
+        warm_up: false
+        priority: 1
+        posting_via: "direct_api"   # ViralOps -> Shopify Admin REST API
+        note: "REAL publisher - Admin REST API with X-Shopify-Access-Token"
+routing:
+  strategy: "smart"                      # smart | round_robin | random | priority_only
+  # Smart routing considers: niche affinity > health > remaining quota > priority
+
+  # If account flagged, how long to pause before retry
+  flag_cooldown_hours: 72
+
+  # If all accounts for a platform are exhausted/flagged
+  fallback_action: "skip_and_alert"      # skip_and_alert | queue_for_tomorrow | human_review
+
+  # Warm-up schedule for new accounts
+  warm_up:
+    day_1_to_3: 2                        # posts/day
+    day_4_to_7: 5
+    day_8_to_14: 10
+    day_15_plus: "normal"                # Use account's daily_limit
+
+  # Anti-pattern detection
+  anti_pattern:
+    max_posts_per_hour_per_account: 2    # Never burst
+    min_spacing_minutes: 15              # Min gap between posts same account
+    vary_posting_times: true             # Don't post at exact same time daily
+    cross_account_spacing_minutes: 5     # Gap between different accounts same platform

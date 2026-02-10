@@ -1,0 +1,108 @@
+# Cost Budget Configuration — ViralOps Engine
+# Model hierarchy + budget tiers + tracking
+
+# ═══════════════════════════════════════════
+# MODEL HIERARCHY (2026)
+# ═══════════════════════════════════════════
+models:
+  tier_1:
+    name: "gpt-4.1"
+    provider: "openai"
+    use_when: "budget_healthy"
+    cost_per_1k_input_tokens: 0.002
+    cost_per_1k_output_tokens: 0.008
+    max_context: 1048576
+    strengths: ["content_quality", "multilingual", "code"]
+    
+  tier_2:
+    name: "gpt-4.1-mini"
+    provider: "openai"
+    use_when: "budget_moderate"
+    cost_per_1k_input_tokens: 0.0004
+    cost_per_1k_output_tokens: 0.0016
+    max_context: 1048576
+    strengths: ["speed", "cost_effective", "production"]
+    
+  tier_3:
+    name: "llama-4-maverick"
+    provider: "self_hosted"
+    use_when: "budget_tight"
+    cost_per_1k_input_tokens: 0.0001
+    cost_per_1k_output_tokens: 0.0004
+    max_context: 131072
+    strengths: ["open_source", "self_hosted", "privacy"]
+    
+  tier_4:
+    name: "qwen3-flash"
+    provider: "self_hosted"
+    use_when: "budget_critical"
+    cost_per_1k_input_tokens: 0.00005
+    cost_per_1k_output_tokens: 0.0002
+    max_context: 32768
+    strengths: ["ultra_budget", "air_gapped"]
+
+# ═══════════════════════════════════════════
+# BUDGET TIERS
+# ═══════════════════════════════════════════
+budget_tiers:
+  healthy:
+    threshold_percent: 50           # >50% budget remaining
+    model: "gpt-4.1"
+    features: ["full_quality", "image_gen", "a_b_test"]
+    
+  moderate:
+    threshold_percent: 20           # 20-50% remaining
+    model: "gpt-4.1-mini"
+    features: ["standard_quality", "image_gen"]
+    
+  tight:
+    threshold_percent: 5            # 5-20% remaining
+    model: "llama-4-maverick"
+    features: ["basic_quality"]
+    
+  critical:
+    threshold_percent: 0            # <5% remaining
+    model: "qwen3-flash"
+    features: ["minimal"]
+    
+  empty:
+    threshold_percent: -1           # 0%
+    model: null
+    features: []
+    action: "STOP_AND_REPORT"
+
+# ═══════════════════════════════════════════
+# MONTHLY BUDGET DEFAULTS
+# ═══════════════════════════════════════════
+monthly_budget:
+  default_usd: 100.00
+  alert_at_percent: 80
+  hard_stop_at_percent: 95
+  
+  breakdown:
+    content_generation: 0.50        # 50% for LLM content
+    image_generation: 0.25          # 25% for image/video
+    research_scraping: 0.15         # 15% for TikTok MCP, trend research
+    monitoring_misc: 0.10           # 10% for monitoring, alerts
+
+# ═══════════════════════════════════════════
+# COST TRACKING
+# ═══════════════════════════════════════════
+tracking:
+  metrics:
+    - tokens_used
+    - latency_ms
+    - tool_calls
+    - cost_usd
+    - posts_created
+    - posts_published
+    - images_generated
+  
+  granularity: "per_content_pack"   # Track cost per content pack
+  report_frequency: "daily"
+  
+  per_content_pack_budget:
+    max_tokens: 15000
+    max_latency_ms: 30000
+    max_tool_calls: 10
+    max_cost_usd: 0.50

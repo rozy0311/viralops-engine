@@ -1,0 +1,296 @@
+﻿# Platform Configuration â€” ViralOps Engine
+# Each platform: character limits, format rules, rate limits, auth method
+
+platforms:
+  tiktok:
+    display_name: "TikTok"
+    max_caption_chars: 2200
+    max_hashtags: 8
+    optimal_hashtags: 5
+    video_ratios: ["9:16"]
+    max_video_duration_sec: 600
+    rate_limit_per_24h: 25
+    auth_method: "oauth"            # TikTok Content Posting API (OAuth2)
+    posting_via: "direct_oauth"     # ViralOps â†’ TikTok API directly
+    trend_research: "built_in"      # Internal trend researcher (no Gumloop)
+    content_rules:
+      transform_minimum: 0.70
+      no_celeb_voice: true
+      spacing_hours: 24
+    risk_level: "high"
+
+  instagram_reels:
+    display_name: "Instagram Reels"
+    max_caption_chars: 2200
+    max_hashtags: 30
+    optimal_hashtags: 10
+    video_ratios: ["9:16", "1:1"]
+    max_video_duration_sec: 90
+    rate_limit_per_24h: 25
+    auth_method: "oauth"
+    posting_via: "direct_oauth"     # ViralOps â†’ Instagram Graph API
+    content_rules:
+      transform_minimum: 0.70
+      spacing_hours: 12
+    risk_level: "high"
+
+  instagram_feed:
+    display_name: "Instagram Feed"
+    max_caption_chars: 2200
+    max_hashtags: 30
+    optimal_hashtags: 15
+    image_ratios: ["1:1", "4:5"]
+    rate_limit_per_24h: 25
+    auth_method: "oauth"
+    posting_via: "direct_oauth"     # ViralOps â†’ Instagram Graph API
+    content_rules:
+      transform_minimum: 0.70
+      spacing_hours: 12
+    risk_level: "medium"
+
+  facebook_reels:
+    display_name: "Facebook Reels"
+    max_caption_chars: 5000
+    max_hashtags: 30
+    optimal_hashtags: 5
+    video_ratios: ["9:16"]
+    max_video_duration_sec: 90
+    rate_limit_per_24h: 50
+    auth_method: "oauth"
+    posting_via: "direct_oauth"     # ViralOps â†’ Facebook Graph API
+    content_rules:
+      transform_minimum: 0.60
+      spacing_hours: 8
+    risk_level: "medium"
+
+  youtube_shorts:
+    display_name: "YouTube Shorts"
+    max_title_chars: 100
+    max_description_chars: 5000
+    max_hashtags: 5
+    optimal_hashtags: 3
+    video_ratios: ["9:16"]
+    max_video_duration_sec: 60
+    rate_limit_per_24h: 6
+    auth_method: "oauth"
+    posting_via: "direct_oauth"     # ViralOps â†’ YouTube Data API v3
+    content_rules:
+      transform_minimum: 0.80
+      spacing_hours: 24
+    risk_level: "high"
+
+  pinterest:
+    display_name: "Pinterest"
+    max_caption_chars: 500
+    max_hashtags: 20
+    optimal_hashtags: 5
+    image_ratios: ["2:3", "1:1"]
+    rate_limit_per_24h: 100
+    auth_method: "oauth"
+    posting_via: "direct_oauth"     # ViralOps â†’ Pinterest API v5
+    content_rules:
+      transform_minimum: 0.50
+      spacing_hours: 4
+    risk_level: "low"
+
+  linkedin:
+    display_name: "LinkedIn"
+    max_caption_chars: 3000
+    max_hashtags: 5
+    optimal_hashtags: 3
+    video_ratios: ["1:1", "16:9"]
+    image_ratios: ["1:1", "16:9"]
+    rate_limit_per_24h: 50
+    auth_method: "oauth"
+    posting_via: "direct_oauth"     # ViralOps â†’ LinkedIn Marketing API
+    content_rules:
+      transform_minimum: 0.60
+      spacing_hours: 12
+    risk_level: "low"
+
+  twitter_x:
+    display_name: "Twitter/X"
+    max_caption_chars: 280
+    max_hashtags: 5
+    optimal_hashtags: 2
+    video_ratios: ["16:9", "1:1"]
+    image_ratios: ["16:9", "1:1"]
+    rate_limit_per_24h: 50
+    auth_method: "oauth"
+    posting_via: "direct_oauth"     # ViralOps â†’ Twitter/X API v2
+    content_rules:
+      transform_minimum: 0.50
+      spacing_hours: 4
+    risk_level: "low"
+
+
+  # 
+  # TIER 2  Niche-specific, high-engagement
+  # 
+
+  reddit:
+    display_name: "Reddit"
+    max_title_chars: 300
+    max_body_chars: 40000
+    max_hashtags: 0                     # Reddit uses flairs, not hashtags
+    optimal_hashtags: 0
+    content_types: ["text", "link", "image", "video"]
+    rate_limit_per_24h: 100             # Generous but karma-dependent
+    auth_method: "oauth"
+    posting_via: "direct_oauth"         # ViralOps  Reddit OAuth2 API
+    content_rules:
+      transform_minimum: 0.80          # Reddit hates reposts
+      no_self_promo_ratio: 0.10        # Max 10% self-promotion
+      subreddit_rules_check: true      # Must comply with subreddit rules
+      spacing_hours: 4
+    risk_level: "high"                  # Reddit bans aggressively
+
+  threads:
+    display_name: "Threads (Meta)"
+    max_caption_chars: 500
+    max_hashtags: 5
+    optimal_hashtags: 3
+    content_types: ["text", "image", "video", "carousel"]
+    video_ratios: ["9:16", "1:1"]
+    max_video_duration_sec: 300
+    rate_limit_per_24h: 50
+    auth_method: "oauth"
+    posting_via: "direct_oauth"         # ViralOps  Threads Publishing API
+    content_rules:
+      transform_minimum: 0.60
+      spacing_hours: 6
+    risk_level: "medium"
+
+  bluesky:
+    display_name: "Bluesky"
+    max_caption_chars: 300
+    max_hashtags: 0                     # No formal hashtag system (use inline)
+    optimal_hashtags: 0
+    content_types: ["text", "image"]    # Up to 4 images per post
+    max_images_per_post: 4
+    rate_limit_per_24h: 200             # AT Protocol is generous
+    auth_method: "app_password"         # AT Protocol session auth
+    posting_via: "direct_oauth"         # ViralOps  AT Protocol API
+    content_rules:
+      transform_minimum: 0.50
+      spacing_hours: 2
+    risk_level: "low"                   # Open protocol, very lenient
+
+  mastodon:
+    display_name: "Mastodon"
+    max_caption_chars: 500
+    max_hashtags: 10
+    optimal_hashtags: 5
+    content_types: ["text", "image", "video", "poll"]
+    max_media_per_post: 4
+    max_video_duration_sec: 300
+    rate_limit_per_24h: 300             # Instance-dependent, generally lenient
+    auth_method: "oauth"
+    posting_via: "direct_oauth"         # ViralOps  Mastodon REST API
+    content_rules:
+      transform_minimum: 0.50
+      spacing_hours: 2
+      use_content_warnings: true       # CW for sensitive content
+    risk_level: "low"                   # Federated, instance-dependent
+
+  quora:
+    display_name: "Quora"
+    max_answer_chars: 10000
+    max_hashtags: 0                     # Quora uses topics, not hashtags
+    optimal_hashtags: 0
+    content_types: ["answer", "space_post"]
+    rate_limit_per_24h: 20              # Conservative  no official API
+    auth_method: "session_cookie"       # No official OAuth  web session
+    posting_via: "web_api"              # Internal GraphQL API
+    content_rules:
+      transform_minimum: 0.90          # Quora demands original content
+      must_answer_question: true       # Must be relevant to question
+      spacing_hours: 12
+    risk_level: "high"                  # No official API  ban risk
+
+  medium:
+    display_name: "Medium"
+    max_title_chars: 100
+    max_body_chars: 100000              # Long-form articles
+    max_tags: 5                         # Medium calls them "tags"
+    optimal_tags: 3
+    content_types: ["article"]
+    content_formats: ["html", "markdown"]
+    rate_limit_per_24h: 10              # Quality over quantity
+    auth_method: "integration_token"
+    posting_via: "direct_oauth"         # ViralOps  Medium REST API
+    content_rules:
+      transform_minimum: 0.90          # Medium penalizes duplicate content
+      min_word_count: 300               # Short posts get poor distribution
+      spacing_hours: 24
+    risk_level: "medium"
+
+  tumblr:
+    display_name: "Tumblr"
+    max_caption_chars: 4096
+    max_hashtags: 30
+    optimal_hashtags: 10
+    content_types: ["text", "photo", "video", "link", "quote", "audio"]
+    rate_limit_per_24h: 250             # 250 posts/day API limit
+    auth_method: "oauth"
+    posting_via: "direct_oauth"         # ViralOps  Tumblr API v2
+    content_rules:
+      transform_minimum: 0.50
+      use_npf_format: true              # Neue Post Format for rich content
+      spacing_hours: 2
+    risk_level: "low"
+
+  # 
+  # TIER 4  E-commerce / Emerging
+  # 
+
+  lemon8:
+    display_name: "Lemon8 (ByteDance)"
+    max_title_chars: 100
+    max_caption_chars: 2200
+    max_hashtags: 10
+    optimal_hashtags: 5
+    content_types: ["photo_carousel", "text"]    # Pinterest-meets-Instagram
+    max_images_per_carousel: 20
+    rate_limit_per_24h: 20              # Conservative  limited API
+    auth_method: "none"                 # MOBILE-ONLY: no API, post from phone app
+    posting_via: "mobile_manual"        # ViralOps prepares draft -> Telegram -> phone
+    categories:
+      - lifestyle
+      - beauty
+      - food
+      - travel
+      - fashion
+      - wellness
+    content_rules:
+      transform_minimum: 0.70
+      photo_quality_min: "720p"
+      spacing_hours: 8
+    risk_level: "medium"                # Limited API  may change
+
+  shopify_blog:
+    display_name: "Shopify Blog"
+    max_title_chars: 255
+    max_body_chars: 65535           # HTML body, virtually unlimited
+    content_types: ["article"]
+    rate_limit_per_24h: 100         # Shopify: 2 req/sec = generous for articles
+    auth_method: "admin_api_token"  # X-Shopify-Access-Token header
+    posting_via: "direct_api"       # ViralOps direct Shopify Admin REST API
+    api_version: "2025-01"
+    supports:
+      - html_body
+      - featured_image
+      - tags
+      - seo_metafields
+      - drafts
+      - scheduling
+    content_rules:
+      transform_minimum: 0.80      # Higher for blog SEO (avoid duplicate content)
+      spacing_hours: 4
+    risk_level: "low"               # Well-documented, stable API
+# Global settings
+global:
+  max_same_content_platforms: 3     # Don't post identical content on >3 platforms
+  default_spacing_hours: 24
+  default_transform_minimum: 0.70
+  jitter_range_minutes: [5, 30]     # Random delay to avoid detection patterns

@@ -1,0 +1,241 @@
+{
+  "_schema": {
+    "version": "2.0",
+    "description": "Universal Caption Templates — from Micro Niche Blogs spec",
+    "formula": "[LOCATION] [SEASON] [PAIN POINT] emoji → [AUDIENCE 1-3]? → [PRODUCT/SOLUTION] 3 steps → CTA → Micro keywords → Hashtags"
+  },
+  "universal": {
+    "plant_based": {
+      "hooks": [
+        "You've been eating {title} WRONG — here's 3 fixes",
+        "This {key_fact} about {title} changes EVERYTHING",
+        "Stop wasting money on {title} — try THIS",
+        "I ate {title} for 30 days — here's what happened",
+        "{hook} — and nobody talks about it"
+      ],
+      "cta": [
+        "💾 Save this for later! Follow for more {niche} tips.",
+        "📌 Share with someone who needs this!",
+        "👇 Drop a 🔥 if you learned something new!",
+        "🔗 Link in bio for full recipe/guide!",
+        "💬 Comment what you want me to cover next!"
+      ],
+      "closings": [
+        "Start small. One change today = big results tomorrow. 🌱",
+        "Your body will thank you. 💚",
+        "Tag a friend who needs to see this! 👇",
+        "The journey starts with one step. Let's go! 🚀"
+      ],
+      "platform_specific": {
+        "tiktok": {
+          "format": "hook→3steps→result→cta",
+          "max_hashtags": 8
+        },
+        "instagram": {
+          "format": "hook→story→3steps→cta→hashtags",
+          "max_hashtags": 5,
+          "strategy": "5_highest_search"
+        },
+        "facebook": {
+          "format": "question→story→value→cta",
+          "max_hashtags": 5
+        },
+        "youtube": {
+          "format": "SEO_title→chapters→description→tags",
+          "max_hashtags": 15
+        },
+        "pinterest": {
+          "format": "how-to→steps→link",
+          "max_hashtags": 20
+        },
+        "linkedin": {
+          "format": "insight→data→takeaway→question",
+          "max_hashtags": 5
+        },
+        "twitter": {
+          "format": "hook→thread→cta",
+          "max_hashtags": 3
+        }
+      }
+    }
+  },
+  "niche_hooks": {
+    "raw_almonds": {
+      "hooks": [
+        "How to activate almonds for 3x more nutrients",
+        "Almonds vs almond butter — which is healthier?",
+        "Stop buying almond milk — make THIS instead",
+        "The almond mistake 90% of people make",
+        "Raw almonds changed my skin in 14 days"
+      ],
+      "micro_keywords": "raw almonds • activated almonds • almond nutrition",
+      "persona": "Health-conscious parent, 25-40, wants clean snacking"
+    },
+    "chickpeas": {
+      "hooks": [
+        "3-minute chickpea snack that replaced my chips",
+        "Why soaking chickpeas overnight is NON-NEGOTIABLE",
+        "Chickpea flour — the gluten-free secret weapon",
+        "I meal-prepped chickpeas 5 ways — here's the best",
+        "The chickpea protein myth DEBUNKED"
+      ],
+      "micro_keywords": "chickpeas • chickpea recipes • plant protein",
+      "persona": "Budget-conscious meal prepper, 22-35"
+    },
+    "quinoa": {
+      "hooks": [
+        "You're cooking quinoa wrong — here's the fix",
+        "Quinoa vs rice — the nutrition breakdown",
+        "5-minute quinoa bowl that keeps me full for hours",
+        "The bitter quinoa problem (and how to fix it)",
+        "Quinoa for beginners — avoid these 3 mistakes"
+      ],
+      "micro_keywords": "quinoa • quinoa recipes • complete protein",
+      "persona": "Fitness enthusiast, 25-40, tracking macros"
+    },
+    "chia_seeds": {
+      "hooks": [
+        "Chia pudding in 2 minutes — better than store-bought",
+        "Chia seeds for weight loss — does it actually work?",
+        "I added chia to EVERYTHING for a week",
+        "The overnight chia hack that saves me $50/month",
+        "Chia vs flax — which omega-3 source wins?"
+      ],
+      "micro_keywords": "chia seeds • chia pudding • omega 3 seeds",
+      "persona": "Wellness-focused millennial, into meal prep"
+    },
+    "flaxseeds": {
+      "hooks": [
+        "Ground vs whole flaxseed — you're choosing wrong",
+        "The flaxseed egg replacement that actually works",
+        "Flaxseed for hormones — what the research says",
+        "3 ways to sneak flaxseed into every meal",
+        "Flaxseed oil vs seeds — which should you buy?"
+      ],
+      "micro_keywords": "flaxseeds • ground flaxseed • flax egg",
+      "persona": "Women 30-50, hormone health focus"
+    },
+    "overnight_oats": {
+      "hooks": [
+        "5 overnight oats recipes — prep Sunday, eat all week",
+        "Overnight oats vs cooked oats — nutrition face-off",
+        "The overnight oats mistake that makes them mushy",
+        "Zero-sugar overnight oats that taste like dessert",
+        "I replaced breakfast with overnight oats for 30 days"
+      ],
+      "micro_keywords": "overnight oats • meal prep breakfast • oat recipes",
+      "persona": "Busy professional, 25-35, wants quick healthy breakfast"
+    },
+    "lentils": {
+      "hooks": [
+        "Red vs green vs black lentils — which to use when",
+        "The 15-minute lentil soup that feeds a family of 4",
+        "Lentils are the CHEAPEST source of plant protein",
+        "How to cook lentils perfectly every time",
+        "Lentil meal prep — 5 meals for under $10"
+      ],
+      "micro_keywords": "lentils • lentil soup • cheap protein",
+      "persona": "Budget-conscious family cook, 28-45"
+    },
+    "indoor_gardening": {
+      "hooks": [
+        "Grow herbs indoors with ZERO sunlight — here's how",
+        "5 vegetables you can grow in your apartment",
+        "The indoor garden setup that costs under $20",
+        "Stop killing your indoor plants — 3 rules",
+        "From seed to harvest in 30 days — apartment edition"
+      ],
+      "micro_keywords": "indoor gardening • apartment garden • grow herbs indoors",
+      "persona": "Apartment dweller, 22-35, wants fresh herbs"
+    },
+    "goya_beans": {
+      "hooks": [
+        "The Goya beans hack that cuts cooking time in half",
+        "Why Goya beans taste different from other brands",
+        "3 Goya bean recipes your abuela would approve",
+        "Goya beans + rice = complete protein — here's why",
+        "Canned vs dry Goya beans — honest comparison"
+      ],
+      "micro_keywords": "goya beans • hispanic cooking • beans and rice",
+      "persona": "Latino/a home cook, 25-50, family meals"
+    },
+    "banana_peel": {
+      "hooks": [
+        "STOP throwing away banana peels — 5 surprising uses",
+        "Banana peel for your garden — free fertilizer hack",
+        "The banana peel smoothie that went viral (is it safe?)",
+        "Banana peel tea for better sleep — does it work?",
+        "Use banana peel to remove splinters — TikTok tested"
+      ],
+      "micro_keywords": "banana peel uses • banana peel hack • zero waste kitchen",
+      "persona": "Zero-waste advocate, 20-35, eco-conscious"
+    },
+    "green_onion_regrow": {
+      "hooks": [
+        "Regrow green onions FOREVER from kitchen scraps",
+        "The water vs soil method — which grows faster?",
+        "Stop buying green onions — infinite supply hack",
+        "Green onion regrow day 1 vs day 14 — time lapse",
+        "5 vegetables you can regrow from scraps"
+      ],
+      "micro_keywords": "regrow green onions • kitchen scraps gardening • zero waste",
+      "persona": "DIY gardener, 20-40, loves kitchen hacks"
+    },
+    "hemp_hearts": {
+      "hooks": [
+        "Hemp hearts — the superfood nobody talks about",
+        "Hemp hearts vs chia seeds — nutritional showdown",
+        "Add hemp hearts to EVERYTHING — here's why",
+        "The hemp heart smoothie bowl that keeps me full until lunch",
+        "Are hemp hearts legal? (Yes, and here's why they're amazing)"
+      ],
+      "micro_keywords": "hemp hearts • hemp seeds • plant protein superfood",
+      "persona": "Health optimizer, 25-40, into superfoods"
+    },
+    "spirulina": {
+      "hooks": [
+        "Spirulina — the green powder that replaced my multivitamin",
+        "How to take spirulina without the horrible taste",
+        "Spirulina smoothie that actually tastes GOOD",
+        "The truth about spirulina detox claims",
+        "Spirulina for energy — 1 week experiment results"
+      ],
+      "micro_keywords": "spirulina • blue green algae • superfood powder",
+      "persona": "Biohacker/wellness enthusiast, 25-45"
+    },
+    "raw_cacao": {
+      "hooks": [
+        "Raw cacao vs cocoa powder — the difference matters",
+        "The raw cacao smoothie that tastes like a milkshake",
+        "Cacao nibs — nature's chocolate chips (but healthier)",
+        "How raw cacao boosts your mood (science-backed)",
+        "Replace chocolate cravings with THIS"
+      ],
+      "micro_keywords": "raw cacao • cacao nibs • healthy chocolate",
+      "persona": "Chocolate lover, 25-40, wants healthier alternatives"
+    }
+  },
+  "universal_caption_template": {
+    "formula": "[LOCATION] [SEASON] [PAIN POINT] [EMOJI] [AUDIENCE 1]? [AUDIENCE 2]? [AUDIENCE 3]? [PRODUCT/SOLUTION] 3 steps → CTA → Micro keywords → Hashtags",
+    "example": {
+      "text": "Chicago Winter struggling to find raw plant-based snacks? ❄️ Busy parents? College students? Gym-goers? Raw almonds 3 minutes: Step 1 — Soak overnight / Step 2 — Dehydrate at 115°F / Result — Crunchy activated almonds with 3x absorption. Full tutorial pinned on my profile! 👇 Micro keywords: raw almonds • activated almonds • almond nutrition. #PlantBased #Chicago #RawAlmonds #HealthySnacks #GymFood #CleanEating #SuperfoodTrend2026",
+      "niche": "raw_almonds",
+      "platform": "instagram"
+    },
+    "fields": {
+      "location": "City/region (e.g., Chicago, Texas, NYC)",
+      "season": "Current season (Spring/Summer/Fall/Winter)",
+      "pain_point": "1-2 sentence problem statement",
+      "season_emoji": "Emoji matching season (🌱☀️🍂❄️)",
+      "audience_1": "Primary audience segment question",
+      "audience_2": "Secondary audience segment question",
+      "audience_3": "Tertiary audience segment question",
+      "product_solution": "The product/solution being presented",
+      "step_1": "First action step",
+      "step_2": "Second action step",
+      "result": "Measurable result with metrics",
+      "micro_keywords": "3 SEO keywords separated by ' • '",
+      "hashtags": "7-layer hashtag string (or 5-cap for Instagram)"
+    }
+  }
+}
