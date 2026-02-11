@@ -69,6 +69,9 @@
     <a href="/time-slots" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'timeslots' %}bg-brand-600 text-white{% endif %}">
       <span>🕐</span> Time Slots
     </a>
+    <a href="/autopilot" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'autopilot' %}bg-brand-600 text-white{% endif %}">
+      <span>🤖</span> Auto-Pilot
+    </a>
     <a href="/platforms" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'platforms' %}bg-brand-600 text-white{% endif %}">
       <span>🔌</span> Platforms
     </a>
@@ -171,15 +174,14 @@
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Create Post</h2>
     <div class="max-w-4xl">
       <div class="bg-white rounded-xl p-6 shadow-sm border">
-        <!-- Platforms -->
+        <!-- Platforms (dynamic 16) -->
         <div class="mb-4">
-          <label class="block text-sm font-medium text-gray-700 mb-2">Platforms</label>
-          <div class="flex flex-wrap gap-2" id="platform-chips">
-            <button type="button" onclick="toggleChip(this,'reddit')" class="chip px-3 py-1.5 rounded-full text-sm border-2 border-orange-300 text-orange-700 hover:bg-orange-50">Reddit</button>
-            <button type="button" onclick="toggleChip(this,'medium')" class="chip px-3 py-1.5 rounded-full text-sm border-2 border-green-300 text-green-700 hover:bg-green-50">Medium</button>
-            <button type="button" onclick="toggleChip(this,'tumblr')" class="chip px-3 py-1.5 rounded-full text-sm border-2 border-blue-300 text-blue-700 hover:bg-blue-50">Tumblr</button>
-            <button type="button" onclick="toggleChip(this,'shopify_blog')" class="chip px-3 py-1.5 rounded-full text-sm border-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50">Shopify Blog</button>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Platforms <span class="text-xs text-gray-400" id="compose-plat-count">(0 selected)</span></label>
+          <div class="flex gap-2 mb-2">
+            <button type="button" onclick="selectAllPlatforms()" class="text-xs bg-brand-100 text-brand-700 px-3 py-1 rounded-full hover:bg-brand-200">Select All Configured</button>
+            <button type="button" onclick="clearAllPlatforms()" class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded-full hover:bg-gray-200">Clear All</button>
           </div>
+          <div class="flex flex-wrap gap-2" id="platform-chips">Loading platforms...</div>
         </div>
 
         <!-- Title -->
@@ -214,28 +216,13 @@
           <input id="post-schedule" type="datetime-local" class="border rounded-lg px-3 py-2 focus:ring-2 focus:ring-brand-500">
         </div>
 
-        <!-- Platform-specific fields -->
-        <div id="extra-fields" class="space-y-4 mb-4">
-          <div id="reddit-fields" class="hidden bg-orange-50 rounded-lg p-4">
-            <h4 class="font-medium text-orange-800 mb-2">Reddit Settings</h4>
-            <input id="reddit-subreddit" placeholder="Subreddit (e.g., plantbaseddiet)" class="w-full border rounded px-3 py-2 mb-2">
-            <input id="reddit-flair" placeholder="Flair ID (optional)" class="w-full border rounded px-3 py-2">
-          </div>
-          <div id="medium-fields" class="hidden bg-green-50 rounded-lg p-4">
-            <h4 class="font-medium text-green-800 mb-2">Medium Settings</h4>
-            <input id="medium-tags" placeholder="Tags (comma-separated)" class="w-full border rounded px-3 py-2 mb-2">
-            <input id="medium-publication" placeholder="Publication ID (optional)" class="w-full border rounded px-3 py-2">
-          </div>
-          <div id="tumblr-fields" class="hidden bg-blue-50 rounded-lg p-4">
-            <h4 class="font-medium text-blue-800 mb-2">Tumblr Settings</h4>
-            <input id="tumblr-blogname" placeholder="Blog name" class="w-full border rounded px-3 py-2 mb-2">
-            <input id="tumblr-tags" placeholder="Tags (comma-separated)" class="w-full border rounded px-3 py-2">
-          </div>
-          <div id="shopify_blog-fields" class="hidden bg-emerald-50 rounded-lg p-4">
-            <h4 class="font-medium text-emerald-800 mb-2">Shopify Blog Settings</h4>
-            <input id="shopify-blog-id" placeholder="Blog ID" class="w-full border rounded px-3 py-2 mb-2">
-            <input id="shopify-tags" placeholder="Tags (comma-separated)" class="w-full border rounded px-3 py-2">
-          </div>
+        <!-- Platform-specific fields (dynamic) -->
+        <div id="extra-fields" class="space-y-4 mb-4"></div>
+
+        <!-- Per-platform character limits -->
+        <div id="compose-limits" class="mb-4 hidden">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Character Limits</label>
+          <div class="flex flex-wrap gap-2 text-xs" id="compose-limit-badges"></div>
         </div>
 
         <!-- Hashtag Selector -->
@@ -262,17 +249,31 @@
 
   <!-- ═══ CONTENT LIBRARY PAGE ═══ -->
   <div class="page {% if page == 'content' %}active{% endif %}" id="page-content">
-    <h2 class="text-2xl font-bold text-gray-800 mb-6">Content Library</h2>
-    <div class="flex gap-2 mb-4">
-      <button onclick="filterPosts('all')" class="px-4 py-1.5 rounded-full text-sm bg-brand-500 text-white">All</button>
-      <button onclick="filterPosts('draft')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300">Drafts</button>
-      <button onclick="filterPosts('scheduled')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300">Scheduled</button>
-      <button onclick="filterPosts('published')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300">Published</button>
-      <button onclick="filterPosts('failed')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300">Failed</button>
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-2xl font-bold text-gray-800">Content Library</h2>
+      <span class="text-sm text-gray-400" id="content-total"></span>
+    </div>
+    <div class="flex justify-between items-center mb-4">
+      <div class="flex gap-2">
+        <button onclick="filterPosts('all')" class="px-4 py-1.5 rounded-full text-sm bg-brand-500 text-white" id="cf-all">All</button>
+        <button onclick="filterPosts('draft')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300" id="cf-draft">Drafts</button>
+        <button onclick="filterPosts('scheduled')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300" id="cf-scheduled">Scheduled</button>
+        <button onclick="filterPosts('published')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300" id="cf-published">Published</button>
+        <button onclick="filterPosts('failed')" class="px-4 py-1.5 rounded-full text-sm bg-gray-200 hover:bg-gray-300" id="cf-failed">Failed</button>
+      </div>
+    </div>
+    <!-- Bulk Actions Bar -->
+    <div id="bulk-bar" class="hidden mb-4 bg-brand-50 rounded-xl p-3 border border-brand-200 flex items-center gap-3">
+      <span class="text-sm font-medium text-brand-700" id="bulk-count">0 selected</span>
+      <button onclick="bulkPublish()" class="text-xs bg-brand-500 text-white px-4 py-1.5 rounded-full hover:bg-brand-600">🚀 Publish Selected</button>
+      <button onclick="bulkDelete()" class="text-xs bg-red-500 text-white px-4 py-1.5 rounded-full hover:bg-red-600">🗑️ Delete Selected</button>
+      <button onclick="bulkSchedule()" class="text-xs bg-blue-500 text-white px-4 py-1.5 rounded-full hover:bg-blue-600">📅 Schedule Selected</button>
+      <button onclick="clearBulk()" class="text-xs text-gray-500 hover:text-gray-700 ml-auto">✕ Clear</button>
     </div>
     <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
       <table class="w-full">
         <thead class="bg-gray-50"><tr>
+          <th class="px-3 py-3 text-center w-10"><input type="checkbox" id="select-all-posts" onchange="toggleSelectAll(this)"></th>
           <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Content</th>
           <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
           <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Platforms</th>
@@ -281,7 +282,7 @@
           <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
         </tr></thead>
         <tbody id="content-table">
-          <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">Loading...</td></tr>
+          <tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -664,6 +665,108 @@
     </div>
   </div>
 
+  <!-- ═══ AUTO-PILOT PAGE ═══ -->
+  <div class="page {% if page == 'autopilot' %}active{% endif %}" id="page-autopilot">
+    <h2 class="text-2xl font-bold text-gray-800 mb-2">🤖 Auto-Pilot</h2>
+    <p class="text-gray-500 text-sm mb-6">Pick a niche → AI generates content → best times → schedule across all platforms → one click.</p>
+
+    <div class="grid grid-cols-3 gap-6">
+      <!-- Step 1: Config -->
+      <div class="col-span-1 space-y-4">
+        <div class="bg-white rounded-xl p-5 shadow-sm border">
+          <h3 class="font-semibold mb-3">① Niche & Topic</h3>
+          <select id="ap-niche" class="w-full border rounded-lg px-3 py-2 mb-3">
+            <option value="plant_based_raw">🥬 Plant-Based Raw</option>
+            <option value="sustainable_living">♻️ Sustainable Living</option>
+            <option value="fitness_wellness">💪 Fitness & Wellness</option>
+            <option value="tech_ai">🤖 Tech & AI</option>
+            <option value="digital_marketing">📈 Digital Marketing</option>
+            <option value="personal_finance">💰 Personal Finance</option>
+            <option value="travel">✈️ Travel</option>
+            <option value="food_cooking">🍳 Food & Cooking</option>
+            <option value="mental_health">🧠 Mental Health</option>
+            <option value="ecommerce">🛒 E-Commerce</option>
+            <option value="general">📝 General</option>
+          </select>
+          <input id="ap-topic" placeholder="Specific topic (optional)" class="w-full border rounded-lg px-3 py-2 mb-3">
+          <div class="text-xs text-gray-400">Leave topic empty for AI to pick a trending angle.</div>
+        </div>
+
+        <div class="bg-white rounded-xl p-5 shadow-sm border">
+          <h3 class="font-semibold mb-3">② Platforms</h3>
+          <div id="ap-platforms" class="space-y-2"></div>
+          <div class="flex gap-2 mt-3">
+            <button onclick="apSelectAll()" class="text-xs bg-brand-100 text-brand-700 px-3 py-1 rounded-full">Select All</button>
+            <button onclick="apClearAll()" class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded-full">Clear</button>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-5 shadow-sm border">
+          <h3 class="font-semibold mb-3">③ Settings</h3>
+          <label class="block text-xs text-gray-500 mb-1">Posts per platform</label>
+          <input id="ap-posts-per" type="number" value="1" min="1" max="5" class="w-full border rounded-lg px-3 py-2 mb-3">
+          <label class="block text-xs text-gray-500 mb-1">UTC offset (your timezone)</label>
+          <input id="ap-utc" type="number" value="7" min="-12" max="14" class="w-full border rounded-lg px-3 py-2 mb-3">
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" id="ap-auto-hashtags" checked> Auto-generate hashtags
+          </label>
+          <label class="flex items-center gap-2 text-sm mt-2">
+            <input type="checkbox" id="ap-best-times" checked> Use best-time scheduling
+          </label>
+        </div>
+
+        <button onclick="runAutoPilot()" class="w-full py-3 bg-gradient-to-r from-brand-500 to-purple-500 text-white rounded-xl font-bold text-lg hover:from-brand-600 hover:to-purple-600 shadow-lg">
+          🚀 Launch Auto-Pilot
+        </button>
+      </div>
+
+      <!-- Step 2: Preview & Results -->
+      <div class="col-span-2 space-y-4">
+        <!-- Progress -->
+        <div id="ap-progress" class="hidden">
+          <div class="bg-white rounded-xl p-5 shadow-sm border">
+            <h3 class="font-semibold mb-3">⚡ Auto-Pilot Progress</h3>
+            <div class="space-y-2" id="ap-steps">
+              <div class="flex items-center gap-3 text-sm" id="ap-step-content"><span class="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs">1</span> Generating content...</div>
+              <div class="flex items-center gap-3 text-sm text-gray-400" id="ap-step-hashtags"><span class="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs">2</span> Generating hashtags...</div>
+              <div class="flex items-center gap-3 text-sm text-gray-400" id="ap-step-schedule"><span class="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs">3</span> Finding best times...</div>
+              <div class="flex items-center gap-3 text-sm text-gray-400" id="ap-step-save"><span class="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs">4</span> Saving & scheduling posts...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Generated Content Preview -->
+        <div id="ap-result" class="hidden">
+          <div class="bg-white rounded-xl p-5 shadow-sm border mb-4">
+            <h3 class="font-semibold mb-3">📝 Generated Content</h3>
+            <div class="space-y-3">
+              <div><label class="text-xs text-gray-500">Title</label><p class="font-medium" id="ap-gen-title"></p></div>
+              <div><label class="text-xs text-gray-500">Body</label><p class="text-sm whitespace-pre-wrap bg-gray-50 rounded-lg p-3" id="ap-gen-body"></p></div>
+              <div><label class="text-xs text-gray-500">Hashtags</label><div class="flex flex-wrap gap-1" id="ap-gen-tags"></div></div>
+            </div>
+          </div>
+          <div class="bg-white rounded-xl p-5 shadow-sm border mb-4">
+            <h3 class="font-semibold mb-3">📅 Schedule Plan</h3>
+            <div class="space-y-2" id="ap-schedule-list"></div>
+          </div>
+          <div class="flex gap-3">
+            <button onclick="apConfirmPublish()" class="px-6 py-2.5 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600">✅ Confirm & Schedule All</button>
+            <button onclick="apEditAndPublish()" class="px-6 py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600">✏️ Edit in Compose</button>
+            <button onclick="apRegenerate()" class="px-6 py-2.5 bg-gray-500 text-white rounded-lg font-medium hover:bg-gray-600">🔄 Regenerate</button>
+          </div>
+        </div>
+
+        <!-- Empty state -->
+        <div id="ap-empty" class="bg-white rounded-xl p-12 shadow-sm border text-center">
+          <div class="text-6xl mb-4">🤖</div>
+          <h3 class="text-xl font-bold text-gray-700 mb-2">Ready for Auto-Pilot</h3>
+          <p class="text-gray-400">Configure your niche, select platforms, and click Launch.</p>
+          <p class="text-gray-400 text-sm mt-2">AI will generate content, pick optimal posting times, and schedule everything automatically.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ LIVE PREVIEW PAGE ═══ -->
   <div class="page {% if page == 'preview' %}active{% endif %}" id="page-preview">
     <h2 class="text-2xl font-bold text-gray-800 mb-6">👁️ Live Post Preview</h2>
@@ -806,14 +909,102 @@ function toast(msg, type='info') {
   setTimeout(() => el.remove(), 3000);
 }
 
-// ── Platform Chips ──
+// ── Platform Chips (dynamic 16) ──
+const PLAT_CHIP_COLORS = {
+  twitter:'sky', instagram:'pink', facebook:'indigo', youtube:'red', linkedin:'blue',
+  tiktok:'gray', pinterest:'rose', reddit:'orange', medium:'green', tumblr:'blue',
+  threads:'gray', bluesky:'cyan', mastodon:'violet', quora:'red', shopify_blog:'emerald', lemon8:'lime'
+};
+
+const PLAT_EXTRA_FIELDS = {
+  reddit: [{id:'reddit-subreddit',ph:'Subreddit (e.g., plantbaseddiet)'},{id:'reddit-flair',ph:'Flair ID (optional)'}],
+  medium: [{id:'medium-tags',ph:'Tags (comma-separated)'},{id:'medium-publication',ph:'Publication ID (optional)'}],
+  tumblr: [{id:'tumblr-blogname',ph:'Blog name'},{id:'tumblr-tags',ph:'Tags (comma-separated)'}],
+  shopify_blog: [{id:'shopify-blog-id',ph:'Blog ID'},{id:'shopify-tags',ph:'Tags (comma-separated)'}],
+  twitter: [{id:'twitter-thread',ph:'Thread mode? (yes/no)'}],
+  instagram: [{id:'instagram-location',ph:'Location tag (optional)'}],
+  linkedin: [{id:'linkedin-visibility',ph:'Visibility: public / connections'}],
+  facebook: [{id:'facebook-page-id',ph:'Page ID (optional)'}],
+  tiktok: [{id:'tiktok-sounds',ph:'Sound/music ID (optional)'}],
+  pinterest: [{id:'pinterest-board',ph:'Board name'},{id:'pinterest-link',ph:'Destination URL'}],
+  threads: [{id:'threads-reply',ph:'Reply to thread ID (optional)'}],
+  bluesky: [{id:'bluesky-langs',ph:'Languages (e.g., en)'}],
+  mastodon: [{id:'mastodon-visibility',ph:'Visibility: public / unlisted / private'}],
+  quora: [{id:'quora-space',ph:'Space name (optional)'}],
+  lemon8: [{id:'lemon8-tags',ph:'Tags (comma-separated)'}],
+};
+
+async function loadComposeChips() {
+  try {
+    const r = await fetch('/api/platforms/setup-status');
+    const d = await r.json();
+    const chipsEl = document.getElementById('platform-chips');
+    if (!chipsEl) return;
+    chipsEl.innerHTML = Object.entries(d.platforms).map(([name, info]) => {
+      const icon = PLAT_ICONS[name] || '🔗';
+      const col = PLAT_CHIP_COLORS[name] || 'gray';
+      const configured = info.configured;
+      return `<button type="button" onclick="toggleChip(this,'${name}')" class="chip px-3 py-1.5 rounded-full text-sm border-2 border-${col}-300 text-${col}-700 hover:bg-${col}-50 ${!configured?'opacity-40':''}" title="${configured?'Ready':'Not configured — set env keys first'}" data-platform="${name}" data-configured="${configured}">${icon} ${name.replace('_',' ')}</button>`;
+    }).join('');
+  } catch(e) { console.error('loadComposeChips error', e); }
+}
+
 function toggleChip(btn, platform) {
   const idx = selectedPlatforms.indexOf(platform);
   if (idx >= 0) { selectedPlatforms.splice(idx,1); btn.classList.remove('bg-brand-100','border-brand-500','font-bold'); }
   else { selectedPlatforms.push(platform); btn.classList.add('bg-brand-100','border-brand-500','font-bold'); }
-  // Show/hide platform-specific fields
-  document.querySelectorAll('#extra-fields > div').forEach(d => d.classList.add('hidden'));
-  selectedPlatforms.forEach(p => { const f=document.getElementById(p+'-fields'); if(f) f.classList.remove('hidden'); });
+  document.getElementById('compose-plat-count').textContent = `(${selectedPlatforms.length} selected)`;
+  renderExtraFields();
+  renderComposeLimits();
+}
+
+function selectAllPlatforms() {
+  document.querySelectorAll('#platform-chips .chip[data-configured="true"]').forEach(btn => {
+    const p = btn.dataset.platform;
+    if (!selectedPlatforms.includes(p)) { selectedPlatforms.push(p); btn.classList.add('bg-brand-100','border-brand-500','font-bold'); }
+  });
+  document.getElementById('compose-plat-count').textContent = `(${selectedPlatforms.length} selected)`;
+  renderExtraFields();
+  renderComposeLimits();
+}
+
+function clearAllPlatforms() {
+  selectedPlatforms = [];
+  document.querySelectorAll('#platform-chips .chip').forEach(btn => btn.classList.remove('bg-brand-100','border-brand-500','font-bold'));
+  document.getElementById('compose-plat-count').textContent = '(0 selected)';
+  renderExtraFields();
+  renderComposeLimits();
+}
+
+function renderExtraFields() {
+  const container = document.getElementById('extra-fields');
+  if (!container) return;
+  container.innerHTML = selectedPlatforms.filter(p => PLAT_EXTRA_FIELDS[p]).map(p => {
+    const icon = PLAT_ICONS[p] || '🔗';
+    const col = PLAT_CHIP_COLORS[p] || 'gray';
+    const fields = PLAT_EXTRA_FIELDS[p];
+    return `<div class="bg-${col}-50 rounded-lg p-4">
+      <h4 class="font-medium text-${col}-800 mb-2">${icon} ${p.replace('_',' ')} Settings</h4>
+      ${fields.map(f => `<input id="${f.id}" placeholder="${f.ph}" class="w-full border rounded px-3 py-2 mb-2">`).join('')}
+    </div>`;
+  }).join('');
+}
+
+function renderComposeLimits() {
+  const container = document.getElementById('compose-limits');
+  const badges = document.getElementById('compose-limit-badges');
+  if (!container || !badges) return;
+  if (selectedPlatforms.length === 0) { container.classList.add('hidden'); return; }
+  container.classList.remove('hidden');
+  const body = document.getElementById('post-body')?.value || '';
+  const title = document.getElementById('post-title')?.value || '';
+  const len = title.length + body.length;
+  badges.innerHTML = selectedPlatforms.map(p => {
+    const limit = PLATFORM_LIMITS[p] || 10000;
+    const pct = Math.round(len / limit * 100);
+    const color = pct > 100 ? 'bg-red-100 text-red-700' : pct > 80 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700';
+    return `<span class="px-2 py-0.5 rounded-full ${color}">${PLAT_ICONS[p]||'🔗'} ${p}: ${len}/${limit}</span>`;
+  }).join('');
 }
 
 // ── Character count ──
@@ -832,11 +1023,12 @@ document.addEventListener('DOMContentLoaded', () => {
     else if(page.id==='page-analytics') loadAnalytics();
     else if(page.id==='page-rss') loadRSSFeeds();
     else if(page.id==='page-hashtags') loadHashtagCollections();
-    else if(page.id==='page-compose') loadHashtagSelector();
+    else if(page.id==='page-compose') { loadComposeChips(); loadHashtagSelector(); }
     else if(page.id==='page-platforms') loadPlatforms();
     else if(page.id==='page-engagement') loadEngagement();
     else if(page.id==='page-timeslots') loadBestHours();
     else if(page.id==='page-preview') updatePreviews();
+    else if(page.id==='page-autopilot') loadAutoPilotPlatforms();
   }
   // Always load sidebar channels
   loadSidebarChannels();
@@ -892,11 +1084,20 @@ async function triggerScheduler() {
 // ── Save Post ──
 function gatherExtra() {
   const extra = {};
-  if(selectedPlatforms.includes('reddit')) extra.reddit = {subreddit:document.getElementById('reddit-subreddit')?.value||'', flair_id:document.getElementById('reddit-flair')?.value||''};
-  if(selectedPlatforms.includes('medium')) extra.medium = {tags:(document.getElementById('medium-tags')?.value||'').split(',').map(t=>t.trim()).filter(Boolean), publication_id:document.getElementById('medium-publication')?.value||''};
-  if(selectedPlatforms.includes('tumblr')) extra.tumblr = {blog_name:document.getElementById('tumblr-blogname')?.value||'', tags:(document.getElementById('tumblr-tags')?.value||'').split(',').map(t=>t.trim()).filter(Boolean)};
-  if(selectedPlatforms.includes('shopify_blog')) extra.shopify_blog = {blog_id:document.getElementById('shopify-blog-id')?.value||'', tags:(document.getElementById('shopify-tags')?.value||'').split(',').map(t=>t.trim()).filter(Boolean)};
-  if(selectedHashtags.length) extra.hashtags = selectedHashtags;
+  // Dynamically gather from all platform field definitions
+  selectedPlatforms.forEach(p => {
+    const fields = PLAT_EXTRA_FIELDS[p];
+    if (!fields) return;
+    const platExtra = {};
+    fields.forEach(f => {
+      const val = document.getElementById(f.id)?.value || '';
+      const key = f.id.replace(p + '-', '').replace(/-/g, '_');
+      if (f.ph.includes('comma-separated') && val) platExtra[key] = val.split(',').map(t => t.trim()).filter(Boolean);
+      else platExtra[key] = val;
+    });
+    extra[p] = platExtra;
+  });
+  if (selectedHashtags.length) extra.hashtags = selectedHashtags;
   return extra;
 }
 
@@ -939,19 +1140,26 @@ async function publishNow() {
 }
 
 // ── Content Library ──
+let bulkSelected = new Set();
+
 async function filterPosts(status) {
+  bulkSelected.clear();
+  updateBulkBar();
   try {
     const posts = await fetch(`/api/posts?status=${status}`).then(r=>r.json());
     const el = document.getElementById('content-table');
-    if(posts.length===0) { el.innerHTML='<tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No posts found</td></tr>'; return; }
+    const totalEl = document.getElementById('content-total');
+    if (totalEl) totalEl.textContent = `${posts.length} posts`;
+    if(posts.length===0) { el.innerHTML='<tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">No posts found</td></tr>'; return; }
     el.innerHTML = posts.map(p => {
       let platforms = [];
       try { platforms = JSON.parse(p.platforms||'[]'); } catch(e) {}
       const statusColors = {draft:'bg-gray-100 text-gray-700',scheduled:'bg-blue-100 text-blue-700',published:'bg-green-100 text-green-700',failed:'bg-red-100 text-red-700'};
       return `<tr class="border-t hover:bg-gray-50">
+        <td class="px-3 py-3 text-center"><input type="checkbox" class="post-checkbox" value="${p.id}" onchange="toggleBulk(${p.id})"></td>
         <td class="px-4 py-3"><p class="text-sm font-medium">${p.title||'Untitled'}</p><p class="text-xs text-gray-400">${(p.body||'').substring(0,80)}...</p></td>
         <td class="px-4 py-3 text-sm">${p.category||'-'}</td>
-        <td class="px-4 py-3"><div class="flex gap-1">${platforms.map(pl=>`<span class="text-xs px-1.5 py-0.5 bg-brand-100 text-brand-700 rounded">${pl}</span>`).join('')}</div></td>
+        <td class="px-4 py-3"><div class="flex flex-wrap gap-1">${platforms.map(pl=>`<span class="text-xs px-1.5 py-0.5 bg-brand-100 text-brand-700 rounded">${PLAT_ICONS[pl]||''} ${pl}</span>`).join('')}</div></td>
         <td class="px-4 py-3"><span class="text-xs px-2 py-1 rounded-full ${statusColors[p.status]||''}">${p.status}</span></td>
         <td class="px-4 py-3 text-xs text-gray-400">${p.scheduled_at||p.published_at||'-'}</td>
         <td class="px-4 py-3"><div class="flex gap-1">
@@ -961,6 +1169,51 @@ async function filterPosts(status) {
       </tr>`;
     }).join('');
   } catch(e) { toast('Load error', 'error'); }
+}
+
+// ── Bulk Actions ──
+function toggleBulk(id) { bulkSelected.has(id) ? bulkSelected.delete(id) : bulkSelected.add(id); updateBulkBar(); }
+function toggleSelectAll(cb) {
+  document.querySelectorAll('.post-checkbox').forEach(c => { c.checked = cb.checked; const id = parseInt(c.value); cb.checked ? bulkSelected.add(id) : bulkSelected.delete(id); });
+  updateBulkBar();
+}
+function updateBulkBar() {
+  const bar = document.getElementById('bulk-bar');
+  const count = document.getElementById('bulk-count');
+  if (!bar) return;
+  if (bulkSelected.size > 0) { bar.classList.remove('hidden'); count.textContent = `${bulkSelected.size} selected`; }
+  else { bar.classList.add('hidden'); }
+}
+function clearBulk() { bulkSelected.clear(); document.querySelectorAll('.post-checkbox').forEach(c => c.checked = false); document.getElementById('select-all-posts').checked = false; updateBulkBar(); }
+
+async function bulkPublish() {
+  if (!confirm(`Publish ${bulkSelected.size} posts?`)) return;
+  toast(`Publishing ${bulkSelected.size} posts...`);
+  let ok = 0, fail = 0;
+  for (const id of bulkSelected) {
+    try { const r = await fetch(`/api/publish/${id}`, {method:'POST'}).then(r=>r.json()); r.success ? ok++ : fail++; }
+    catch(e) { fail++; }
+  }
+  toast(`Published: ${ok} ✅, Failed: ${fail} ❌`, ok > 0 ? 'success' : 'error');
+  clearBulk(); filterPosts('all');
+}
+
+async function bulkDelete() {
+  if (!confirm(`Delete ${bulkSelected.size} posts permanently?`)) return;
+  for (const id of bulkSelected) { await fetch(`/api/posts/${id}`, {method:'DELETE'}); }
+  toast(`Deleted ${bulkSelected.size} posts`, 'success');
+  clearBulk(); filterPosts('all');
+}
+
+async function bulkSchedule() {
+  const dt = prompt('Schedule all selected posts at (YYYY-MM-DDTHH:MM):', new Date(Date.now() + 3600000).toISOString().slice(0, 16));
+  if (!dt) return;
+  toast('Scheduling...');
+  for (const id of bulkSelected) {
+    await fetch(`/api/posts/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status: 'scheduled', scheduled_at: dt}) }).catch(() => {});
+  }
+  toast(`Scheduled ${bulkSelected.size} posts`, 'success');
+  clearBulk(); filterPosts('all');
 }
 
 async function deletePost(id) { if(!confirm('Delete this post?')) return; await fetch(`/api/posts/${id}`,{method:'DELETE'}); filterPosts('all'); toast('Deleted','success'); }
@@ -1233,6 +1486,187 @@ async function loadAnalytics() {
     </div>`).join('') || '<p class="text-gray-400 text-sm">No publish history</p>';
   } catch(e) { toast('Analytics error', 'error'); }
 }
+
+
+// ═══════════════════════════════════════════════════
+// AUTO-PILOT
+// ═══════════════════════════════════════════════════
+
+let apSelectedPlatforms = [];
+let apGeneratedData = null;
+
+async function loadAutoPilotPlatforms() {
+  try {
+    const r = await fetch('/api/platforms/setup-status');
+    const d = await r.json();
+    const el = document.getElementById('ap-platforms');
+    if (!el) return;
+    el.innerHTML = Object.entries(d.platforms).map(([name, info]) => {
+      const icon = PLAT_ICONS[name] || '🔗';
+      const checked = info.configured ? 'checked' : '';
+      const disabled = info.configured ? '' : 'disabled';
+      if (info.configured) apSelectedPlatforms.push(name);
+      return `<label class="flex items-center gap-2 text-sm ${!info.configured?'opacity-40':''}">
+        <input type="checkbox" value="${name}" ${checked} ${disabled} onchange="apTogglePlatform('${name}', this.checked)">
+        ${icon} ${name.replace('_',' ')} ${!info.configured?'<span class=\"text-xs text-red-400\">(not set)</span>':''}
+      </label>`;
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+
+function apTogglePlatform(name, checked) {
+  if (checked && !apSelectedPlatforms.includes(name)) apSelectedPlatforms.push(name);
+  if (!checked) apSelectedPlatforms = apSelectedPlatforms.filter(p => p !== name);
+}
+
+function apSelectAll() {
+  document.querySelectorAll('#ap-platforms input[type=checkbox]:not(:disabled)').forEach(cb => { cb.checked = true; apTogglePlatform(cb.value, true); });
+}
+
+function apClearAll() {
+  apSelectedPlatforms = [];
+  document.querySelectorAll('#ap-platforms input[type=checkbox]').forEach(cb => cb.checked = false);
+}
+
+function apSetStep(n, status) {
+  for (let i = 1; i <= 4; i++) {
+    const el = document.getElementById(`ap-step-${['content','hashtags','schedule','save'][i-1]}`);
+    if (!el) continue;
+    const span = el.querySelector('span');
+    if (i < n) { el.classList.remove('text-gray-400'); span.className = 'w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center text-xs'; span.textContent = '✓'; }
+    else if (i === n) { el.classList.remove('text-gray-400'); span.className = 'w-6 h-6 rounded-full bg-brand-500 text-white flex items-center justify-center text-xs animate-pulse'; span.textContent = i; }
+    else { el.classList.add('text-gray-400'); span.className = 'w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs'; span.textContent = i; }
+  }
+}
+
+async function runAutoPilot() {
+  if (apSelectedPlatforms.length === 0) { toast('Select at least one platform', 'warning'); return; }
+
+  const niche = document.getElementById('ap-niche').value;
+  const topic = document.getElementById('ap-topic').value;
+  const postsPerPlatform = parseInt(document.getElementById('ap-posts-per').value) || 1;
+  const utcOffset = parseInt(document.getElementById('ap-utc').value) || 0;
+  const autoHashtags = document.getElementById('ap-auto-hashtags').checked;
+  const bestTimes = document.getElementById('ap-best-times').checked;
+
+  document.getElementById('ap-empty').classList.add('hidden');
+  document.getElementById('ap-result').classList.add('hidden');
+  document.getElementById('ap-progress').classList.remove('hidden');
+
+  try {
+    // Step 1: Generate content
+    apSetStep(1, 'active');
+    const contentResp = await fetch('/api/autopilot/generate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ niche, topic: topic || null, platforms: apSelectedPlatforms })
+    }).then(r => r.json());
+
+    if (contentResp.error) { toast(contentResp.error, 'error'); return; }
+
+    // Step 2: Hashtags
+    apSetStep(2, 'active');
+    let hashtags = [];
+    if (autoHashtags) {
+      try {
+        const hResp = await fetch('/api/hashtags/generate', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ niche, platform: 'instagram' })
+        }).then(r => r.json());
+        hashtags = hResp.hashtags?.combined || [];
+      } catch(e) { hashtags = []; }
+    }
+
+    // Step 3: Schedule
+    apSetStep(3, 'active');
+    let schedule = [];
+    if (bestTimes) {
+      try {
+        const sResp = await fetch('/api/time-slots/schedule', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ platforms: apSelectedPlatforms, posts_per_platform: postsPerPlatform, utc_offset: utcOffset, spacing_minutes: 30 })
+        }).then(r => r.json());
+        schedule = sResp.schedule || sResp || [];
+      } catch(e) { schedule = []; }
+    }
+
+    // Step 4: Show results
+    apSetStep(4, 'active');
+    apGeneratedData = { ...contentResp, hashtags, schedule, platforms: apSelectedPlatforms, niche };
+
+    // Render preview
+    document.getElementById('ap-gen-title').textContent = contentResp.title || 'Auto-generated post';
+    document.getElementById('ap-gen-body').textContent = contentResp.body || contentResp.content || '';
+    document.getElementById('ap-gen-tags').innerHTML = hashtags.slice(0, 20).map(t => `<span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">${t}</span>`).join('');
+
+    // Render schedule
+    const schedList = document.getElementById('ap-schedule-list');
+    if (schedule.length > 0) {
+      schedList.innerHTML = schedule.map(s => `<div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg text-sm">
+        <span>${PLAT_ICONS[s.platform]||'🔗'} ${s.platform}</span>
+        <span class="font-mono">${s.time || s.suggested_time || 'ASAP'}</span>
+        <span class="text-xs text-gray-400">${s.source || 'static'}</span>
+      </div>`).join('');
+    } else {
+      schedList.innerHTML = '<p class="text-sm text-gray-400">Publish immediately (no schedule)</p>';
+    }
+
+    apSetStep(5, 'done');
+    document.getElementById('ap-result').classList.remove('hidden');
+    document.getElementById('ap-progress').classList.add('hidden');
+    toast('Auto-Pilot complete! Review and confirm.', 'success');
+
+  } catch(e) {
+    toast('Auto-Pilot error: ' + e.message, 'error');
+    document.getElementById('ap-progress').classList.add('hidden');
+    document.getElementById('ap-empty').classList.remove('hidden');
+  }
+}
+
+async function apConfirmPublish() {
+  if (!apGeneratedData) return;
+  toast('Saving and scheduling posts...');
+  try {
+    const data = {
+      title: apGeneratedData.title || 'Auto-Pilot Post',
+      body: (apGeneratedData.body || apGeneratedData.content || '') + '\n\n' + (apGeneratedData.hashtags || []).join(' '),
+      category: 'general',
+      platforms: apGeneratedData.platforms,
+      status: apGeneratedData.schedule?.length > 0 ? 'scheduled' : 'draft',
+      scheduled_at: apGeneratedData.schedule?.[0]?.time || '',
+      extra_fields: { hashtags: apGeneratedData.hashtags },
+    };
+    const r = await fetch('/api/posts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(r=>r.json());
+    if (r.success) {
+      if (data.status === 'draft') {
+        // Publish immediately
+        const pub = await fetch(`/api/publish/${r.post_id}`, {method:'POST'}).then(r=>r.json());
+        pub.results?.forEach(res => toast(`${res.platform}: ${res.success?'✅':'❌ '+res.error}`, res.success?'success':'error'));
+      } else {
+        toast('Post scheduled! Check Content Library.', 'success');
+      }
+    }
+  } catch(e) { toast('Publish error', 'error'); }
+}
+
+function apEditAndPublish() {
+  if (!apGeneratedData) return;
+  // Navigate to compose page and pre-fill
+  window.location.href = '/compose';
+  setTimeout(() => {
+    const titleEl = document.getElementById('post-title');
+    const bodyEl = document.getElementById('post-body');
+    if (titleEl) titleEl.value = apGeneratedData.title || '';
+    if (bodyEl) bodyEl.value = (apGeneratedData.body || '') + '\n\n' + (apGeneratedData.hashtags || []).join(' ');
+  }, 500);
+}
+
+function apRegenerate() {
+  document.getElementById('ap-result').classList.add('hidden');
+  document.getElementById('ap-empty').classList.remove('hidden');
+  apGeneratedData = null;
+  runAutoPilot();
+}
+
 
 // ═══════════════════════════════════════════════════
 // PLATFORMS PAGE

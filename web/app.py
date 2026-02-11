@@ -213,6 +213,10 @@ async def timeslots_page(request: Request):
 async def preview_page(request: Request):
     return templates.TemplateResponse("app.html", {"request": request, "page": "preview"})
 
+@app.get("/autopilot", response_class=HTMLResponse)
+async def autopilot_page(request: Request):
+    return templates.TemplateResponse("app.html", {"request": request, "page": "autopilot"})
+
 
 # ════════════════════════════════════════════════════════════════
 # API — Posts
@@ -250,6 +254,78 @@ async def api_delete_post(post_id: int):
     conn.commit()
     conn.close()
     return {"success": True}
+
+@app.put("/api/posts/{post_id}")
+async def api_update_post(post_id: int, request: Request):
+    data = await request.json()
+    conn = get_db()
+    fields, values = [], []
+    for col in ("title", "body", "category", "platforms", "status", "scheduled_at", "extra_fields"):
+        if col in data:
+            val = data[col]
+            if col in ("platforms", "extra_fields") and isinstance(val, (list, dict)):
+                val = json.dumps(val)
+            fields.append(f"{col} = ?")
+            values.append(val)
+    if not fields:
+        return {"success": False, "error": "No fields to update"}
+    values.append(post_id)
+    conn.execute(f"UPDATE posts SET {', '.join(fields)} WHERE id = ?", values)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Auto-Pilot (Content Generation)
+# ════════════════════════════════════════════════════════════════
+
+@app.post("/api/autopilot/generate")
+async def api_autopilot_generate(request: Request):
+    """Generate content pack for Auto-Pilot using content_factory or fallback."""
+    data = await request.json()
+    niche = data.get("niche", "general")
+    topic = data.get("topic") or None
+    platforms = data.get("platforms", [])
+
+    # Try to use content_factory agent
+    try:
+        from agents.content_factory import generate_content_pack
+        state = {
+            "niche_config": {"niche": niche, "sub_niche": niche},
+            "topic": topic,
+            "platforms": platforms,
+        }
+        result = generate_content_pack(state)
+        pack = result.get("content_pack") or result
+        return {
+            "title": pack.get("title", f"{niche.replace('_', ' ').title()} — Auto-Pilot"),
+            "body": pack.get("body", ""),
+            "content": pack.get("body", ""),
+            "hook": pack.get("hook", ""),
+            "cta": pack.get("cta", ""),
+            "hashtags": pack.get("hashtags", []),
+        }
+    except Exception as e:
+        logger.warning("content_factory_fallback", error=str(e))
+        # Fallback: generate simple content
+        topic_str = topic or niche.replace("_", " ").title()
+        return {
+            "title": f"🚀 {topic_str} — Expert Tips",
+            "body": (
+                f"Here are proven strategies for {topic_str.lower()}:\n\n"
+                f"1️⃣ Start with a solid foundation\n"
+                f"2️⃣ Focus on consistency over perfection\n"
+                f"3️⃣ Engage with your community daily\n"
+                f"4️⃣ Measure what matters, optimize weekly\n"
+                f"5️⃣ Stay authentic to your brand voice\n\n"
+                f"Which tip resonates with you most? Drop a comment! 👇"
+            ),
+            "content": f"Expert tips for {topic_str.lower()}",
+            "hook": f"Want to level up your {topic_str.lower()} game?",
+            "cta": "Follow for more tips!",
+            "hashtags": [f"#{niche}", f"#{niche}tips", "#socialmedia", "#growthhacking", "#contentcreator"],
+        }
 
 
 # ════════════════════════════════════════════════════════════════
