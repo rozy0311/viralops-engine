@@ -215,26 +215,199 @@ def _extract_niche_data(niche_config: dict) -> dict:
     return result
 
 
-def _generate_hashtags_for_content(niche_key: str, platform: str, location: str = None) -> dict:
+# ════════════════════════════════════════════════════════════════
+# Per-channel character limits (precise, algo-optimal)
+# ════════════════════════════════════════════════════════════════
+CHANNEL_CHAR_LIMITS = {
+    "tiktok":       {"caption": 2200,  "title": 0,     "hashtags_in_caption": True,  "optimal_hashtags": 5},
+    "instagram":    {"caption": 2200,  "title": 0,     "hashtags_in_caption": True,  "optimal_hashtags": 5},
+    "facebook":     {"caption": 5000,  "title": 0,     "hashtags_in_caption": True,  "optimal_hashtags": 5},
+    "youtube":      {"caption": 5000,  "title": 100,   "hashtags_in_caption": False, "optimal_hashtags": 5},
+    "youtube_short":{"caption": 100,   "title": 100,   "hashtags_in_caption": True,  "optimal_hashtags": 3},
+    "pinterest":    {"caption": 500,   "title": 100,   "hashtags_in_caption": True,  "optimal_hashtags": 5},
+    "linkedin":     {"caption": 3000,  "title": 0,     "hashtags_in_caption": True,  "optimal_hashtags": 5},
+    "twitter":      {"caption": 280,   "title": 0,     "hashtags_in_caption": True,  "optimal_hashtags": 3},
+    "reddit":       {"caption": 40000, "title": 300,   "hashtags_in_caption": False, "optimal_hashtags": 0},
+    "medium":       {"caption": 50000, "title": 200,   "hashtags_in_caption": False, "optimal_hashtags": 5},
+    "tumblr":       {"caption": 50000, "title": 200,   "hashtags_in_caption": True,  "optimal_hashtags": 5},
+    "shopify_blog": {"caption": 50000, "title": 200,   "hashtags_in_caption": False, "optimal_hashtags": 0},
+}
+
+
+# ════════════════════════════════════════════════════════════════
+# Smart Content Splitting — Cut at sentence boundary, never lose meaning
+# ════════════════════════════════════════════════════════════════
+import re as _re
+
+_SENTENCE_ENDS = _re.compile(r'(?<=[.!?\n])\s+')
+_PARAGRAPH_ENDS = _re.compile(r'\n\n+')
+
+
+def smart_truncate(text: str, max_chars: int, preserve_meaning: bool = True) -> str:
     """
-    Generate hashtags using the 7-layer matrix.
-    Returns the matrix result dict.
+    Truncate text to max_chars WITHOUT losing meaning.
+
+    Rules (from Gumloop training docs):
+      1. NEVER cut mid-word
+      2. NEVER cut mid-sentence if possible
+      3. Prefer cutting at paragraph break > sentence end > word boundary
+      4. If content is a list/steps, keep complete items (don't cut "Step 2" in half)
+      5. Always end with a complete thought
+
+    Args:
+        text: Content to truncate
+        max_chars: Maximum characters allowed by the channel
+        preserve_meaning: If True, cuts at sentence boundary (may be shorter than max)
+    """
+    if not text or len(text) <= max_chars:
+        return text
+
+    if not preserve_meaning:
+        # Hard cut at word boundary
+        cut = text[:max_chars]
+        last_space = cut.rfind(' ')
+        return cut[:last_space] + '...' if last_space > max_chars * 0.5 else cut
+
+    # Strategy 1: Try cutting at paragraph boundary
+    paragraphs = _PARAGRAPH_ENDS.split(text)
+    result = ""
+    for para in paragraphs:
+        candidate = (result + "\n\n" + para).strip() if result else para
+        if len(candidate) <= max_chars:
+            result = candidate
+        else:
+            break
+
+    if result and len(result) >= max_chars * 0.3:
+        return result
+
+    # Strategy 2: Cut at sentence boundary
+    sentences = _SENTENCE_ENDS.split(text)
+    result = ""
+    for sent in sentences:
+        candidate = (result + " " + sent).strip() if result else sent
+        if len(candidate) <= max_chars:
+            result = candidate
+        else:
+            break
+
+    if result and len(result) >= max_chars * 0.3:
+        return result
+
+    # Strategy 3: Last resort — word boundary
+    cut = text[:max_chars]
+    last_space = cut.rfind(' ')
+    if last_space > max_chars * 0.5:
+        return cut[:last_space] + '...'
+    return cut
+
+
+def smart_split_for_thread(text: str, chunk_size: int = 280) -> list[str]:
+    """
+    Split long content into thread-sized chunks (e.g., Twitter thread).
+    Each chunk is a complete thought ending at sentence boundary.
+    """
+    sentences = _SENTENCE_ENDS.split(text)
+    chunks = []
+    current = ""
+
+    for sent in sentences:
+        candidate = (current + " " + sent).strip() if current else sent
+        if len(candidate) <= chunk_size:
+            current = candidate
+        else:
+            if current:
+                chunks.append(current.strip())
+            current = sent if len(sent) <= chunk_size else sent[:chunk_size-3] + '...'
+
+    if current.strip():
+        chunks.append(current.strip())
+
+    # Add thread numbering
+    if len(chunks) > 1:
+        total = len(chunks)
+        chunks = [f"{i+1}/{total} {c}" for i, c in enumerate(chunks)]
+
+    return chunks
+
+
+# ════════════════════════════════════════════════════════════════
+# GenAI Answer Extraction — Strip irrelevant filler from LLM output
+# ════════════════════════════════════════════════════════════════
+
+# Patterns that indicate irrelevant preamble/filler to strip
+_FILLER_PATTERNS = [
+    _re.compile(r'^(Sure[!.,]?|Of course[!.,]?|Absolutely[!.,]?|Great question[!.,]?|Here\'s?|Here is|Let me|I\'ll|I will|I\'d|Okay[!.,]?)\s*', _re.IGNORECASE | _re.MULTILINE),
+    _re.compile(r'^(As an AI|As a language model|I\'m here to|Happy to help)[^.\n]*[.!]?\s*', _re.IGNORECASE | _re.MULTILINE),
+]
+
+# Patterns for irrelevant conclusions to strip
+_IRRELEVANT_CONCLUSION_PATTERNS = [
+    _re.compile(r'\n+(Let me know|Feel free|Hope (this|that)|If you (have|need|want)|Would you like|Do you want|Shall I|Want me to|Is there anything|Happy to|I hope|Don\'t hesitate)[^\n]*$', _re.IGNORECASE),
+    _re.compile(r'\n+(In (summary|conclusion),?\s*)?this (is|was) (just )?a (brief|quick|simple) (overview|summary|introduction)[^\n]*$', _re.IGNORECASE),
+    _re.compile(r'\n+---+\s*$'),
+]
+
+
+def extract_relevant_answer(text: str) -> str:
+    """
+    Smart extraction: strip GenAI preamble + irrelevant conclusions.
+
+    The agent MUST be smart enough to:
+      1. Detect and remove "Sure, here's..." type preambles
+      2. Detect and remove "Let me know if..." type conclusions
+      3. Keep ONLY the actual answer content
+      4. Preserve all meaning, structure, lists, steps
+      5. Handle copy-paste from GenAI output intelligently
+
+    Example:
+      Input:  "Sure! Here's the answer. \n\n Herbs regrow from... \n\n Let me know if you need more!"
+      Output: "Herbs regrow from..."
+    """
+    if not text:
+        return text
+
+    result = text.strip()
+
+    # Step 1: Strip preamble filler
+    for pattern in _FILLER_PATTERNS:
+        result = pattern.sub('', result, count=1).strip()
+
+    # Step 2: Strip irrelevant conclusions
+    for pattern in _IRRELEVANT_CONCLUSION_PATTERNS:
+        result = pattern.sub('', result).strip()
+
+    # Step 3: If the result is substantially shorter, it means we stripped
+    # only filler. If we accidentally stripped too much (>70%), revert.
+    if len(result) < len(text) * 0.3 and len(text) > 50:
+        logger.warning("extract_answer.too_aggressive", original_len=len(text), result_len=len(result))
+        return text.strip()  # Revert — we over-stripped
+
+    return result
+
+
+def _generate_hashtags_for_content(niche_key: str, platform: str, location: str = None,
+                                    topic_keywords: list = None) -> dict:
+    """
+    Generate 5 micro-niche hashtags (NOT broad generic tags).
+    Uses the micro_niche_5 strategy from Gumloop training docs.
     """
     try:
-        from hashtags.matrix_5layer import generate_hashtag_matrix, generate_5cap
-        
-        matrix = generate_hashtag_matrix(
+        from hashtags.matrix_5layer import generate_micro_niche_5
+
+        result = generate_micro_niche_5(
             niche=niche_key,
             platform=platform,
             location=location,
+            topic_keywords=topic_keywords,
         )
-        return matrix
+        return result
     except ImportError:
         logger.warning("content_factory.no_hashtag_module")
-        return {"combined": [], "highest_search": [], "layers": {}}
+        return {"hashtags": [], "count": 0, "strategy": "fallback"}
     except Exception as e:
         logger.warning("content_factory.hashtag_error", error=str(e))
-        return {"combined": [], "highest_search": [], "layers": {}}
+        return {"hashtags": [], "count": 0, "strategy": "error"}
 
 
 def _build_system_prompt(niche_config: dict) -> str:
@@ -357,15 +530,23 @@ def generate_content_pack(state: dict) -> dict:
     model = _select_model(budget_pct)
     logger.info("content_factory.start", niche=niche_config.get("display_name", niche_config.get("name")), model=model, budget_pct=budget_pct)
 
+    # ── Extract topic keywords for micro-niche hashtag matching ──
+    topic_keywords = []
+    if topic:
+        topic_keywords = [w.strip() for w in topic.replace("-", " ").replace("_", " ").split() if len(w) > 3]
+
     # ── If RSS content provided, rewrite it ──
     if rss_content:
         result = _rewrite_rss_content(rss_content, niche_config, model)
-        # Also generate hashtags for RSS content
-        hashtag_matrix = _generate_hashtags_for_content(niche_key, platform, location)
+        # Generate 5 micro-niche hashtags
+        hashtag_result = _generate_hashtags_for_content(niche_key, platform, location, topic_keywords)
         if "content_pack" in result:
-            result["content_pack"]["hashtags"] = hashtag_matrix.get("combined", [])
-            result["content_pack"]["hashtag_matrix"] = hashtag_matrix
-            result["content_pack"]["highest_search_hashtags"] = hashtag_matrix.get("highest_search", [])
+            result["content_pack"]["hashtags"] = hashtag_result.get("hashtags", [])
+            result["content_pack"]["hashtag_strategy"] = hashtag_result.get("strategy", "micro_niche_5")
+            # Clean GenAI filler from RSS rewrite
+            for field in ("body", "hook", "pain_point", "solution_steps", "cta"):
+                if field in result["content_pack"] and result["content_pack"][field]:
+                    result["content_pack"][field] = extract_relevant_answer(result["content_pack"][field])
         state.update(result)
         return state
 
@@ -407,17 +588,21 @@ def generate_content_pack(state: dict) -> dict:
             state["content_factory_status"] = "completed_llm"
             logger.info("content_factory.success", model=model, title=content_pack.get("title", "")[:50])
 
+            # ── GenAI Answer Extraction — strip filler/irrelevant conclusions ──
+            for field in ("body", "hook", "pain_point", "solution_steps", "cta"):
+                if field in content_pack and content_pack[field]:
+                    content_pack[field] = extract_relevant_answer(content_pack[field])
+
         except Exception as e:
             logger.error("content_factory.error", error=str(e), model=model)
             content_pack = _fallback_generate(niche_config, topic)
             content_pack["_error"] = str(e)
             state["content_factory_status"] = "completed_fallback_after_error"
 
-    # ── Generate 7-layer hashtag matrix ──
-    hashtag_matrix = _generate_hashtags_for_content(niche_key, platform, location)
-    content_pack["hashtags"] = hashtag_matrix.get("combined", [])
-    content_pack["hashtag_matrix"] = hashtag_matrix
-    content_pack["highest_search_hashtags"] = hashtag_matrix.get("highest_search", [])
+    # ── Generate 5 micro-niche hashtags (NOT broad generic) ──
+    hashtag_result = _generate_hashtags_for_content(niche_key, platform, location, topic_keywords)
+    content_pack["hashtags"] = hashtag_result.get("hashtags", [])
+    content_pack["hashtag_strategy"] = hashtag_result.get("strategy", "micro_niche_5")
 
     state["content_pack"] = content_pack
     if "content_factory_status" not in state:
@@ -498,11 +683,18 @@ Original source: {source_url} — ALWAYS credit the source."""},
 def adapt_for_platform(content_pack: dict, platform: str) -> dict:
     """
     Adapt content pack for a specific platform.
-    Uses Universal Caption Template from spec + content_transforms.json rules.
+
+    v2.1 upgrades (from Gumloop training docs):
+      - Exactly 5 micro-niche hashtags per channel (NOT broad)
+      - Per-channel char limits with smart_truncate (sentence-boundary cut)
+      - Twitter thread auto-split
+      - GenAI answer extraction already applied in content_pack
+      - Content split NEVER loses meaning
     """
-    specs = PLATFORM_SPECS.get(platform, PLATFORM_SPECS["twitter"])
-    max_caption = specs["max_caption"]
-    max_hashtags = specs["max_hashtags"]
+    channel = CHANNEL_CHAR_LIMITS.get(platform, CHANNEL_CHAR_LIMITS.get("twitter"))
+    max_caption = channel["caption"]
+    max_title = channel.get("title", 0)
+    optimal_hashtags = channel.get("optimal_hashtags", 5)
 
     title = content_pack.get("title", "")
     body = content_pack.get("body", "")
@@ -510,9 +702,9 @@ def adapt_for_platform(content_pack: dict, platform: str) -> dict:
     cta = content_pack.get("cta", "")
     hashtags = content_pack.get("hashtags", [])
 
-    # Truncate hashtags to platform limit
+    # ── 5 micro-niche hashtags only (from Gumloop spec) ──
     if isinstance(hashtags, list):
-        hashtags = hashtags[:max_hashtags]
+        hashtags = hashtags[:optimal_hashtags]
         hashtag_str = " ".join(hashtags)
     else:
         hashtag_str = str(hashtags)
@@ -521,34 +713,53 @@ def adapt_for_platform(content_pack: dict, platform: str) -> dict:
     transforms = _load_content_transforms()
     transform_rules = transforms.get("transforms", {})
 
-    # Platform-specific adaptation
+    # ── Platform-specific adaptation with smart_truncate ──
+    thread_parts = None  # For Twitter thread
+
     if platform == "twitter":
-        # Apply caption_to_thread rules if available
-        caption = hook[:240]
+        # Twitter: hook only, hashtags in remaining space
+        if len(body) > 280:
+            # Auto-thread if content is long
+            thread_parts = smart_split_for_thread(body, chunk_size=280)
+        caption = smart_truncate(hook, 240)
         if hashtag_str:
             remaining = 280 - len(caption) - 2
             if remaining > 10:
                 caption += "\n" + hashtag_str[:remaining]
+        caption = caption[:280]
 
     elif platform == "reddit":
-        caption = body[:max_caption]
+        # Reddit: full body, NO hashtags (community hates them)
+        caption = smart_truncate(body, max_caption)
+        hashtag_str = ""
+        hashtags = []
 
     elif platform in ("medium", "shopify_blog"):
+        # Long-form: full body, hashtags as tags (not in content)
         caption = body
 
     elif platform == "linkedin":
-        # Apply caption_to_linkedin transform rules
+        # LinkedIn: professional structure
         ln_rules = transform_rules.get("caption_to_linkedin", {}).get("rules", [])
-        caption = f"{hook}\n\n{content_pack.get('pain_point', '')}\n\n{content_pack.get('solution_steps', '')}\n\n{cta}"
+        raw = f"{hook}\n\n{content_pack.get('pain_point', '')}\n\n{content_pack.get('solution_steps', '')}\n\n{cta}"
         if hashtag_str:
-            caption += f"\n\n{hashtag_str}"
-        # Apply rule: Add "What do you think?" if not in CTA
-        if any("What do you think" in r for r in ln_rules) and "What do you think" not in caption:
-            caption += "\n\nWhat do you think?"
-        caption = caption[:max_caption]
+            raw += f"\n\n{hashtag_str}"
+        if any("What do you think" in r for r in ln_rules) and "What do you think" not in raw:
+            raw += "\n\nWhat do you think?"
+        caption = smart_truncate(raw, max_caption)
+
+    elif platform == "pinterest":
+        # Pinterest: short + searchable
+        raw = f"{hook}\n\n{content_pack.get('step_1', '')}. {content_pack.get('step_2', '')}.\n\n{hashtag_str}"
+        caption = smart_truncate(raw, max_caption)
+
+    elif platform == "youtube":
+        # YouTube: description + 5 hashtags at end (first 3 show on title)
+        raw = f"{content_pack.get('pain_point', '')}\n\n{content_pack.get('solution_steps', '')}\n\n{cta}\n\n{hashtag_str}"
+        caption = smart_truncate(raw, max_caption)
 
     else:
-        # Default: Use Universal Caption Template from spec
+        # Default: Universal Caption Template from spec
         try:
             caption = UNIVERSAL_CAPTION_TEMPLATE.format(
                 location=content_pack.get("location", "Chicago"),
@@ -566,7 +777,6 @@ def adapt_for_platform(content_pack: dict, platform: str) -> dict:
                 hashtags=hashtag_str,
             )
         except (KeyError, IndexError):
-            # Fallback to simple template
             caption = SIMPLE_CAPTION_TEMPLATE.format(
                 hook=hook,
                 pain_point=content_pack.get("pain_point", ""),
@@ -574,16 +784,31 @@ def adapt_for_platform(content_pack: dict, platform: str) -> dict:
                 cta=cta,
                 hashtags=hashtag_str,
             )
-        caption = caption[:max_caption]
+        caption = smart_truncate(caption, max_caption)
 
-    return {
+    # ── Title truncation (if channel has title limit) ──
+    if max_title > 0:
+        title = smart_truncate(title, max_title, preserve_meaning=False)
+
+    result = {
         "platform": platform,
         "title": title[:200],
         "caption": caption,
         "hashtags": hashtags,
+        "hashtag_count": len(hashtags),
+        "char_count": len(caption),
+        "char_limit": max_caption,
+        "within_limit": len(caption) <= max_caption,
         "image_prompt": content_pack.get("image_prompt", ""),
         "content_type": content_pack.get("content_type", "article"),
     }
+
+    # Add thread parts for Twitter
+    if thread_parts:
+        result["thread_parts"] = thread_parts
+        result["thread_count"] = len(thread_parts)
+
+    return result
 
 
 def _get_current_season() -> str:
