@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ViralOps Engine</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -70,6 +71,9 @@
     </a>
     <a href="/platforms" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'platforms' %}bg-brand-600 text-white{% endif %}">
       <span>🔌</span> Platforms
+    </a>
+    <a href="/preview" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'preview' %}bg-brand-600 text-white{% endif %}">
+      <span>👁️</span> Live Preview
     </a>
 
     <div class="pt-3 mt-3 border-t border-dark-800">
@@ -374,7 +378,14 @@
 
   <!-- ═══ ANALYTICS PAGE ═══ -->
   <div class="page {% if page == 'analytics' %}active{% endif %}" id="page-analytics">
-    <h2 class="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-2xl font-bold text-gray-800">Analytics</h2>
+      <div class="flex gap-2">
+        <button onclick="setAnalyticsPeriod(7)" class="px-3 py-1.5 text-xs rounded-full bg-gray-200 hover:bg-brand-100" id="ap-7">7 days</button>
+        <button onclick="setAnalyticsPeriod(30)" class="px-3 py-1.5 text-xs rounded-full bg-brand-500 text-white" id="ap-30">30 days</button>
+        <button onclick="setAnalyticsPeriod(90)" class="px-3 py-1.5 text-xs rounded-full bg-gray-200 hover:bg-brand-100" id="ap-90">90 days</button>
+      </div>
+    </div>
     <div class="grid grid-cols-5 gap-4 mb-6" id="analytics-stats">
       <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
         <p class="text-2xl font-bold text-gray-800" id="a-total">-</p>
@@ -395,6 +406,27 @@
       <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
         <p class="text-2xl font-bold text-amber-600" id="a-platforms">-</p>
         <p class="text-xs text-gray-500">Platforms</p>
+      </div>
+    </div>
+    <!-- Charts Row -->
+    <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">📈 Publishing Trend</h3>
+        <canvas id="chart-trend" height="200"></canvas>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">📊 Platform Comparison</h3>
+        <canvas id="chart-platforms" height="200"></canvas>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">🏆 Top Performing Posts</h3>
+        <div id="top-posts" class="space-y-2 max-h-72 overflow-y-auto"></div>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">⏰ Post Activity by Hour</h3>
+        <canvas id="chart-hours" height="200"></canvas>
       </div>
     </div>
     <div class="grid grid-cols-2 gap-4 mb-6">
@@ -631,6 +663,127 @@
       </div>
     </div>
   </div>
+
+  <!-- ═══ LIVE PREVIEW PAGE ═══ -->
+  <div class="page {% if page == 'preview' %}active{% endif %}" id="page-preview">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">👁️ Live Post Preview</h2>
+    <div class="grid grid-cols-3 gap-6">
+      <!-- Input Panel -->
+      <div class="col-span-1">
+        <div class="bg-white rounded-xl p-5 shadow-sm border sticky top-6">
+          <h3 class="font-semibold mb-3">Compose</h3>
+          <input id="pv-title" type="text" placeholder="Post title..." class="w-full border rounded-lg px-3 py-2 mb-3 focus:ring-2 focus:ring-brand-500" oninput="updatePreviews()">
+          <textarea id="pv-body" rows="8" placeholder="Write your content..." class="w-full border rounded-lg px-3 py-2 mb-3 font-mono text-sm focus:ring-2 focus:ring-brand-500" oninput="updatePreviews()"></textarea>
+          <input id="pv-hashtags" placeholder="#hashtag1 #hashtag2 ..." class="w-full border rounded-lg px-3 py-2 mb-3 text-sm" oninput="updatePreviews()">
+          <input id="pv-image" type="url" placeholder="Image URL (optional)" class="w-full border rounded-lg px-3 py-2 mb-3 text-sm" oninput="updatePreviews()">
+          <div class="text-xs text-gray-400 space-y-1" id="pv-char-stats"></div>
+        </div>
+      </div>
+
+      <!-- Preview Cards -->
+      <div class="col-span-2 space-y-6">
+        <!-- Twitter Preview -->
+        <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div class="px-5 py-3 bg-sky-50 border-b flex items-center gap-2">
+            <span class="text-lg">🐦</span>
+            <span class="font-semibold text-sky-700">Twitter / X</span>
+            <span class="ml-auto text-xs px-2 py-0.5 rounded-full" id="pv-tw-limit">0 / 280</span>
+          </div>
+          <div class="p-5">
+            <div class="flex gap-3">
+              <div class="w-10 h-10 rounded-full bg-brand-200 flex-shrink-0 flex items-center justify-center text-sm font-bold text-brand-700">V</div>
+              <div class="flex-1">
+                <div class="flex items-center gap-2"><span class="font-bold text-sm">ViralOps</span><span class="text-xs text-gray-400">@viralops · now</span></div>
+                <p class="text-sm mt-1 whitespace-pre-wrap" id="pv-tw-text"></p>
+                <div id="pv-tw-img" class="mt-3 rounded-2xl overflow-hidden hidden"><img class="w-full max-h-72 object-cover"></div>
+                <p class="text-xs text-blue-500 mt-2" id="pv-tw-tags"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Instagram Preview -->
+        <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div class="px-5 py-3 bg-pink-50 border-b flex items-center gap-2">
+            <span class="text-lg">📷</span>
+            <span class="font-semibold text-pink-700">Instagram</span>
+            <span class="ml-auto text-xs px-2 py-0.5 rounded-full" id="pv-ig-limit">0 / 2200</span>
+          </div>
+          <div class="p-5">
+            <div class="flex items-center gap-2 mb-3"><div class="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white">V</div><span class="font-semibold text-sm">viralops_engine</span></div>
+            <div id="pv-ig-img" class="bg-gray-100 rounded-lg mb-3 hidden"><img class="w-full max-h-80 object-cover rounded-lg"></div>
+            <p class="text-sm whitespace-pre-wrap" id="pv-ig-text"><span class="font-semibold">viralops_engine</span> <span id="pv-ig-caption"></span></p>
+            <p class="text-xs text-blue-500 mt-2" id="pv-ig-tags"></p>
+          </div>
+        </div>
+
+        <!-- LinkedIn Preview -->
+        <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div class="px-5 py-3 bg-blue-50 border-b flex items-center gap-2">
+            <span class="text-lg">💼</span>
+            <span class="font-semibold text-blue-700">LinkedIn</span>
+            <span class="ml-auto text-xs px-2 py-0.5 rounded-full" id="pv-li-limit">0 / 3000</span>
+          </div>
+          <div class="p-5">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="w-12 h-12 rounded-full bg-blue-200 flex items-center justify-center font-bold text-blue-700">V</div>
+              <div><p class="font-semibold text-sm">ViralOps Engine</p><p class="text-xs text-gray-400">Content Automation · 1st</p></div>
+            </div>
+            <p class="text-sm whitespace-pre-wrap" id="pv-li-text"></p>
+            <div id="pv-li-img" class="mt-3 rounded-lg overflow-hidden hidden"><img class="w-full max-h-72 object-cover"></div>
+            <p class="text-xs text-blue-600 mt-2" id="pv-li-tags"></p>
+          </div>
+        </div>
+
+        <!-- Facebook Preview -->
+        <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div class="px-5 py-3 bg-indigo-50 border-b flex items-center gap-2">
+            <span class="text-lg">📘</span>
+            <span class="font-semibold text-indigo-700">Facebook</span>
+            <span class="ml-auto text-xs px-2 py-0.5 rounded-full" id="pv-fb-limit">0 / 63206</span>
+          </div>
+          <div class="p-5">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="w-10 h-10 rounded-full bg-indigo-200 flex items-center justify-center font-bold text-indigo-700 text-sm">V</div>
+              <div><p class="font-semibold text-sm">ViralOps Engine</p><p class="text-xs text-gray-400">Just now · 🌐</p></div>
+            </div>
+            <p class="text-sm whitespace-pre-wrap" id="pv-fb-text"></p>
+            <div id="pv-fb-img" class="mt-3 rounded-lg overflow-hidden hidden"><img class="w-full max-h-72 object-cover"></div>
+            <p class="text-xs text-blue-600 mt-2" id="pv-fb-tags"></p>
+          </div>
+        </div>
+
+        <!-- TikTok Preview -->
+        <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div class="px-5 py-3 bg-gray-900 border-b flex items-center gap-2">
+            <span class="text-lg">🎵</span>
+            <span class="font-semibold text-white">TikTok</span>
+            <span class="ml-auto text-xs px-2 py-0.5 rounded-full text-gray-300" id="pv-tt-limit">0 / 2200</span>
+          </div>
+          <div class="p-5 bg-gray-50">
+            <div class="flex items-center gap-2 mb-3"><div class="w-8 h-8 rounded-full bg-gradient-to-r from-pink-500 to-cyan-400 flex items-center justify-center text-xs font-bold text-white">V</div><span class="font-semibold text-sm">@viralops</span></div>
+            <p class="text-sm whitespace-pre-wrap" id="pv-tt-text"></p>
+            <p class="text-xs mt-2" id="pv-tt-tags"></p>
+          </div>
+        </div>
+
+        <!-- Reddit Preview -->
+        <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div class="px-5 py-3 bg-orange-50 border-b flex items-center gap-2">
+            <span class="text-lg">🔴</span>
+            <span class="font-semibold text-orange-700">Reddit</span>
+            <span class="ml-auto text-xs px-2 py-0.5 rounded-full" id="pv-rd-limit">0 / 40000</span>
+          </div>
+          <div class="p-5">
+            <p class="text-xs text-gray-400 mb-1">r/yoursubreddit · Posted by u/viralops</p>
+            <h3 class="font-bold text-base mb-2" id="pv-rd-title"></h3>
+            <p class="text-sm whitespace-pre-wrap text-gray-700" id="pv-rd-text"></p>
+            <div id="pv-rd-img" class="mt-3 rounded-lg overflow-hidden hidden"><img class="w-full max-h-72 object-cover"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </main>
 
 <!-- ═══ JAVASCRIPT ═══ -->
@@ -683,6 +836,7 @@ document.addEventListener('DOMContentLoaded', () => {
     else if(page.id==='page-platforms') loadPlatforms();
     else if(page.id==='page-engagement') loadEngagement();
     else if(page.id==='page-timeslots') loadBestHours();
+    else if(page.id==='page-preview') updatePreviews();
   }
   // Always load sidebar channels
   loadSidebarChannels();
@@ -1055,19 +1209,25 @@ async function loadAnalytics() {
     document.getElementById('a-rate').textContent = rate + '%';
     document.getElementById('a-platforms').textContent = Object.keys(stats).length;
 
+    // Chart.js visualizations
+    buildTrendChart(logs);
+    buildPlatformChart(stats);
+    buildHoursChart(logs);
+    renderTopPosts(logs);
+
     // Platform bars
     const barsEl = document.getElementById('platform-bars');
     const platformColors = {reddit:'bg-orange-500',medium:'bg-green-500',tumblr:'bg-blue-500',shopify_blog:'bg-emerald-500'};
     barsEl.innerHTML = Object.entries(stats).map(([p,s]) => {
       const pct = s.total>0 ? Math.round(s.success/s.total*100) : 0;
-      return `<div class="mb-3"><div class="flex justify-between text-sm mb-1"><span>${p}</span><span>${pct}% (${s.success}/${s.total})</span></div>
+      return `<div class="mb-3"><div class="flex justify-between text-sm mb-1"><span>${PLAT_ICONS[p]||'🔗'} ${p}</span><span>${pct}% (${s.success}/${s.total})</span></div>
         <div class="w-full bg-gray-200 rounded-full h-2"><div class="${platformColors[p]||'bg-brand-500'} h-2 rounded-full" style="width:${pct}%"></div></div></div>`;
     }).join('') || '<p class="text-gray-400 text-sm">No data yet</p>';
 
     // Log table
     const logEl = document.getElementById('publish-log');
     logEl.innerHTML = logs.slice(0,20).map(l => `<div class="flex justify-between items-center text-xs p-2 bg-gray-50 rounded">
-      <span>${l.platform}</span>
+      <span>${PLAT_ICONS[l.platform]||'🔗'} ${l.platform}</span>
       <span class="${l.success?'text-green-600':'text-red-600'}">${l.success?'✅':'❌'} ${l.post_url?`<a href="${l.post_url}" target="_blank" class="text-brand-500">Link</a>`:l.error||'Failed'}</span>
       <span class="text-gray-400">${l.published_at?.slice(0,16)||''}</span>
     </div>`).join('') || '<p class="text-gray-400 text-sm">No publish history</p>';
@@ -1274,6 +1434,216 @@ async function loadBestHours() {
       grid.innerHTML = '<p class="text-gray-400 col-span-full text-center py-4">No analytics data yet — using static defaults</p>';
     }
   } catch(e) { /* non-critical */ }
+}
+
+
+// ═══════════════════════════════════════════════════
+// LIVE PREVIEW PAGE
+// ═══════════════════════════════════════════════════
+
+const PLATFORM_LIMITS = {
+  twitter: 280, instagram: 2200, linkedin: 3000,
+  facebook: 63206, tiktok: 2200, reddit: 40000
+};
+
+function updatePreviews() {
+  const title = document.getElementById('pv-title')?.value || '';
+  const body = document.getElementById('pv-body')?.value || '';
+  const tags = document.getElementById('pv-hashtags')?.value || '';
+  const imageUrl = document.getElementById('pv-image')?.value || '';
+
+  const fullText = body + (tags ? '\n\n' + tags : '');
+  const twitterText = (title ? title + '\n\n' : '') + body;
+  const twitterFull = twitterText + (tags ? '\n' + tags : '');
+
+  // Character stats
+  const statsEl = document.getElementById('pv-char-stats');
+  if (statsEl) {
+    statsEl.innerHTML = Object.entries(PLATFORM_LIMITS).map(([p, limit]) => {
+      const len = p === 'reddit' ? (title.length + body.length) : (p === 'twitter' ? twitterFull.length : fullText.length);
+      const pct = Math.round(len / limit * 100);
+      const color = pct > 100 ? 'text-red-600 font-bold' : pct > 80 ? 'text-amber-600' : 'text-green-600';
+      return `<p class="${color}">${PLAT_ICONS[p]} ${p}: ${len}/${limit} (${pct}%)</p>`;
+    }).join('');
+  }
+
+  // Helper: set image
+  function setImage(prefix) {
+    const container = document.getElementById(`pv-${prefix}-img`);
+    if (!container) return;
+    const img = container.querySelector('img');
+    if (imageUrl) { img.src = imageUrl; container.classList.remove('hidden'); }
+    else { container.classList.add('hidden'); }
+  }
+
+  // Helper: limit badge
+  function setLimit(id, len, max) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = `${len} / ${max}`;
+    el.className = `text-xs px-2 py-0.5 rounded-full ${len > max ? 'bg-red-100 text-red-700' : len > max * 0.8 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`;
+  }
+
+  // Twitter
+  const twText = twitterFull.length > 280 ? twitterFull.slice(0, 277) + '...' : twitterFull;
+  const twEl = document.getElementById('pv-tw-text');
+  if (twEl) twEl.textContent = twText;
+  setLimit('pv-tw-limit', twitterFull.length, 280);
+  const twTags = document.getElementById('pv-tw-tags');
+  if (twTags) twTags.textContent = twitterFull.length > 280 ? '⚠️ Over limit! Will be truncated.' : '';
+  setImage('tw');
+
+  // Instagram
+  const igEl = document.getElementById('pv-ig-caption');
+  if (igEl) igEl.textContent = body;
+  const igTags = document.getElementById('pv-ig-tags');
+  if (igTags) igTags.textContent = tags;
+  setLimit('pv-ig-limit', fullText.length, 2200);
+  setImage('ig');
+
+  // LinkedIn
+  const liEl = document.getElementById('pv-li-text');
+  if (liEl) liEl.textContent = (title ? '**' + title + '**\n\n' : '') + body;
+  const liTags = document.getElementById('pv-li-tags');
+  if (liTags) liTags.textContent = tags;
+  setLimit('pv-li-limit', fullText.length, 3000);
+  setImage('li');
+
+  // Facebook
+  const fbEl = document.getElementById('pv-fb-text');
+  if (fbEl) fbEl.textContent = (title ? title + '\n\n' : '') + body;
+  const fbTags = document.getElementById('pv-fb-tags');
+  if (fbTags) fbTags.textContent = tags;
+  setLimit('pv-fb-limit', fullText.length, 63206);
+  setImage('fb');
+
+  // TikTok
+  const ttEl = document.getElementById('pv-tt-text');
+  if (ttEl) ttEl.textContent = body.length > 150 ? body.slice(0, 147) + '...' : body;
+  const ttTags = document.getElementById('pv-tt-tags');
+  if (ttTags) ttTags.innerHTML = tags.split(/\s+/).filter(t => t.startsWith('#')).map(t => `<span class="text-blue-400">${t}</span>`).join(' ');
+  setLimit('pv-tt-limit', fullText.length, 2200);
+
+  // Reddit
+  const rdTitle = document.getElementById('pv-rd-title');
+  if (rdTitle) rdTitle.textContent = title || '(Untitled post)';
+  const rdText = document.getElementById('pv-rd-text');
+  if (rdText) rdText.textContent = body;
+  setLimit('pv-rd-limit', (title + body).length, 40000);
+  setImage('rd');
+}
+
+
+// ═══════════════════════════════════════════════════
+// ANALYTICS CHARTS (Chart.js)
+// ═══════════════════════════════════════════════════
+
+let chartTrend = null;
+let chartPlatforms = null;
+let chartHours = null;
+let analyticsPeriod = 30;
+
+function setAnalyticsPeriod(days) {
+  analyticsPeriod = days;
+  document.querySelectorAll('[id^="ap-"]').forEach(btn => {
+    btn.className = 'px-3 py-1.5 text-xs rounded-full ' +
+      (btn.id === 'ap-' + days ? 'bg-brand-500 text-white' : 'bg-gray-200 hover:bg-brand-100');
+  });
+  loadAnalytics();
+}
+
+function buildTrendChart(logs) {
+  const ctx = document.getElementById('chart-trend');
+  if (!ctx) return;
+
+  // Group by date
+  const byDate = {};
+  logs.forEach(l => {
+    const d = (l.published_at || '').slice(0, 10);
+    if (!d) return;
+    if (!byDate[d]) byDate[d] = { success: 0, failed: 0 };
+    l.success ? byDate[d].success++ : byDate[d].failed++;
+  });
+
+  const dates = Object.keys(byDate).sort().slice(-analyticsPeriod);
+  const successData = dates.map(d => byDate[d].success);
+  const failedData = dates.map(d => byDate[d].failed);
+
+  if (chartTrend) chartTrend.destroy();
+  chartTrend = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: dates.map(d => d.slice(5)),
+      datasets: [
+        { label: 'Success', data: successData, borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', fill: true, tension: 0.3 },
+        { label: 'Failed', data: failedData, borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', fill: true, tension: 0.3 }
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+}
+
+function buildPlatformChart(stats) {
+  const ctx = document.getElementById('chart-platforms');
+  if (!ctx) return;
+
+  const names = Object.keys(stats);
+  const colors = ['#f97316','#22c55e','#3b82f6','#10b981','#6366f1','#ec4899','#14b8a6','#8b5cf6','#f59e0b','#06b6d4','#ef4444','#84cc16','#d946ef','#0ea5e9','#a855f7','#f43f5e'];
+  const successData = names.map(n => stats[n].success || 0);
+  const failedData = names.map(n => (stats[n].total || 0) - (stats[n].success || 0));
+
+  if (chartPlatforms) chartPlatforms.destroy();
+  chartPlatforms = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: names,
+      datasets: [
+        { label: 'Success', data: successData, backgroundColor: '#22c55e' },
+        { label: 'Failed', data: failedData, backgroundColor: '#ef4444' }
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+}
+
+function buildHoursChart(logs) {
+  const ctx = document.getElementById('chart-hours');
+  if (!ctx) return;
+
+  const hours = new Array(24).fill(0);
+  logs.forEach(l => {
+    const h = parseInt((l.published_at || '').slice(11, 13));
+    if (!isNaN(h)) hours[h]++;
+  });
+
+  if (chartHours) chartHours.destroy();
+  chartHours = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: hours.map((_, i) => `${String(i).padStart(2, '0')}:00`),
+      datasets: [{ label: 'Posts', data: hours, backgroundColor: '#818cf8', borderRadius: 4 }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+}
+
+function renderTopPosts(logs) {
+  const el = document.getElementById('top-posts');
+  if (!el) return;
+  const successful = logs.filter(l => l.success && l.post_url);
+  if (successful.length === 0) { el.innerHTML = '<p class="text-gray-400 text-sm">No successful posts with URLs yet</p>'; return; }
+  el.innerHTML = successful.slice(0, 10).map((l, i) => {
+    const icon = PLAT_ICONS[l.platform] || '🔗';
+    return `<div class="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
+      <span class="text-lg font-bold text-gray-300 w-6">${i + 1}</span>
+      <span class="text-lg">${icon}</span>
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-medium truncate">${l.title || l.platform}</p>
+        <p class="text-xs text-gray-400">${(l.published_at || '').slice(0, 16)}</p>
+      </div>
+      <a href="${l.post_url}" target="_blank" class="text-xs text-brand-500 hover:underline whitespace-nowrap">View →</a>
+    </div>`;
+  }).join('');
 }
 </script>
 </body>

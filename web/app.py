@@ -209,6 +209,10 @@ async def engagement_page(request: Request):
 async def timeslots_page(request: Request):
     return templates.TemplateResponse("app.html", {"request": request, "page": "timeslots"})
 
+@app.get("/preview", response_class=HTMLResponse)
+async def preview_page(request: Request):
+    return templates.TemplateResponse("app.html", {"request": request, "page": "preview"})
+
 
 # ════════════════════════════════════════════════════════════════
 # API — Posts
