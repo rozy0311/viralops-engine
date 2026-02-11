@@ -600,6 +600,28 @@ def tick(poster_id: str = None) -> dict:
             # Build post content (title + description + hashtags + media, NO links)
             post_content = _build_post_content(entry, config)
 
+            # ── Media Processing: Image → Video + TikTok Music ──
+            if (post_content.get("media_type") == "image"
+                    and config.get("tiktok_music_enabled", True)
+                    and "tiktok" in config.get("target_platforms", [])):
+                try:
+                    from integrations.media_processor import process_image_to_video
+                    video_result = process_image_to_video(
+                        image_url=post_content.get("media_url"),
+                        music_track=post_content.get("tiktok_music"),
+                        niche=config.get("niche", "sustainable-living"),
+                        content_text=f"{post_content.get('title', '')} {post_content.get('description', '')[:200]}",
+                    )
+                    if video_result.get("success") and video_result.get("video_path"):
+                        post_content["media_type"] = "video"
+                        post_content["media_url"] = video_result["video_path"]
+                        post_content["video_generated"] = True
+                        logger.info("rss_auto_poster.video_created",
+                                    video=video_result["video_path"],
+                                    has_music=bool(video_result.get("music")))
+                except Exception as e:
+                    logger.warning("rss_auto_poster.media_process_error", error=str(e))
+
             # Adapt for each target platform
             platforms = config.get("target_platforms", ["tiktok"])
             for platform in platforms:
@@ -636,12 +658,38 @@ def tick(poster_id: str = None) -> dict:
             logger.info("rss_auto_poster.alert",
                         poster=config.get("name"), count=posted_count,
                         platforms=platforms)
+            # Telegram alert
+            try:
+                from integrations.telegram_bot import alert_post_created
+                alert_post_created(
+                    poster_name=config.get("name", cfg_id),
+                    title=entries[0].get("title", "")[:80] if entries else "",
+                    platforms=platforms,
+                    media_type=post_content.get("media_type", "none") if entries else "none",
+                    has_music=bool(post_content.get("tiktok_music")) if entries else False,
+                    post_count=posted_count,
+                )
+            except Exception as e:
+                logger.warning("rss_auto_poster.telegram_error", error=str(e))
 
     # Save history
     _save_history(history)
 
     total_posted = sum(r.get("posted", 0) for r in results)
     logger.info("rss_auto_poster.tick_done", posters_run=len(results), total_posted=total_posted)
+
+    # Telegram tick summary
+    if total_posted > 0:
+        try:
+            from integrations.telegram_bot import alert_tick_summary
+            alert_tick_summary(
+                posters_checked=len(results),
+                total_posted=total_posted,
+                results=results,
+            )
+        except Exception as e:
+            logger.warning("rss_auto_poster.telegram_summary_error", error=str(e))
+
     return {
         "success": True,
         "posters_checked": len(results),

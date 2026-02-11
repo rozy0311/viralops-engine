@@ -739,6 +739,99 @@ async def api_auto_poster_frequencies():
 
 
 # ════════════════════════════════════════════════════════════════
+# API — Media Processor (Image → Video + TikTok Music)
+# ════════════════════════════════════════════════════════════════
+
+@app.post("/api/media/process")
+async def api_media_process(request: Request):
+    """
+    Full pipeline: Image → Slideshow Video → TikTok Music overlay → .mp4
+
+    Body: {"image_url": "...", "niche": "...", "content_text": "...", "duration": 12}
+    """
+    data = await request.json()
+    from integrations.media_processor import process_image_to_video
+    return process_image_to_video(
+        image_url=data.get("image_url"),
+        image_path=data.get("image_path"),
+        music_track=data.get("music_track"),
+        niche=data.get("niche", "sustainable-living"),
+        content_text=data.get("content_text", ""),
+        duration=data.get("duration", 12),
+    )
+
+@app.post("/api/media/download")
+async def api_media_download(request: Request):
+    """Download an image from URL."""
+    data = await request.json()
+    from integrations.media_processor import download_image
+    return download_image(data.get("url", ""))
+
+@app.post("/api/media/slideshow")
+async def api_media_slideshow(request: Request):
+    """Create slideshow video from a local image file."""
+    data = await request.json()
+    from integrations.media_processor import create_slideshow_video
+    return create_slideshow_video(
+        image_path=data.get("image_path"),
+        duration=data.get("duration", 12),
+    )
+
+@app.post("/api/media/add-music")
+async def api_media_add_music(request: Request):
+    """Add music overlay to an existing video file."""
+    data = await request.json()
+    from integrations.media_processor import add_music_to_video
+    return add_music_to_video(
+        video_path=data.get("video_path"),
+        music_url=data.get("music_url"),
+        music_file=data.get("music_file"),
+    )
+
+@app.get("/api/media/stats")
+async def api_media_stats():
+    """Get media output directory stats."""
+    from integrations.media_processor import get_media_stats
+    return get_media_stats()
+
+@app.post("/api/media/cleanup")
+async def api_media_cleanup(request: Request):
+    """Remove old processed media files."""
+    data = await request.json() if (await request.body()) else {}
+    from integrations.media_processor import cleanup_old_media
+    return cleanup_old_media(max_age_hours=data.get("max_age_hours", 72))
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Telegram Alert Bot
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/telegram/status")
+async def api_telegram_status():
+    """Check Telegram bot configuration and connection."""
+    from integrations.telegram_bot import is_configured, get_bot_info
+    if not is_configured():
+        return {"configured": False, "message": "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env"}
+    return get_bot_info()
+
+@app.post("/api/telegram/test")
+async def api_telegram_test():
+    """Send a test message to verify Telegram setup."""
+    from integrations.telegram_bot import send_custom
+    return send_custom("🧪 *ViralOps Engine* — Telegram test successful!\n_Your bot is configured correctly._")
+
+@app.post("/api/telegram/send")
+async def api_telegram_send(request: Request):
+    """Send a custom message to Telegram."""
+    data = await request.json()
+    from integrations.telegram_bot import send_message
+    return send_message(
+        text=data.get("text", ""),
+        parse_mode=data.get("parse_mode", "Markdown"),
+    )
+
+
+# ════════════════════════════════════════════════════════════════
 # Health
 # ════════════════════════════════════════════════════════════════
 
@@ -746,7 +839,7 @@ async def api_auto_poster_frequencies():
 async def health():
     return {
         "status": "ok",
-        "version": "2.3.0",
+        "version": "2.4.0",
         "engine": "ViralOps Engine — EMADS-PR v1.0",
         "features": [
             "5 Micro-Niche Hashtags (smart, no generic)",
@@ -757,7 +850,9 @@ async def health():
             "TikTok Auto Music Selection (AI-powered)",
             "Analytics + Hashtag Performance Tracking",
             "Background Scheduler (rate-limited, 11 platforms)",
-            "RSS Auto Poster — Sendible-style (NEW)",
+            "RSS Auto Poster — Sendible-style",
+            "Media Processor — Image→Video + TikTok Music (NEW)",
+            "Telegram Alert Bot — publish notifications (NEW)",
             "Docker + Railway deployment ready",
         ],
         "timestamp": datetime.utcnow().isoformat(),

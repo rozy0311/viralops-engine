@@ -28,6 +28,10 @@ python-multipart>=0.0.9
 # ── RSS Feed ──
 feedparser>=6.0
 
+# ── Media Processing (Image→Video + Music overlay) ──
+moviepy>=2.0
+Pillow>=10.0
+
 # ── Token counting ──
 tiktoken>=0.7.0
 
