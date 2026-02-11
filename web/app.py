@@ -632,6 +632,113 @@ async def api_scheduler_run_now():
 
 
 # ════════════════════════════════════════════════════════════════
+# API — RSS Auto Poster (Sendible-style)
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/rss-auto-poster")
+async def api_list_auto_posters():
+    """List all RSS Auto Poster configs."""
+    from integrations.rss_auto_poster import list_auto_posters
+    return list_auto_posters()
+
+@app.get("/api/rss-auto-poster/status")
+async def api_auto_poster_status():
+    """Get overview status of all auto posters."""
+    from integrations.rss_auto_poster import get_auto_poster_status
+    return get_auto_poster_status()
+
+@app.get("/api/rss-auto-poster/{poster_id}")
+async def api_get_auto_poster(poster_id: str):
+    """Get a single RSS Auto Poster config."""
+    from integrations.rss_auto_poster import get_auto_poster
+    cfg = get_auto_poster(poster_id)
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Auto poster not found")
+    return cfg
+
+@app.post("/api/rss-auto-poster")
+async def api_create_auto_poster(request: Request):
+    """
+    Create a new RSS Auto Poster (Sendible-style).
+
+    Body example:
+    {
+        "name": "TheRike → TikTok Auto",
+        "feed_id": "abc123",
+        "target_platforms": ["tiktok", "instagram"],
+        "frequency": "every_hour",
+        "entries_per_cycle": 1,
+        "publish_mode": "scheduled",
+        "niche": "sustainable-living",
+        "tiktok_music_enabled": true
+    }
+    """
+    data = await request.json()
+    from integrations.rss_auto_poster import create_auto_poster
+    return create_auto_poster(data)
+
+@app.put("/api/rss-auto-poster/{poster_id}")
+async def api_update_auto_poster(poster_id: str, request: Request):
+    """Update an existing RSS Auto Poster config."""
+    data = await request.json()
+    from integrations.rss_auto_poster import update_auto_poster
+    result = update_auto_poster(poster_id, data)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+@app.delete("/api/rss-auto-poster/{poster_id}")
+async def api_delete_auto_poster(poster_id: str):
+    """Delete an RSS Auto Poster config."""
+    from integrations.rss_auto_poster import delete_auto_poster
+    return delete_auto_poster(poster_id)
+
+@app.post("/api/rss-auto-poster/{poster_id}/pause")
+async def api_pause_auto_poster(poster_id: str):
+    """Pause an active auto poster."""
+    from integrations.rss_auto_poster import pause_auto_poster
+    return pause_auto_poster(poster_id)
+
+@app.post("/api/rss-auto-poster/{poster_id}/activate")
+async def api_activate_auto_poster(poster_id: str):
+    """Activate a paused auto poster."""
+    from integrations.rss_auto_poster import activate_auto_poster
+    return activate_auto_poster(poster_id)
+
+@app.post("/api/rss-auto-poster/tick")
+async def api_auto_poster_tick():
+    """Manually trigger RSS Auto Poster tick (check all active posters)."""
+    from integrations.rss_auto_poster import tick
+    return tick()
+
+@app.post("/api/rss-auto-poster/{poster_id}/tick")
+async def api_auto_poster_tick_single(poster_id: str):
+    """Manually trigger tick for a specific auto poster."""
+    from integrations.rss_auto_poster import tick
+    return tick(poster_id=poster_id)
+
+@app.get("/api/rss-auto-poster/{poster_id}/history")
+async def api_auto_poster_history(poster_id: str, limit: int = 50):
+    """Get posting history for a specific auto poster."""
+    from integrations.rss_auto_poster import get_poster_history
+    return get_poster_history(poster_id, limit)
+
+@app.delete("/api/rss-auto-poster/{poster_id}/history")
+async def api_clear_auto_poster_history(poster_id: str):
+    """Clear posting history (allows re-posting of entries)."""
+    from integrations.rss_auto_poster import clear_poster_history
+    return clear_poster_history(poster_id)
+
+@app.get("/api/rss-auto-poster/frequencies")
+async def api_auto_poster_frequencies():
+    """List available frequency presets."""
+    from integrations.rss_auto_poster import FREQUENCY_PRESETS
+    return {
+        "frequencies": {k: f"{v} minutes" for k, v in FREQUENCY_PRESETS.items()},
+    }
+
+
+# ════════════════════════════════════════════════════════════════
 # Health
 # ════════════════════════════════════════════════════════════════
 
@@ -639,7 +746,7 @@ async def api_scheduler_run_now():
 async def health():
     return {
         "status": "ok",
-        "version": "2.2.0",
+        "version": "2.3.0",
         "engine": "ViralOps Engine — EMADS-PR v1.0",
         "features": [
             "5 Micro-Niche Hashtags (smart, no generic)",
@@ -650,6 +757,7 @@ async def health():
             "TikTok Auto Music Selection (AI-powered)",
             "Analytics + Hashtag Performance Tracking",
             "Background Scheduler (rate-limited, 11 platforms)",
+            "RSS Auto Poster — Sendible-style (NEW)",
             "Docker + Railway deployment ready",
         ],
         "timestamp": datetime.utcnow().isoformat(),

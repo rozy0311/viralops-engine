@@ -260,9 +260,22 @@ class PublishScheduler:
 
         while self.running:
             try:
+                # 1. Normal scheduled posts
                 results = self.check_and_publish()
                 if results:
                     logger.info("scheduler.cycle_done", published=len(results))
+
+                # 2. RSS Auto Poster tick (Sendible-style)
+                try:
+                    from integrations.rss_auto_poster import tick as auto_poster_tick
+                    ap_result = auto_poster_tick()
+                    if ap_result.get("total_posted", 0) > 0:
+                        logger.info("scheduler.rss_auto_poster_done",
+                                    posted=ap_result["total_posted"],
+                                    posters=ap_result.get("posters_checked", 0))
+                except Exception as e:
+                    logger.warning("scheduler.rss_auto_poster_error", error=str(e))
+
             except Exception as e:
                 logger.error("scheduler.loop_error", error=str(e))
 
