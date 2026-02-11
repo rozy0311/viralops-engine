@@ -38,6 +38,10 @@ OPTIMAL_TIME_SLOTS = {
     "medium":    [10, 14],              # 10am, 2pm
     "tumblr":    [19, 22],              # 7pm, 10pm
     "shopify_blog": [10],               # Any time
+    "threads":  [8, 12, 17, 20],        # 8am, noon, 5pm, 8pm
+    "bluesky":  [9, 12, 17, 21],        # 9am, noon, 5pm, 9pm
+    "mastodon": [8, 11, 17, 20],        # 8am, 11am, 5pm, 8pm
+    "quora":    [9, 14],                # 9am, 2pm (long-form)
 }
 
 # ── Rate limits per platform (posts per day) ──
@@ -46,6 +50,7 @@ DAILY_RATE_LIMITS = {
     "youtube": 6, "twitter": 50, "linkedin": 20,
     "pinterest": 25, "reddit": 10, "medium": 3,
     "tumblr": 75, "shopify_blog": 20,
+    "threads": 25, "bluesky": 50, "mastodon": 50, "quora": 5,
 }
 
 
@@ -102,23 +107,35 @@ class PublishScheduler:
                 logger.info("scheduler.loaded_social", platform=platform)
                 return social_pub
 
-            # Priority 2: Direct API publishers (Reddit, Medium, Tumblr, Shopify)
+            # Priority 2: Direct API publishers
             if platform == "reddit":
-                from integrations.reddit_publisher import RealRedditPublisher
-                pub = RealRedditPublisher()
+                from integrations.reddit_publisher import RedditPublisher
+                pub = RedditPublisher()
             elif platform == "medium":
-                from integrations.medium_publisher import RealMediumPublisher
-                pub = RealMediumPublisher()
+                from integrations.medium_publisher import MediumPublisher
+                pub = MediumPublisher()
             elif platform == "tumblr":
-                from integrations.tumblr_publisher import RealTumblrPublisher
-                pub = RealTumblrPublisher()
+                from integrations.tumblr_publisher import TumblrPublisher
+                pub = TumblrPublisher()
             elif platform == "shopify_blog":
                 from integrations.shopify_blog_publisher import ShopifyBlogPublisher
                 pub = ShopifyBlogPublisher()
-            # Priority 3: Lemon8
             elif platform == "lemon8":
                 from integrations.lemon8_publisher import Lemon8Publisher
                 pub = Lemon8Publisher()
+            # Priority 3: New platforms (Threads, Bluesky, Mastodon, Quora)
+            elif platform == "threads":
+                from integrations.threads_publisher import ThreadsPublisher
+                pub = ThreadsPublisher()
+            elif platform == "bluesky":
+                from integrations.bluesky_publisher import BlueskyPublisher
+                pub = BlueskyPublisher()
+            elif platform == "mastodon":
+                from integrations.mastodon_publisher import MastodonPublisher
+                pub = MastodonPublisher()
+            elif platform == "quora":
+                from integrations.quora_publisher import QuoraPublisher
+                pub = QuoraPublisher()
             else:
                 logger.warning("scheduler.unknown_platform", platform=platform)
                 return None
@@ -275,6 +292,17 @@ class PublishScheduler:
                                     posters=ap_result.get("posters_checked", 0))
                 except Exception as e:
                     logger.warning("scheduler.rss_auto_poster_error", error=str(e))
+
+                # 3. Engagement fetcher — pull metrics from platform APIs
+                try:
+                    from monitoring.engagement_fetcher import fetch_engagement_batch
+                    eng_result = await fetch_engagement_batch(limit=50)
+                    if eng_result.get("succeeded", 0) > 0:
+                        logger.info("scheduler.engagement_fetch_done",
+                                    succeeded=eng_result["succeeded"],
+                                    platforms=eng_result.get("platforms", {}))
+                except Exception as e:
+                    logger.warning("scheduler.engagement_fetch_error", error=str(e))
 
             except Exception as e:
                 logger.error("scheduler.loop_error", error=str(e))

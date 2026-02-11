@@ -352,15 +352,46 @@ def get_all_tracks() -> list[dict]:
     return BUILTIN_TRACKS + _load_custom_tracks()
 
 
+# ── BPM-aware helpers ──
+# Maps content pace / mood to target BPM for intelligent music matching
+
+_PACE_BPM_MAP = {
+    "slow":   75,   # Calm walkthroughs, cooking, ASMR
+    "medium": 110,  # Standard vlogs, tutorials, storytelling
+    "fast":   140,  # Dance, workout, transitions, montage
+}
+
+_MOOD_BPM_MAP = {
+    "chill":        80,
+    "motivational": 130,
+    "cinematic":    65,
+    "comedy":       135,
+    "emotional":    90,
+}
+
+
+def _pace_to_bpm(pace: str) -> int:
+    """Convert content pace label to target BPM."""
+    return _PACE_BPM_MAP.get(pace.lower(), 110)
+
+
+def _mood_to_bpm(mood: str) -> int | None:
+    """Convert detected mood to suggested BPM. Returns None if no mapping."""
+    return _MOOD_BPM_MAP.get(mood)
+
+
 def recommend_music(
     text: str = "",
     niche: str = None,
     mood: str = None,
     limit: int = 5,
     min_trending: float = 0.0,
+    target_bpm: int | None = None,
+    bpm_range: int = 30,
+    content_pace: str | None = None,
 ) -> dict:
     """
-    🎵 Auto-recommend TikTok music based on content + niche + mood.
+    🎵 Auto-recommend TikTok music based on content + niche + mood + BPM.
 
     This is what Sendible CAN'T do:
       - Sendible: user manually picks music (tedious for 200-500 posts/day)
@@ -372,10 +403,20 @@ def recommend_music(
         mood: Override mood (skip auto-detection)
         limit: Max tracks to return
         min_trending: Minimum trending score (0.0 → 1.0)
+        target_bpm: Desired BPM (exact target, ±bpm_range)
+        bpm_range: Acceptable deviation from target_bpm (default ±30)
+        content_pace: "slow" | "medium" | "fast" — auto-maps to BPM range
     """
     # Step 1: Detect mood if not provided
     if not mood:
         mood = detect_mood(text, niche)
+
+    # Step 1b: Auto-detect BPM target from content_pace or mood
+    if target_bpm is None and content_pace:
+        target_bpm = _pace_to_bpm(content_pace)
+    elif target_bpm is None:
+        # Infer pace from mood
+        target_bpm = _mood_to_bpm(mood)
 
     # Step 2: Filter tracks
     all_tracks = get_all_tracks()
@@ -390,12 +431,23 @@ def recommend_music(
         if track.get("trending_score", 0) < min_trending:
             continue
 
-        # Score: higher if track matches niche
+        # BPM filtering
+        track_bpm = track.get("bpm", 120)
+        bpm_score = 0.0
+        if target_bpm is not None:
+            bpm_diff = abs(track_bpm - target_bpm)
+            if bpm_diff > bpm_range:
+                continue  # Outside acceptable BPM range
+            # Score: closer to target = higher bonus (max 0.2)
+            bpm_score = 0.2 * (1 - bpm_diff / bpm_range)
+
+        # Score: higher if track matches niche + BPM proximity
         score = track.get("trending_score", 0.5)
         if niche and niche in track.get("niches", []):
             score += 0.3  # Niche bonus
+        score += bpm_score  # BPM proximity bonus
 
-        candidates.append({**track, "_score": score})
+        candidates.append({**track, "_score": score, "_bpm_diff": abs(track_bpm - (target_bpm or 120))})
 
     # Step 3: Sort by score descending
     candidates.sort(key=lambda t: t["_score"], reverse=True)
@@ -407,15 +459,18 @@ def recommend_music(
         t["match_reason"] = f"mood={mood}"
         if niche and niche in t.get("niches", []):
             t["match_reason"] += f" + niche={niche}"
+        if target_bpm is not None:
+            t["match_reason"] += f" + bpm≈{target_bpm}"
         results.append(t)
 
     logger.info("tiktok_music.recommend",
-                mood=mood, niche=niche, candidates=len(candidates),
-                returned=len(results))
+                mood=mood, niche=niche, target_bpm=target_bpm,
+                candidates=len(candidates), returned=len(results))
     return {
         "success": True,
         "mood_detected": mood,
         "niche": niche,
+        "target_bpm": target_bpm,
         "tracks": results,
         "total_candidates": len(candidates),
     }
@@ -498,3 +553,73 @@ def get_music_stats() -> dict:
         "top_niches": dict(sorted(niche_counts.items(), key=lambda x: x[1], reverse=True)[:15]),
         "available_moods": MOODS,
     }
+
+
+# ════════════════════════════════════════════════════════════════
+# Trending Score Decay — Prioritize currently viral sounds
+# ════════════════════════════════════════════════════════════════
+import math as _math
+
+
+def decay_trending_scores(
+    half_life_days: float = 14.0,
+    min_score: float = 0.1,
+) -> dict:
+    """
+    Apply time-based exponential decay to trending scores.
+
+    Tracks added longer ago lose trending relevance.
+    Half-life: how many days until a track's score drops to 50%.
+
+    Args:
+        half_life_days: Days until score halves (default 14)
+        min_score: Floor value — never decay below this
+
+    Returns:
+        {"updated": int, "decayed_tracks": [...]}
+    """
+    decay_constant = _math.log(2) / half_life_days
+    now = datetime.utcnow()
+    updated = []
+
+    # Decay custom tracks (can be saved back)
+    custom_tracks = _load_custom_tracks()
+    changed = False
+
+    for track in custom_tracks:
+        added_str = track.get("added_at", "")
+        if not added_str:
+            continue
+        try:
+            added = datetime.fromisoformat(added_str.replace("Z", "+00:00").replace("+00:00", ""))
+        except (ValueError, TypeError):
+            continue
+
+        age_days = (now - added).total_seconds() / 86400
+        original_score = track.get("trending_score", 0.5)
+        decayed = max(min_score, original_score * _math.exp(-decay_constant * age_days))
+
+        if abs(decayed - original_score) > 0.01:
+            track["trending_score"] = round(decayed, 3)
+            updated.append({
+                "track_id": track.get("track_id"),
+                "title": track.get("title"),
+                "old_score": round(original_score, 3),
+                "new_score": track["trending_score"],
+                "age_days": round(age_days, 1),
+            })
+            changed = True
+
+    if changed:
+        _save_custom_tracks(custom_tracks)
+
+    logger.info("tiktok_music.decay_applied", updated=len(updated))
+    return {"updated": len(updated), "decayed_tracks": updated}
+
+
+def get_trending_tracks(limit: int = 10, min_score: float = 0.7) -> list[dict]:
+    """Get top trending tracks (highest trending_score)."""
+    all_tracks = get_all_tracks()
+    trending = [t for t in all_tracks if t.get("trending_score", 0) >= min_score]
+    trending.sort(key=lambda t: t.get("trending_score", 0), reverse=True)
+    return trending[:limit]

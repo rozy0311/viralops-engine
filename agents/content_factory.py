@@ -231,6 +231,10 @@ CHANNEL_CHAR_LIMITS = {
     "medium":       {"caption": 50000, "title": 200,   "hashtags_in_caption": False, "optimal_hashtags": 5},
     "tumblr":       {"caption": 50000, "title": 200,   "hashtags_in_caption": True,  "optimal_hashtags": 5},
     "shopify_blog": {"caption": 50000, "title": 200,   "hashtags_in_caption": False, "optimal_hashtags": 0},
+    "threads":     {"caption": 500,   "title": 0,     "hashtags_in_caption": True,  "optimal_hashtags": 5},
+    "bluesky":     {"caption": 300,   "title": 0,     "hashtags_in_caption": True,  "optimal_hashtags": 3},
+    "mastodon":    {"caption": 500,   "title": 0,     "hashtags_in_caption": True,  "optimal_hashtags": 5},
+    "quora":       {"caption": 50000, "title": 250,   "hashtags_in_caption": False, "optimal_hashtags": 0},
 }
 
 

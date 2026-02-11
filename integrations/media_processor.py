@@ -651,3 +651,483 @@ def get_media_stats() -> dict:
         "total_size_mb": round(total_size / (1024 * 1024), 2),
         "output_dir": MEDIA_OUTPUT_DIR,
     }
+
+
+# ════════════════════════════════════════════════════════════════
+# Multi-Image Slideshow — Combine multiple images into one video
+# ════════════════════════════════════════════════════════════════
+
+def create_multi_image_slideshow(
+    image_paths: list[str],
+    output_path: str | None = None,
+    duration_per_image: int = 4,
+    transition_duration: float = 0.5,
+    width: int = DEFAULT_VIDEO_WIDTH,
+    height: int = DEFAULT_VIDEO_HEIGHT,
+    fps: int = DEFAULT_FPS,
+    zoom_factor: float = 1.08,
+) -> dict:
+    """
+    Create a video slideshow from multiple images with Ken Burns + crossfade.
+
+    Args:
+        image_paths: List of local image file paths
+        output_path: Output video path (.mp4)
+        duration_per_image: Seconds to display each image
+        transition_duration: Crossfade transition duration (seconds)
+        width: Output video width
+        height: Output video height
+        fps: Frames per second
+        zoom_factor: Ken Burns zoom factor per slide
+
+    Returns:
+        {"success": bool, "path": str, "duration": int, "slides": int}
+    """
+    if not image_paths:
+        return {"success": False, "error": "No images provided"}
+
+    if not output_path:
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(MEDIA_OUTPUT_DIR, f"slideshow_{ts}.mp4")
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    total_duration = len(image_paths) * duration_per_image
+
+    # Try moviepy
+    try:
+        return _multi_slideshow_moviepy(
+            image_paths, output_path, duration_per_image,
+            transition_duration, width, height, fps, zoom_factor,
+        )
+    except ImportError:
+        logger.info("media.moviepy_not_available_for_multi_slideshow")
+
+    # Try ffmpeg
+    try:
+        return _multi_slideshow_ffmpeg(
+            image_paths, output_path, duration_per_image,
+            width, height, fps, zoom_factor,
+        )
+    except FileNotFoundError:
+        pass
+
+    return {
+        "success": False,
+        "error": "No video processor available. Install: pip install moviepy Pillow",
+        "slides": len(image_paths),
+        "planned_output": output_path,
+    }
+
+
+def _multi_slideshow_moviepy(
+    image_paths: list[str], output_path: str,
+    duration_per_image: int, transition_duration: float,
+    width: int, height: int, fps: int, zoom_factor: float,
+) -> dict:
+    """Create multi-image slideshow using moviepy with crossfade transitions."""
+    from moviepy import ImageClip, CompositeVideoClip, concatenate_videoclips
+    import numpy as np
+    from PIL import Image
+
+    clips = []
+    for img_path in image_paths:
+        # Load and resize image to cover target dimensions
+        pil_img = Image.open(img_path).convert("RGB")
+
+        # Resize to cover (may crop)
+        img_ratio = pil_img.width / pil_img.height
+        target_ratio = width / height
+        if img_ratio > target_ratio:
+            new_h = height
+            new_w = int(height * img_ratio)
+        else:
+            new_w = width
+            new_h = int(width / img_ratio)
+
+        pil_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
+
+        # Center crop to exact dimensions
+        left = (new_w - width) // 2
+        top = (new_h - height) // 2
+        pil_img = pil_img.crop((left, top, left + width, top + height))
+
+        img_array = np.array(pil_img)
+
+        clip = ImageClip(img_array).with_duration(duration_per_image)
+        clips.append(clip)
+
+    # Concatenate with crossfade
+    if transition_duration > 0 and len(clips) > 1:
+        final = concatenate_videoclips(
+            clips, method="compose",
+            padding=-transition_duration,
+        )
+    else:
+        final = concatenate_videoclips(clips)
+
+    final = final.with_fps(fps)
+    final.write_videofile(
+        output_path, codec="libx264", audio=False,
+        preset="fast", logger=None,
+    )
+    final.close()
+    for c in clips:
+        c.close()
+
+    total_duration = int(final.duration) if hasattr(final, 'duration') else len(image_paths) * duration_per_image
+    logger.info("media.multi_slideshow_created",
+                slides=len(image_paths), duration=total_duration)
+    return {
+        "success": True,
+        "path": output_path,
+        "duration": total_duration,
+        "slides": len(image_paths),
+    }
+
+
+def _multi_slideshow_ffmpeg(
+    image_paths: list[str], output_path: str,
+    duration_per_image: int, width: int, height: int,
+    fps: int, zoom_factor: float,
+) -> dict:
+    """Create multi-image slideshow using ffmpeg CLI."""
+    import subprocess
+
+    # Create a file list for ffmpeg
+    list_path = os.path.join(MEDIA_OUTPUT_DIR, "ffmpeg_input.txt")
+    with open(list_path, "w") as f:
+        for img in image_paths:
+            f.write(f"file '{img}'\n")
+            f.write(f"duration {duration_per_image}\n")
+        # Repeat last image to avoid ffmpeg truncation
+        f.write(f"file '{image_paths[-1]}'\n")
+
+    cmd = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", list_path,
+        "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+               f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-r", str(fps), "-preset", "fast",
+        output_path,
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+    # Cleanup
+    try:
+        os.remove(list_path)
+    except OSError:
+        pass
+
+    if result.returncode == 0:
+        total_duration = len(image_paths) * duration_per_image
+        return {
+            "success": True,
+            "path": output_path,
+            "duration": total_duration,
+            "slides": len(image_paths),
+        }
+    else:
+        return {
+            "success": False,
+            "error": f"ffmpeg error: {result.stderr[:300]}",
+            "slides": len(image_paths),
+        }
+
+
+def create_multi_image_slideshow_from_urls(
+    image_urls: list[str],
+    output_path: str | None = None,
+    duration_per_image: int = 4,
+    **kwargs,
+) -> dict:
+    """
+    Download multiple images from URLs and create a slideshow.
+
+    Convenience wrapper around create_multi_image_slideshow().
+    """
+    downloaded_paths = []
+    temp_dir = tempfile.mkdtemp(prefix="viralops_slides_")
+
+    try:
+        for i, url in enumerate(image_urls):
+            result = download_image(url, output_dir=temp_dir)
+            if result.get("success"):
+                downloaded_paths.append(result["path"])
+            else:
+                logger.warning("media.slide_download_failed",
+                               url=url, error=result.get("error"))
+
+        if not downloaded_paths:
+            return {"success": False, "error": "No images downloaded successfully"}
+
+        return create_multi_image_slideshow(
+            downloaded_paths, output_path=output_path,
+            duration_per_image=duration_per_image, **kwargs,
+        )
+    finally:
+        # Cleanup temp files
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+# ════════════════════════════════════════════════════════════════
+# Text Overlay — Add captions / subtitles to video
+# ════════════════════════════════════════════════════════════════
+
+def add_text_overlay(
+    video_path: str,
+    text: str,
+    output_path: str | None = None,
+    position: str = "bottom",
+    font_size: int = 48,
+    font_color: str = "white",
+    bg_color: str = "black@0.6",
+    margin: int = 40,
+    start_time: float = 0.0,
+    end_time: float | None = None,
+) -> dict:
+    """
+    Add text caption/subtitle overlay to a video.
+
+    Args:
+        video_path: Input video file path
+        text: Text to overlay
+        output_path: Output video path (default: adds _captioned suffix)
+        position: "top", "center", "bottom"
+        font_size: Text font size
+        font_color: Text color (CSS name or hex)
+        bg_color: Background color with opacity (ffmpeg format)
+        margin: Pixels from edge
+        start_time: When to show text (seconds)
+        end_time: When to hide text (None = full video)
+
+    Returns:
+        {"success": bool, "path": str}
+    """
+    if not os.path.exists(video_path):
+        return {"success": False, "error": f"Video not found: {video_path}"}
+
+    if not output_path:
+        base, ext = os.path.splitext(video_path)
+        output_path = f"{base}_captioned{ext}"
+
+    # Try moviepy
+    try:
+        return _text_overlay_moviepy(
+            video_path, text, output_path, position,
+            font_size, font_color, margin, start_time, end_time,
+        )
+    except ImportError:
+        logger.info("media.moviepy_not_available_for_text_overlay")
+
+    # Try ffmpeg
+    try:
+        return _text_overlay_ffmpeg(
+            video_path, text, output_path, position,
+            font_size, font_color, bg_color, margin,
+            start_time, end_time,
+        )
+    except FileNotFoundError:
+        pass
+
+    return {
+        "success": False,
+        "error": "No video processor available for text overlay",
+    }
+
+
+def _text_overlay_moviepy(
+    video_path: str, text: str, output_path: str,
+    position: str, font_size: int, font_color: str,
+    margin: int, start_time: float, end_time: float | None,
+) -> dict:
+    """Add text overlay using moviepy."""
+    from moviepy import VideoFileClip, TextClip, CompositeVideoClip
+
+    video = VideoFileClip(video_path)
+
+    if end_time is None:
+        end_time = video.duration
+
+    # Position mapping
+    pos_map = {
+        "top": ("center", margin),
+        "center": ("center", "center"),
+        "bottom": ("center", video.h - margin - font_size),
+    }
+    pos = pos_map.get(position, pos_map["bottom"])
+
+    # Create text clip
+    txt_clip = (
+        TextClip(
+            text=text,
+            font_size=font_size,
+            color=font_color,
+            method="caption",
+            size=(video.w - 2 * margin, None),
+        )
+        .with_position(pos)
+        .with_start(start_time)
+        .with_duration(end_time - start_time)
+    )
+
+    final = CompositeVideoClip([video, txt_clip])
+    final.write_videofile(
+        output_path, codec="libx264", audio_codec="aac",
+        preset="fast", logger=None,
+    )
+
+    final.close()
+    video.close()
+
+    logger.info("media.text_overlay_added", path=output_path, text=text[:50])
+    return {"success": True, "path": output_path}
+
+
+def _text_overlay_ffmpeg(
+    video_path: str, text: str, output_path: str,
+    position: str, font_size: int, font_color: str,
+    bg_color: str, margin: int,
+    start_time: float, end_time: float | None,
+) -> dict:
+    """Add text overlay using ffmpeg drawtext filter."""
+    import subprocess
+
+    # Escape text for ffmpeg
+    escaped_text = text.replace("'", "'\\''").replace(":", "\\:")
+
+    # Position
+    if position == "top":
+        y_expr = f"{margin}"
+    elif position == "center":
+        y_expr = "(h-text_h)/2"
+    else:  # bottom
+        y_expr = f"h-text_h-{margin}"
+
+    # Time filter
+    time_filter = ""
+    if start_time > 0 or end_time is not None:
+        enable_parts = []
+        if start_time > 0:
+            enable_parts.append(f"gte(t\\,{start_time})")
+        if end_time is not None:
+            enable_parts.append(f"lte(t\\,{end_time})")
+        time_filter = f":enable='{'+'.join(enable_parts)}'"
+
+    drawtext = (
+        f"drawtext=text='{escaped_text}':"
+        f"fontsize={font_size}:fontcolor={font_color}:"
+        f"x=(w-text_w)/2:y={y_expr}:"
+        f"box=1:boxcolor={bg_color}:boxborderw=10"
+        f"{time_filter}"
+    )
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vf", drawtext,
+        "-c:v", "libx264", "-c:a", "copy",
+        "-preset", "fast",
+        output_path,
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+    if result.returncode == 0:
+        logger.info("media.text_overlay_ffmpeg", path=output_path)
+        return {"success": True, "path": output_path}
+    else:
+        return {
+            "success": False,
+            "error": f"ffmpeg error: {result.stderr[:300]}",
+        }
+
+
+def add_subtitles(
+    video_path: str,
+    subtitles: list[dict],
+    output_path: str | None = None,
+    font_size: int = 36,
+    font_color: str = "white",
+) -> dict:
+    """
+    Add timed subtitles to a video (SRT-style).
+
+    Args:
+        video_path: Input video file path
+        subtitles: List of {"text": str, "start": float, "end": float}
+        output_path: Output video path
+        font_size: Subtitle font size
+        font_color: Subtitle color
+
+    Returns:
+        {"success": bool, "path": str, "subtitle_count": int}
+    """
+    if not subtitles:
+        return {"success": False, "error": "No subtitles provided"}
+
+    if not output_path:
+        base, ext = os.path.splitext(video_path)
+        output_path = f"{base}_subtitled{ext}"
+
+    # Generate SRT file
+    srt_path = os.path.splitext(output_path)[0] + ".srt"
+    _generate_srt(subtitles, srt_path)
+
+    # Try ffmpeg subtitles filter
+    try:
+        import subprocess
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", f"subtitles={srt_path}:force_style="
+                   f"'FontSize={font_size},PrimaryColour=&H00FFFFFF'",
+            "-c:v", "libx264", "-c:a", "copy",
+            "-preset", "fast",
+            output_path,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+        if result.returncode == 0:
+            logger.info("media.subtitles_added",
+                        count=len(subtitles), path=output_path)
+            return {
+                "success": True,
+                "path": output_path,
+                "subtitle_count": len(subtitles),
+                "srt_path": srt_path,
+            }
+        else:
+            return {"success": False, "error": result.stderr[:300]}
+
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "error": "ffmpeg not found. Install ffmpeg for subtitle overlay.",
+            "srt_path": srt_path,
+        }
+
+
+def _generate_srt(subtitles: list[dict], srt_path: str) -> None:
+    """Generate an SRT subtitle file."""
+    with open(srt_path, "w", encoding="utf-8") as f:
+        for i, sub in enumerate(subtitles, 1):
+            start = _seconds_to_srt_time(sub["start"])
+            end = _seconds_to_srt_time(sub["end"])
+            text = sub["text"]
+            f.write(f"{i}\n{start} --> {end}\n{text}\n\n")
+
+
+def _seconds_to_srt_time(seconds: float) -> str:
+    """Convert seconds to SRT time format (HH:MM:SS,mmm)."""
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    ms = int((seconds % 1) * 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
