@@ -1,5 +1,10 @@
 # ViralOps Engine — Docker Compose
-# Includes: web dashboard, scheduler worker, SQLite volume
+# EMADS-PR v1.0 | 16-platform social media automation
+#
+# Usage:
+#   cp .env.template .env      # fill in your API keys
+#   docker compose up -d       # start all services
+#   docker compose logs -f     # follow logs
 
 services:
   # ── Web Dashboard + API ──
@@ -9,27 +14,29 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - viralops-data:/app/web
-      - viralops-config:/app/config
+      - viralops-data:/app/data
+      - viralops-output:/app/output
+      - viralops-logs:/app/logs
     env_file:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/api/health'); exit(0 if r.status_code == 200 else 1)"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/platforms/setup-status"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  # ── Background Scheduler (auto-publish) ──
+  # ── Background Scheduler (auto-publish + engagement fetch) ──
   scheduler:
     build: .
     container_name: viralops-scheduler
     command: ["python", "-c", "import asyncio; from core.scheduler import get_scheduler; s = get_scheduler(); asyncio.run(s.run_loop())"]
     volumes:
-      - viralops-data:/app/web
-      - viralops-config:/app/config
+      - viralops-data:/app/data
+      - viralops-output:/app/output
+      - viralops-logs:/app/logs
     env_file:
       - .env
     environment:
@@ -42,5 +49,7 @@ services:
 volumes:
   viralops-data:
     driver: local
-  viralops-config:
+  viralops-output:
+    driver: local
+  viralops-logs:
     driver: local

@@ -1,0 +1,21 @@
+# ViralOps Engine — Docker Ignore
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.git/
+.gitignore
+.env
+.env.local
+*.md
+!requirements.txt
+tests/
+.vscode/
+*.code-workspace
+node_modules/
+.mypy_cache/
+htmlcov/
+.coverage
+dist/
+build/
+*.egg-info/

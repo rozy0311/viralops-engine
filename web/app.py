@@ -1012,6 +1012,177 @@ async def api_connectors_rate_limits():
 
 
 # ════════════════════════════════════════════════════════════════
+# API — Engagement Fetcher (v2.5)
+# ════════════════════════════════════════════════════════════════
+
+@app.post("/api/engagement/fetch")
+async def api_engagement_fetch(request: Request):
+    """Pull real engagement metrics from platform APIs for recent posts."""
+    data = await request.json() if await request.body() else {}
+    from monitoring.engagement_fetcher import fetch_engagement_batch
+    result = await fetch_engagement_batch(limit=data.get("limit", 50))
+    return result
+
+@app.get("/api/engagement/summary")
+async def api_engagement_summary(platform: str = None, days: int = 7):
+    """Get engagement summary across platforms."""
+    from monitoring.engagement_fetcher import get_engagement_summary
+    return get_engagement_summary(platform=platform, days=days)
+
+@app.get("/api/engagement/post/{post_id}")
+async def api_engagement_post(post_id: int):
+    """Get engagement data for a specific post."""
+    from monitoring.engagement_fetcher import get_post_engagement
+    return {"post_id": post_id, "data": get_post_engagement(post_id)}
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Time Slot Engine (v2.5)
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/time-slots/suggest/{platform}")
+async def api_time_slot_suggest(platform: str, utc_offset: int = 0):
+    """Suggest optimal next posting time for a platform."""
+    from core.time_slot_engine import suggest_time
+    return suggest_time(platform, utc_offset_hours=utc_offset)
+
+@app.post("/api/time-slots/schedule")
+async def api_time_slot_schedule(request: Request):
+    """Generate a full daily posting schedule across platforms."""
+    data = await request.json()
+    from core.time_slot_engine import suggest_schedule
+    return suggest_schedule(
+        platforms=data.get("platforms", ["tiktok", "instagram", "twitter"]),
+        posts_per_platform=data.get("posts_per_platform", 1),
+        utc_offset_hours=data.get("utc_offset", 0),
+        spacing_minutes=data.get("spacing_minutes", 30),
+    )
+
+@app.get("/api/time-slots/best-hours")
+async def api_time_slot_best_hours(platform: str = None, days: int = 30):
+    """Get best posting hours (analytics-backed)."""
+    from core.time_slot_engine import get_best_hours
+    return get_best_hours(platform=platform, days=days)
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Trending Decay + BPM Music (v2.5)
+# ════════════════════════════════════════════════════════════════
+
+@app.post("/api/tiktok/music/decay")
+async def api_tiktok_music_decay(request: Request):
+    """Apply trending score decay to music library."""
+    data = await request.json() if await request.body() else {}
+    from integrations.tiktok_music import decay_trending_scores
+    return decay_trending_scores(
+        half_life_days=data.get("half_life_days", 14.0),
+        min_score=data.get("min_score", 0.1),
+    )
+
+@app.get("/api/tiktok/music/trending")
+async def api_tiktok_music_trending(limit: int = 10, min_score: float = 0.7):
+    """Get top trending tracks."""
+    from integrations.tiktok_music import get_trending_tracks
+    return {"tracks": get_trending_tracks(limit=limit, min_score=min_score)}
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Multi-Image Slideshow + Text Overlay (v2.5)
+# ════════════════════════════════════════════════════════════════
+
+@app.post("/api/media/multi-slideshow")
+async def api_media_multi_slideshow(request: Request):
+    """Create video slideshow from multiple image URLs."""
+    data = await request.json()
+    from integrations.media_processor import create_multi_image_slideshow_from_urls
+    try:
+        return create_multi_image_slideshow_from_urls(
+            image_urls=data.get("image_urls", []),
+            duration_per_image=data.get("duration_per_image", 4),
+            width=data.get("width", 1080),
+            height=data.get("height", 1920),
+        )
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.post("/api/media/text-overlay")
+async def api_media_text_overlay(request: Request):
+    """Add text caption overlay to a video."""
+    data = await request.json()
+    from integrations.media_processor import add_text_overlay
+    try:
+        return add_text_overlay(
+            video_path=data.get("video_path", ""),
+            text=data.get("text", ""),
+            position=data.get("position", "bottom"),
+            font_size=data.get("font_size", 48),
+            font_color=data.get("font_color", "white"),
+        )
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.post("/api/media/subtitles")
+async def api_media_subtitles(request: Request):
+    """Add timed subtitles to a video (SRT-style)."""
+    data = await request.json()
+    from integrations.media_processor import add_subtitles
+    try:
+        return add_subtitles(
+            video_path=data.get("video_path", ""),
+            subtitles=data.get("subtitles", []),
+            font_size=data.get("font_size", 36),
+        )
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Platform Setup Status (v2.5)
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/platforms/setup-status")
+async def api_platforms_setup_status():
+    """Check which platforms have API keys configured."""
+    import os
+    platforms = {
+        "twitter":      {"env_keys": ["TWITTER_MAIN_API_KEY"], "difficulty": "medium", "docs": "https://developer.twitter.com"},
+        "instagram":    {"env_keys": ["INSTAGRAM_MAIN_ACCESS_TOKEN"], "difficulty": "medium", "docs": "https://developers.facebook.com"},
+        "facebook":     {"env_keys": ["FACEBOOK_MAIN_ACCESS_TOKEN"], "difficulty": "medium", "docs": "https://developers.facebook.com"},
+        "youtube":      {"env_keys": ["YOUTUBE_MAIN_API_KEY"], "difficulty": "medium", "docs": "https://console.cloud.google.com"},
+        "linkedin":     {"env_keys": ["LINKEDIN_MAIN_ACCESS_TOKEN"], "difficulty": "medium", "docs": "https://developer.linkedin.com"},
+        "tiktok":       {"env_keys": ["TIKTOK_MAIN_ACCESS_TOKEN"], "difficulty": "hard", "docs": "https://developers.tiktok.com"},
+        "pinterest":    {"env_keys": ["PINTEREST_MAIN_ACCESS_TOKEN"], "difficulty": "medium", "docs": "https://developers.pinterest.com"},
+        "reddit":       {"env_keys": ["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET"], "difficulty": "easy", "docs": "https://www.reddit.com/prefs/apps"},
+        "medium":       {"env_keys": ["MEDIUM_ACCESS_TOKEN"], "difficulty": "easy", "docs": "https://medium.com/me/settings"},
+        "tumblr":       {"env_keys": ["TUMBLR_CONSUMER_KEY"], "difficulty": "easy", "docs": "https://www.tumblr.com/oauth/apps"},
+        "threads":      {"env_keys": ["THREADS_MAIN_ACCESS_TOKEN"], "difficulty": "hard", "docs": "https://developers.facebook.com/docs/threads"},
+        "bluesky":      {"env_keys": ["BLUESKY_MAIN_HANDLE", "BLUESKY_MAIN_APP_PASSWORD"], "difficulty": "easy", "docs": "https://bsky.app/settings/app-passwords"},
+        "mastodon":     {"env_keys": ["MASTODON_MAIN_ACCESS_TOKEN"], "difficulty": "easy", "docs": "https://docs.joinmastodon.org/client/intro/"},
+        "quora":        {"env_keys": ["QUORA_MAIN_SESSION_COOKIE"], "difficulty": "hard", "docs": ""},
+        "shopify_blog": {"env_keys": ["SHOPIFY_SHOP_URL", "SHOPIFY_ACCESS_TOKEN"], "difficulty": "easy", "docs": "https://shopify.dev/docs/api"},
+        "lemon8":       {"env_keys": ["LEMON8_SESSION_TOKEN"], "difficulty": "hard", "docs": ""},
+    }
+
+    result = {}
+    for platform, info in platforms.items():
+        configured = all(os.environ.get(k) for k in info["env_keys"])
+        result[platform] = {
+            "configured": configured,
+            "difficulty": info["difficulty"],
+            "docs_url": info["docs"],
+            "env_keys_needed": info["env_keys"],
+        }
+
+    configured_count = sum(1 for p in result.values() if p["configured"])
+    return {
+        "platforms": result,
+        "total": len(result),
+        "configured": configured_count,
+        "not_configured": len(result) - configured_count,
+    }
+
+
+# ════════════════════════════════════════════════════════════════
 # Run
 # ════════════════════════════════════════════════════════════════
 
