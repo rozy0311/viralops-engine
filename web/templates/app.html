@@ -62,22 +62,20 @@
     <a href="/analytics" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'analytics' %}bg-brand-600 text-white{% endif %}">
       <span>📈</span> Analytics
     </a>
+    <a href="/engagement" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'engagement' %}bg-brand-600 text-white{% endif %}">
+      <span>💬</span> Engagement
+    </a>
+    <a href="/time-slots" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'timeslots' %}bg-brand-600 text-white{% endif %}">
+      <span>🕐</span> Time Slots
+    </a>
+    <a href="/platforms" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'platforms' %}bg-brand-600 text-white{% endif %}">
+      <span>🔌</span> Platforms
+    </a>
 
     <div class="pt-3 mt-3 border-t border-dark-800">
-      <p class="px-3 py-1 text-xs text-gray-500 uppercase tracking-wider">Channels</p>
-      <div class="space-y-1 mt-1">
-        <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400">
-          <span class="w-2 h-2 rounded-full bg-orange-500"></span> Reddit
-        </div>
-        <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400">
-          <span class="w-2 h-2 rounded-full bg-green-500"></span> Medium
-        </div>
-        <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400">
-          <span class="w-2 h-2 rounded-full bg-blue-500"></span> Tumblr
-        </div>
-        <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400">
-          <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Shopify Blog
-        </div>
+      <p class="px-3 py-1 text-xs text-gray-500 uppercase tracking-wider">Channels (16)</p>
+      <div class="space-y-1 mt-1" id="sidebar-channels">
+        <p class="px-3 py-1 text-xs text-gray-500">Loading...</p>
       </div>
     </div>
   </nav>
@@ -446,6 +444,193 @@
       </div>
     </div>
   </div>
+
+  <!-- ═══ PLATFORMS PAGE ═══ -->
+  <div class="page {% if page == 'platforms' %}active{% endif %}" id="page-platforms">
+    <h2 class="text-2xl font-bold text-gray-800 mb-2">Platform Setup</h2>
+    <p class="text-gray-500 mb-6">Configure API keys for each platform. See <a href="https://github.com/rozy0311/viralops-engine/blob/main/SETUP_GUIDE.md" target="_blank" class="text-brand-500 underline">SETUP_GUIDE.md</a> for step-by-step instructions.</p>
+
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-3 gap-4 mb-6">
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">Total Platforms</p>
+        <p class="text-3xl font-bold text-gray-800 mt-1" id="plat-total">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">Configured ✅</p>
+        <p class="text-3xl font-bold text-green-600 mt-1" id="plat-configured">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">Not Configured ❌</p>
+        <p class="text-3xl font-bold text-red-500 mt-1" id="plat-missing">-</p>
+      </div>
+    </div>
+
+    <!-- Difficulty Filter -->
+    <div class="flex gap-2 mb-4">
+      <button onclick="filterPlatforms('all')" class="px-4 py-1.5 text-sm rounded-full bg-gray-200 hover:bg-gray-300 font-medium">All</button>
+      <button onclick="filterPlatforms('easy')" class="px-4 py-1.5 text-sm rounded-full bg-green-100 text-green-700 hover:bg-green-200 font-medium">🟢 Easy</button>
+      <button onclick="filterPlatforms('medium')" class="px-4 py-1.5 text-sm rounded-full bg-yellow-100 text-yellow-700 hover:bg-yellow-200 font-medium">🟡 Medium</button>
+      <button onclick="filterPlatforms('hard')" class="px-4 py-1.5 text-sm rounded-full bg-red-100 text-red-700 hover:bg-red-200 font-medium">🔴 Hard</button>
+    </div>
+
+    <!-- Platform Grid -->
+    <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" id="platforms-grid">
+      <p class="text-gray-400 col-span-full text-center py-8">Loading platforms...</p>
+    </div>
+  </div>
+
+  <!-- ═══ ENGAGEMENT PAGE ═══ -->
+  <div class="page {% if page == 'engagement' %}active{% endif %}" id="page-engagement">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h2 class="text-2xl font-bold text-gray-800">Engagement Dashboard</h2>
+        <p class="text-gray-500">Real metrics pulled from all connected platforms</p>
+      </div>
+      <button onclick="fetchEngagement()" class="bg-brand-500 text-white px-4 py-2 rounded-lg hover:bg-brand-600 text-sm font-medium">
+        🔄 Fetch Latest
+      </button>
+    </div>
+
+    <!-- Engagement Stats -->
+    <div class="grid grid-cols-5 gap-4 mb-6">
+      <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p class="text-xs text-gray-500">Total Likes</p>
+        <p class="text-2xl font-bold text-pink-500 mt-1" id="eng-likes">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p class="text-xs text-gray-500">Total Shares</p>
+        <p class="text-2xl font-bold text-blue-500 mt-1" id="eng-shares">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p class="text-xs text-gray-500">Total Comments</p>
+        <p class="text-2xl font-bold text-green-500 mt-1" id="eng-comments">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p class="text-xs text-gray-500">Total Views</p>
+        <p class="text-2xl font-bold text-purple-500 mt-1" id="eng-views">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+        <p class="text-xs text-gray-500">Posts Tracked</p>
+        <p class="text-2xl font-bold text-gray-700 mt-1" id="eng-posts">-</p>
+      </div>
+    </div>
+
+    <!-- Platform Filter -->
+    <div class="flex gap-2 mb-4 flex-wrap">
+      <button onclick="loadEngagement()" class="px-3 py-1 text-xs rounded-full bg-gray-200 hover:bg-gray-300 font-medium">All Platforms</button>
+      <button onclick="loadEngagement('twitter')" class="px-3 py-1 text-xs rounded-full bg-sky-100 text-sky-700 hover:bg-sky-200">Twitter</button>
+      <button onclick="loadEngagement('instagram')" class="px-3 py-1 text-xs rounded-full bg-pink-100 text-pink-700 hover:bg-pink-200">Instagram</button>
+      <button onclick="loadEngagement('tiktok')" class="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200">TikTok</button>
+      <button onclick="loadEngagement('reddit')" class="px-3 py-1 text-xs rounded-full bg-orange-100 text-orange-700 hover:bg-orange-200">Reddit</button>
+      <button onclick="loadEngagement('bluesky')" class="px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200">Bluesky</button>
+      <button onclick="loadEngagement('mastodon')" class="px-3 py-1 text-xs rounded-full bg-indigo-100 text-indigo-700 hover:bg-indigo-200">Mastodon</button>
+      <button onclick="loadEngagement('linkedin')" class="px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200">LinkedIn</button>
+      <button onclick="loadEngagement('medium')" class="px-3 py-1 text-xs rounded-full bg-green-100 text-green-700 hover:bg-green-200">Medium</button>
+    </div>
+
+    <!-- Engagement Table -->
+    <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="text-left px-4 py-3 font-medium text-gray-600">Platform</th>
+            <th class="text-right px-4 py-3 font-medium text-gray-600">❤️ Likes</th>
+            <th class="text-right px-4 py-3 font-medium text-gray-600">🔄 Shares</th>
+            <th class="text-right px-4 py-3 font-medium text-gray-600">💬 Comments</th>
+            <th class="text-right px-4 py-3 font-medium text-gray-600">👁️ Views</th>
+            <th class="text-right px-4 py-3 font-medium text-gray-600">Posts</th>
+          </tr>
+        </thead>
+        <tbody id="engagement-table">
+          <tr><td colspan="6" class="text-center py-8 text-gray-400">Click "Fetch Latest" to pull engagement data</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ TIME SLOTS PAGE ═══ -->
+  <div class="page {% if page == 'timeslots' %}active{% endif %}" id="page-timeslots">
+    <h2 class="text-2xl font-bold text-gray-800 mb-2">Optimal Posting Times</h2>
+    <p class="text-gray-500 mb-6">AI-suggested posting schedule based on platform data + your analytics</p>
+
+    <!-- Quick Suggest -->
+    <div class="grid grid-cols-2 gap-6 mb-6">
+      <!-- Single Platform Suggest -->
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">🕐 Quick Suggest</h3>
+        <p class="text-xs text-gray-500 mb-3">Get the next best time for a specific platform</p>
+        <div class="flex gap-2">
+          <select id="ts-platform" class="flex-1 border rounded-lg px-3 py-2 text-sm">
+            <option value="twitter">Twitter</option>
+            <option value="instagram">Instagram</option>
+            <option value="tiktok">TikTok</option>
+            <option value="facebook">Facebook</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="youtube">YouTube</option>
+            <option value="reddit">Reddit</option>
+            <option value="pinterest">Pinterest</option>
+            <option value="medium">Medium</option>
+            <option value="tumblr">Tumblr</option>
+            <option value="threads">Threads</option>
+            <option value="bluesky">Bluesky</option>
+            <option value="mastodon">Mastodon</option>
+            <option value="quora">Quora</option>
+            <option value="shopify_blog">Shopify Blog</option>
+          </select>
+          <button onclick="suggestTime()" class="bg-brand-500 text-white px-4 py-2 rounded-lg hover:bg-brand-600 text-sm">Suggest</button>
+        </div>
+        <div id="ts-result" class="mt-3 hidden">
+          <div class="bg-brand-50 rounded-lg p-3">
+            <p class="text-sm font-medium text-brand-700" id="ts-result-text">-</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Schedule Generator -->
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">📅 Daily Schedule Generator</h3>
+        <p class="text-xs text-gray-500 mb-3">Generate a full day schedule across platforms</p>
+        <div class="space-y-2">
+          <div class="flex gap-2">
+            <input type="number" id="ts-posts-per" value="2" min="1" max="10" class="w-20 border rounded-lg px-3 py-2 text-sm" placeholder="Posts">
+            <span class="text-sm text-gray-500 self-center">posts per platform</span>
+          </div>
+          <div class="flex gap-2">
+            <input type="number" id="ts-utc" value="7" min="-12" max="14" class="w-20 border rounded-lg px-3 py-2 text-sm" placeholder="UTC">
+            <span class="text-sm text-gray-500 self-center">UTC offset (e.g. 7 = Vietnam)</span>
+          </div>
+          <button onclick="generateSchedule()" class="w-full bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 text-sm font-medium">Generate Schedule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Best Hours -->
+    <div class="bg-white rounded-xl p-5 shadow-sm border mb-6">
+      <h3 class="font-semibold mb-3">🏆 Best Posting Hours (All Platforms)</h3>
+      <div id="best-hours-grid" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <p class="text-gray-400 col-span-full text-center py-4">Loading...</p>
+      </div>
+    </div>
+
+    <!-- Generated Schedule -->
+    <div id="schedule-result" class="hidden">
+      <h3 class="font-semibold mb-3">📋 Generated Schedule</h3>
+      <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b">
+            <tr>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Time</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Platform</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Source</th>
+              <th class="text-right px-4 py-3 font-medium text-gray-600">Confidence</th>
+            </tr>
+          </thead>
+          <tbody id="schedule-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </main>
 
 <!-- ═══ JAVASCRIPT ═══ -->
@@ -495,7 +680,12 @@ document.addEventListener('DOMContentLoaded', () => {
     else if(page.id==='page-rss') loadRSSFeeds();
     else if(page.id==='page-hashtags') loadHashtagCollections();
     else if(page.id==='page-compose') loadHashtagSelector();
+    else if(page.id==='page-platforms') loadPlatforms();
+    else if(page.id==='page-engagement') loadEngagement();
+    else if(page.id==='page-timeslots') loadBestHours();
   }
+  // Always load sidebar channels
+  loadSidebarChannels();
 });
 
 // ── Dashboard ──
@@ -882,6 +1072,208 @@ async function loadAnalytics() {
       <span class="text-gray-400">${l.published_at?.slice(0,16)||''}</span>
     </div>`).join('') || '<p class="text-gray-400 text-sm">No publish history</p>';
   } catch(e) { toast('Analytics error', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════
+// PLATFORMS PAGE
+// ═══════════════════════════════════════════════════
+
+const PLAT_ICONS = {
+  twitter:'🐦', instagram:'📷', facebook:'📘', youtube:'▶️', linkedin:'💼',
+  tiktok:'🎵', pinterest:'📌', reddit:'🔴', medium:'✍️', tumblr:'🔵',
+  threads:'🧵', bluesky:'🦋', mastodon:'🐘', quora:'❓', shopify_blog:'🛍️', lemon8:'🍋'
+};
+const DIFF_COLORS = { easy:'green', medium:'yellow', hard:'red' };
+
+let allPlatforms = {};
+
+async function loadPlatforms() {
+  try {
+    const r = await fetch('/api/platforms/setup-status');
+    const d = await r.json();
+    allPlatforms = d.platforms;
+    document.getElementById('plat-total').textContent = d.total;
+    document.getElementById('plat-configured').textContent = d.configured;
+    document.getElementById('plat-missing').textContent = d.not_configured;
+    renderPlatforms('all');
+  } catch(e) { toast('Failed to load platforms', 'error'); }
+}
+
+function filterPlatforms(filter) {
+  renderPlatforms(filter);
+}
+
+function renderPlatforms(filter) {
+  const grid = document.getElementById('platforms-grid');
+  let entries = Object.entries(allPlatforms);
+  if (filter !== 'all') entries = entries.filter(([,v]) => v.difficulty === filter);
+
+  grid.innerHTML = entries.map(([name, info]) => {
+    const icon = PLAT_ICONS[name] || '🔗';
+    const dc = DIFF_COLORS[info.difficulty];
+    const status = info.configured;
+    return `<div class="bg-white rounded-xl p-4 shadow-sm border ${status ? 'border-green-200' : 'border-red-200'}">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-2xl">${icon}</span>
+        <span class="text-xs px-2 py-0.5 rounded-full ${status ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${status ? '✅ Ready' : '❌ Not Set'}</span>
+      </div>
+      <h4 class="font-semibold text-gray-800 capitalize">${name.replace('_',' ')}</h4>
+      <span class="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-${dc}-100 text-${dc}-700">${info.difficulty}</span>
+      <div class="mt-2 text-xs text-gray-500">
+        ${info.env_keys_needed.map(k => `<span class="${info.configured ? 'text-green-600' : 'text-red-400'}">${k}</span>`).join('<br>')}
+      </div>
+      ${info.docs_url ? `<a href="${info.docs_url}" target="_blank" class="mt-2 inline-block text-xs text-brand-500 hover:underline">📄 Setup docs →</a>` : ''}
+    </div>`;
+  }).join('');
+
+  if (entries.length === 0) grid.innerHTML = '<p class="text-gray-400 col-span-full text-center py-8">No platforms match this filter</p>';
+}
+
+async function loadSidebarChannels() {
+  try {
+    const r = await fetch('/api/platforms/setup-status');
+    const d = await r.json();
+    const el = document.getElementById('sidebar-channels');
+    if (!el) return;
+    el.innerHTML = Object.entries(d.platforms).map(([name, info]) => {
+      const icon = PLAT_ICONS[name] || '🔗';
+      const color = info.configured ? 'bg-green-500' : 'bg-gray-500';
+      return `<div class="flex items-center gap-2 px-3 py-1 text-xs text-gray-400">
+        <span class="w-2 h-2 rounded-full ${color}"></span> ${icon} ${name.replace('_',' ')}
+      </div>`;
+    }).join('');
+  } catch(e) { /* sidebar is non-critical */ }
+}
+
+
+// ═══════════════════════════════════════════════════
+// ENGAGEMENT PAGE
+// ═══════════════════════════════════════════════════
+
+async function fetchEngagement() {
+  toast('Fetching engagement data...', 'info');
+  try {
+    await fetch('/api/engagement/fetch', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    toast('Engagement data updated!', 'success');
+    loadEngagement();
+  } catch(e) { toast('Fetch failed', 'error'); }
+}
+
+async function loadEngagement(platform) {
+  try {
+    let url = '/api/engagement/summary?days=30';
+    if (platform) url += '&platform=' + platform;
+    const r = await fetch(url);
+    const d = await r.json();
+
+    // Update stats
+    const totals = d.totals || {};
+    document.getElementById('eng-likes').textContent = (totals.likes || 0).toLocaleString();
+    document.getElementById('eng-shares').textContent = (totals.shares || 0).toLocaleString();
+    document.getElementById('eng-comments').textContent = (totals.comments || 0).toLocaleString();
+    document.getElementById('eng-views').textContent = (totals.views || 0).toLocaleString();
+    document.getElementById('eng-posts').textContent = (totals.posts_tracked || 0).toLocaleString();
+
+    // Update table
+    const table = document.getElementById('engagement-table');
+    const platforms = d.by_platform || {};
+    const rows = Object.entries(platforms);
+
+    if (rows.length === 0) {
+      table.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-400">No engagement data yet. Click "Fetch Latest" to pull metrics.</td></tr>';
+      return;
+    }
+
+    table.innerHTML = rows.map(([name, m]) => {
+      const icon = PLAT_ICONS[name] || '🔗';
+      return `<tr class="border-b hover:bg-gray-50">
+        <td class="px-4 py-3 font-medium">${icon} ${name}</td>
+        <td class="px-4 py-3 text-right text-pink-600">${(m.likes||0).toLocaleString()}</td>
+        <td class="px-4 py-3 text-right text-blue-600">${(m.shares||0).toLocaleString()}</td>
+        <td class="px-4 py-3 text-right text-green-600">${(m.comments||0).toLocaleString()}</td>
+        <td class="px-4 py-3 text-right text-purple-600">${(m.views||0).toLocaleString()}</td>
+        <td class="px-4 py-3 text-right text-gray-600">${(m.posts||0).toLocaleString()}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { toast('Engagement load error', 'error'); }
+}
+
+
+// ═══════════════════════════════════════════════════
+// TIME SLOTS PAGE
+// ═══════════════════════════════════════════════════
+
+async function suggestTime() {
+  const platform = document.getElementById('ts-platform').value;
+  try {
+    const r = await fetch('/api/time-slots/suggest/' + platform + '?utc_offset=7');
+    const d = await r.json();
+    const resultEl = document.getElementById('ts-result');
+    resultEl.classList.remove('hidden');
+    const txt = d.suggested_time || d.next_time || JSON.stringify(d);
+    document.getElementById('ts-result-text').textContent =
+      `Next best time for ${platform}: ${txt}` + (d.source ? ` (${d.source})` : '');
+  } catch(e) { toast('Suggest failed', 'error'); }
+}
+
+async function generateSchedule() {
+  const postsPerPlatform = parseInt(document.getElementById('ts-posts-per').value) || 2;
+  const utcOffset = parseInt(document.getElementById('ts-utc').value) || 0;
+  try {
+    const r = await fetch('/api/time-slots/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platforms: ['twitter','instagram','tiktok','facebook','linkedin','reddit','bluesky','mastodon'],
+        posts_per_platform: postsPerPlatform,
+        utc_offset: utcOffset,
+        spacing_minutes: 30,
+      })
+    });
+    const d = await r.json();
+    const schedule = d.schedule || d || [];
+    const resultEl = document.getElementById('schedule-result');
+    resultEl.classList.remove('hidden');
+    const table = document.getElementById('schedule-table');
+
+    if (Array.isArray(schedule) && schedule.length > 0) {
+      table.innerHTML = schedule.map(s => `<tr class="border-b hover:bg-gray-50">
+        <td class="px-4 py-2 font-mono text-sm">${s.time || s.suggested_time || '-'}</td>
+        <td class="px-4 py-2">${PLAT_ICONS[s.platform]||'🔗'} ${s.platform || '-'}</td>
+        <td class="px-4 py-2 text-xs text-gray-500">${s.source || 'static'}</td>
+        <td class="px-4 py-2 text-right">${s.confidence ? (s.confidence * 100).toFixed(0)+'%' : '-'}</td>
+      </tr>`).join('');
+    } else {
+      table.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-400">No schedule data</td></tr>';
+    }
+    toast('Schedule generated!', 'success');
+  } catch(e) { toast('Schedule generation failed', 'error'); }
+}
+
+async function loadBestHours() {
+  try {
+    const r = await fetch('/api/time-slots/best-hours?days=30');
+    const d = await r.json();
+    const grid = document.getElementById('best-hours-grid');
+    const hours = d.hours || d.best_hours || d.platforms || {};
+
+    if (typeof hours === 'object' && !Array.isArray(hours)) {
+      grid.innerHTML = Object.entries(hours).map(([plat, info]) => {
+        const icon = PLAT_ICONS[plat] || '🔗';
+        const bestHour = Array.isArray(info) ? info[0] : (info.best_hour || info);
+        return `<div class="bg-gray-50 rounded-lg p-3">
+          <div class="flex items-center gap-2 mb-1">
+            <span>${icon}</span>
+            <span class="font-medium text-sm capitalize">${plat}</span>
+          </div>
+          <p class="text-lg font-bold text-brand-600">${typeof bestHour === 'object' ? (bestHour.hour || JSON.stringify(bestHour)) : bestHour}</p>
+          <p class="text-xs text-gray-500">${info.source || 'static fallback'}</p>
+        </div>`;
+      }).join('');
+    } else {
+      grid.innerHTML = '<p class="text-gray-400 col-span-full text-center py-4">No analytics data yet — using static defaults</p>';
+    }
+  } catch(e) { /* non-critical */ }
 }
 </script>
 </body>

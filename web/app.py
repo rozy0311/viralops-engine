@@ -197,6 +197,18 @@ async def rss_page(request: Request):
 async def hashtags_page(request: Request):
     return templates.TemplateResponse("app.html", {"request": request, "page": "hashtags"})
 
+@app.get("/platforms", response_class=HTMLResponse)
+async def platforms_page(request: Request):
+    return templates.TemplateResponse("app.html", {"request": request, "page": "platforms"})
+
+@app.get("/engagement", response_class=HTMLResponse)
+async def engagement_page(request: Request):
+    return templates.TemplateResponse("app.html", {"request": request, "page": "engagement"})
+
+@app.get("/time-slots", response_class=HTMLResponse)
+async def timeslots_page(request: Request):
+    return templates.TemplateResponse("app.html", {"request": request, "page": "timeslots"})
+
 
 # ════════════════════════════════════════════════════════════════
 # API — Posts
