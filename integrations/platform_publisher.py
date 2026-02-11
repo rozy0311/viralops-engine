@@ -1,15 +1,22 @@
 """
 Platform Publisher Registry — EMADS-PR v1.0
-Clean version: Only real publishers, no stubs.
+v2.1: Added social_connectors for 7 major platforms.
 
-Real publishers:
+Real publishers (direct API):
 - Reddit (OAuth2) → reddit_publisher.py
 - Medium (Bearer) → medium_publisher.py
 - Tumblr (OAuth2 NPF) → tumblr_publisher.py
 - Shopify Blog (Admin REST) → shopify_blog_publisher.py
+- Lemon8 → lemon8_publisher.py
 
-SocialBee handles: TikTok, Instagram, Facebook, YouTube, Pinterest,
-LinkedIn, Twitter/X, Threads, Bluesky, Google Business
+Social connectors (via social_connectors.py):
+- Twitter/X (v2 API)
+- Instagram (Graph API)
+- Facebook Page (Graph API)
+- YouTube (Data API v3)
+- LinkedIn (v2 API)
+- TikTok (Content Posting API)
+- Pinterest (v5 API)
 """
 import structlog
 from typing import Optional
@@ -21,7 +28,7 @@ logger = structlog.get_logger()
 class PublisherRegistry:
     """
     Registry of all available publishers.
-    Only contains REAL, working publishers.
+    v2.1: Includes social_connectors for TikTok/IG/FB/YT/LI/TW/PIN.
     """
 
     def __init__(self):
@@ -34,7 +41,19 @@ class PublisherRegistry:
             return
         self._initialized = True
 
-        # ── Real publishers (direct API integration) ──
+        # ── Social connectors (7 major platforms) ──
+        try:
+            from integrations.social_connectors import PUBLISHERS as SOCIAL_PUBLISHERS
+            for platform_name, cls in SOCIAL_PUBLISHERS.items():
+                try:
+                    self._publishers[platform_name] = cls()
+                    logger.info("registry.loaded_social", platform=platform_name)
+                except Exception as e:
+                    logger.warning("registry.skip_social", platform=platform_name, error=str(e))
+        except ImportError:
+            logger.warning("registry.social_connectors_not_available")
+
+        # ── Direct API publishers ──
         try:
             from integrations.reddit_publisher import RealRedditPublisher
             self._publishers["reddit"] = RealRedditPublisher()
@@ -63,17 +82,14 @@ class PublisherRegistry:
         except Exception as e:
             logger.warning("registry.skip", platform="shopify_blog", error=str(e))
 
-        # ── SocialBee-managed platforms (no direct publisher needed) ──
-        socialbee_platforms = [
-            "tiktok", "instagram", "facebook", "youtube", "pinterest",
-            "linkedin", "twitter", "threads", "bluesky", "google_business"
-        ]
-        for p in socialbee_platforms:
-            self._publishers[p] = _SocialBeeProxy(p)
+        try:
+            from integrations.lemon8_publisher import Lemon8Publisher
+            self._publishers["lemon8"] = Lemon8Publisher()
+            logger.info("registry.loaded", platform="lemon8")
+        except Exception as e:
+            logger.warning("registry.skip", platform="lemon8", error=str(e))
 
-        logger.info("registry.complete",
-                    real=len([p for p in self._publishers.values() if not isinstance(p, _SocialBeeProxy)]),
-                    socialbee=len(socialbee_platforms))
+        logger.info("registry.complete", total=len(self._publishers))
 
     def get(self, platform: str):
         """Get publisher for a platform."""
@@ -85,10 +101,14 @@ class PublisherRegistry:
         """List all available platforms and their type."""
         if not self._initialized:
             self.register_all()
-        return {
-            name: "socialbee" if isinstance(pub, _SocialBeeProxy) else "direct"
-            for name, pub in self._publishers.items()
-        }
+        result = {}
+        for name, pub in self._publishers.items():
+            module = type(pub).__module__
+            if "social_connectors" in module:
+                result[name] = "social_connector"
+            else:
+                result[name] = "direct_api"
+        return result
 
     async def publish(self, platform: str, item) -> PublishResult:
         """Publish to a specific platform."""
@@ -101,27 +121,6 @@ class PublisherRegistry:
                 error=f"No publisher for {platform}"
             )
         return await pub.publish(item)
-
-
-class _SocialBeeProxy:
-    """
-    Proxy for platforms managed by SocialBee.
-    Returns info message — actual posting happens through SocialBee UI/API.
-    """
-
-    def __init__(self, platform: str):
-        self.platform = platform
-
-    async def publish(self, item) -> PublishResult:
-        return PublishResult(
-            queue_item_id=getattr(item, 'id', ''),
-            platform=self.platform,
-            success=False,
-            error=f"{self.platform} is managed by SocialBee — use SocialBee dashboard to publish"
-        )
-
-    async def test_connection(self) -> bool:
-        return False  # Managed externally
 
 
 # ── Singleton ──

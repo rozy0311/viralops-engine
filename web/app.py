@@ -639,14 +639,18 @@ async def api_scheduler_run_now():
 async def health():
     return {
         "status": "ok",
-        "version": "2.1.0",
-        "engine": "ViralOps Engine — EMADS-PR v1.0 (Sendible-killer)",
+        "version": "2.2.0",
+        "engine": "ViralOps Engine — EMADS-PR v1.0",
         "features": [
-            "Bulk RSS Import (500/call)",
-            "Railway RSS Server (TheRike 10 blogs)",
+            "5 Micro-Niche Hashtags (smart, no generic)",
+            "Smart Content Split (sentence-boundary, never mid-word)",
+            "GenAI Answer Extraction (strips filler/preamble)",
+            "7 Social Connectors (TW/IG/FB/YT/LI/TT/PIN)",
+            "Bulk RSS Import (500/call) + Railway RSS",
             "TikTok Auto Music Selection (AI-powered)",
-            "7-Layer Smart Hashtags",
-            "Multi-platform publishing (20+ channels)",
+            "Analytics + Hashtag Performance Tracking",
+            "Background Scheduler (rate-limited, 11 platforms)",
+            "Docker + Railway deployment ready",
         ],
         "timestamp": datetime.utcnow().isoformat(),
     }
@@ -729,6 +733,79 @@ async def api_tiktok_music_all():
     from integrations.tiktok_music import get_all_tracks
     tracks = get_all_tracks()
     return {"count": len(tracks), "tracks": tracks}
+
+
+# ════════════════════════════════════════════════════════════════
+# Analytics API
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/analytics/dashboard")
+async def api_analytics_dashboard(days: int = 30):
+    """Full analytics dashboard — publish stats, hashtag performance, best times."""
+    from monitoring.analytics import get_analytics_dashboard
+    return get_analytics_dashboard(days)
+
+@app.get("/api/analytics/publish-stats")
+async def api_analytics_publish_stats(days: int = 30):
+    """Publishing success rates per platform."""
+    from monitoring.analytics import get_publish_stats
+    return get_publish_stats(days)
+
+@app.get("/api/analytics/best-times")
+async def api_analytics_best_times(platform: str = None, days: int = 30):
+    """Best posting times based on historical data."""
+    from monitoring.analytics import get_best_posting_times
+    return get_best_posting_times(platform, days)
+
+@app.get("/api/analytics/hashtags")
+async def api_analytics_hashtags(platform: str = None, limit: int = 20):
+    """Top-performing hashtags by engagement."""
+    from monitoring.analytics import get_top_hashtags
+    return get_top_hashtags(platform, limit)
+
+@app.get("/api/analytics/hashtag-report")
+async def api_analytics_hashtag_report(days: int = 30):
+    """Comprehensive hashtag performance report."""
+    from monitoring.analytics import get_hashtag_report
+    return get_hashtag_report(days)
+
+
+# ════════════════════════════════════════════════════════════════
+# Social Connector Status API
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/connectors/status")
+async def api_connectors_status():
+    """Check which social platform connectors are configured."""
+    from integrations.social_connectors import get_all_configured_publishers
+    configured = get_all_configured_publishers()
+    return {
+        "configured": list(configured.keys()),
+        "total": len(configured),
+        "platforms": {name: {"type": type(pub).__name__} for name, pub in configured.items()},
+    }
+
+@app.post("/api/connectors/test")
+async def api_connectors_test():
+    """Test all configured social platform connections."""
+    from integrations.social_connectors import test_all_connections
+    results = await test_all_connections()
+    return {"results": results, "all_ok": all(results.values()) if results else False}
+
+@app.get("/api/connectors/rate-limits")
+async def api_connectors_rate_limits():
+    """Get current daily rate limit status."""
+    from core.scheduler import get_scheduler, DAILY_RATE_LIMITS
+    scheduler = get_scheduler()
+    scheduler._reset_daily_counts_if_needed()
+    return {
+        "limits": DAILY_RATE_LIMITS,
+        "current_usage": dict(scheduler._daily_counts),
+        "remaining": {
+            platform: max(0, limit - scheduler._daily_counts.get(platform, 0))
+            for platform, limit in DAILY_RATE_LIMITS.items()
+        },
+    }
 
 
 # ════════════════════════════════════════════════════════════════

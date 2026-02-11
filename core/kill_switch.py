@@ -61,27 +61,55 @@ class KillSwitch:
         self._load_defaults()
 
     def _load_defaults(self) -> None:
-        """Load default triggers."""
+        """Load triggers from guardrails.yaml or use hardcoded defaults."""
         try:
             with open("config/guardrails.yaml", "r", encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
-            thresholds = cfg.get("kill_switch", {}).get("thresholds", [])
-            for t in thresholds:
-                self._triggers.append(KillSwitchTrigger(
-                    name=t.get("trigger", "unknown"),
-                    threshold=float(t.get("threshold", 0)),
-                    action=KillSwitchAction(t.get("action", "alert_human")),
-                    window_hours=float(t.get("window_hours", 1.0)),
-                ))
+            ks_cfg = cfg.get("kill_switch", {})
+
+            # Try list-based format: kill_switch.thresholds: [...]
+            thresholds = ks_cfg.get("thresholds", [])
+            if thresholds:
+                for t in thresholds:
+                    self._triggers.append(KillSwitchTrigger(
+                        name=t.get("trigger", "unknown"),
+                        threshold=float(t.get("threshold", 0)),
+                        action=KillSwitchAction(t.get("action", "alert_human")),
+                        window_hours=float(t.get("window_hours", 1.0)),
+                    ))
+                return
+
+            # Try dict-based format: kill_switch.error_rate_daily: {threshold: ...}
+            action_map = {
+                "STOP_ALL": KillSwitchAction.PAUSE_ALL,
+                "STOP_PLATFORM": KillSwitchAction.PAUSE_PLATFORM,
+                "REDUCE_FREQUENCY": KillSwitchAction.REDUCE_VOLUME,
+                "STOP_REVIEW": KillSwitchAction.ALERT_HUMAN,
+                "DOWNGRADE_MODEL": KillSwitchAction.ALERT_HUMAN,
+            }
+            for key, val in ks_cfg.items():
+                if isinstance(val, dict) and "threshold" in val:
+                    action_str = val.get("action", "STOP_ALL")
+                    self._triggers.append(KillSwitchTrigger(
+                        name=key,
+                        threshold=float(val["threshold"]),
+                        action=action_map.get(action_str, KillSwitchAction.ALERT_HUMAN),
+                        window_hours=float(val.get("cooldown_hours", 1.0)),
+                    ))
+
+            if self._triggers:
+                return
         except (FileNotFoundError, yaml.YAMLError):
-            # Fallback defaults
-            self._triggers = [
-                KillSwitchTrigger("flag_rate", 3.0, KillSwitchAction.PAUSE_ALL),
-                KillSwitchTrigger("ban_risk", 0.7, KillSwitchAction.PAUSE_ALL),
-                KillSwitchTrigger("spend_rate", 2.0, KillSwitchAction.PAUSE_ALL),
-                KillSwitchTrigger("error_rate", 5.0, KillSwitchAction.PAUSE_PLATFORM),
-                KillSwitchTrigger("engagement_drop", 0.5, KillSwitchAction.ALERT_HUMAN),
-            ]
+            pass
+
+        # Fallback defaults
+        self._triggers = [
+            KillSwitchTrigger("flag_rate", 3.0, KillSwitchAction.PAUSE_ALL),
+            KillSwitchTrigger("ban_risk", 0.7, KillSwitchAction.PAUSE_ALL),
+            KillSwitchTrigger("spend_rate", 2.0, KillSwitchAction.PAUSE_ALL),
+            KillSwitchTrigger("error_rate", 5.0, KillSwitchAction.PAUSE_PLATFORM),
+            KillSwitchTrigger("engagement_drop", 0.5, KillSwitchAction.ALERT_HUMAN),
+        ]
 
     @property
     def is_active(self) -> bool:

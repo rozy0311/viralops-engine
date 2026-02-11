@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 
 class PublishMode(str, Enum):
@@ -184,7 +184,7 @@ class QueueItem:
     id: str
     content_pack_id: str
     platform: str
-    platform_content: PlatformContent
+    platform_content: Optional[Any] = None
     scheduled_at: Optional[datetime] = None
     status: str = "pending"         # pending | scheduled | published | failed | dead_letter
     retry_count: int = 0
@@ -193,6 +193,8 @@ class QueueItem:
     published_at: Optional[datetime] = None
     post_url: str = ""
     idempotency_key: str = ""
+    content_hash: str = ""
+    priority: int = 5
 
 
 @dataclass

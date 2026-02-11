@@ -1,0 +1,46 @@
+# ViralOps Engine — Docker Compose
+# Includes: web dashboard, scheduler worker, SQLite volume
+
+services:
+  # ── Web Dashboard + API ──
+  web:
+    build: .
+    container_name: viralops-web
+    ports:
+      - "8000:8000"
+    volumes:
+      - viralops-data:/app/web
+      - viralops-config:/app/config
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/api/health'); exit(0 if r.status_code == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Background Scheduler (auto-publish) ──
+  scheduler:
+    build: .
+    container_name: viralops-scheduler
+    command: ["python", "-c", "import asyncio; from core.scheduler import get_scheduler; s = get_scheduler(); asyncio.run(s.run_loop())"]
+    volumes:
+      - viralops-data:/app/web
+      - viralops-config:/app/config
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  viralops-data:
+    driver: local
+  viralops-config:
+    driver: local

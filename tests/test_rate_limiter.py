@@ -15,19 +15,31 @@ class TestRateLimiter:
         assert reason is None
 
     def test_platform_limit_reached(self):
-        # TikTok limit is 3/24h
-        for _ in range(3):
-            self.limiter.record_publish("tiktok")
+        # Use a platform with limit < global hourly limit
+        # Or use a limiter with higher global limit
+        # TikTok limit is 3/24h, global is 3/h
+        # Since both are 3, global may fire first.
+        # Use a custom limiter with higher global limit to isolate platform test
+        limiter = RateLimiter(jitter_range=(0, 0))
+        # Override global limit for this test
+        limiter.GLOBAL_MAX_PER_HOUR = 100
 
-        allowed, reason = self.limiter.can_publish("tiktok")
+        for _ in range(3):
+            limiter.record_publish("tiktok")
+
+        allowed, reason = limiter.can_publish("tiktok")
         assert not allowed
-        assert "tiktok" in reason
+        assert "tiktok" in reason.lower()
 
     def test_different_platforms_independent(self):
-        for _ in range(3):
-            self.limiter.record_publish("tiktok")
+        limiter = RateLimiter(jitter_range=(0, 0))
+        # Override global limit so it doesn't interfere
+        limiter.GLOBAL_MAX_PER_HOUR = 100
 
-        allowed, _ = self.limiter.can_publish("instagram_reels")
+        for _ in range(3):
+            limiter.record_publish("tiktok")
+
+        allowed, _ = limiter.can_publish("instagram_reels")
         assert allowed
 
     def test_global_hourly_limit(self):

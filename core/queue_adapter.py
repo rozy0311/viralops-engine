@@ -65,6 +65,7 @@ class QueueAdapter:
     ):
         self._queue: list[QueueItem] = []
         self._published_hashes: set[str] = set()
+        self._enqueued_hashes: set[str] = set()
         self._results: list[PublishResult] = []
         self.dlq = DeadLetterQueue()
         self.max_retries = max_retries
@@ -82,9 +83,9 @@ class QueueAdapter:
         """
         Add item to publish queue. Returns None if duplicate.
         """
-        # Idempotency check
+        # Idempotency check — block if already enqueued OR published
         dedup_key = f"{content_hash}:{platform}"
-        if dedup_key in self._published_hashes:
+        if dedup_key in self._published_hashes or dedup_key in self._enqueued_hashes:
             logger.info("Queue: Skipping duplicate %s for %s", content_pack_id, platform)
             return None
 
@@ -92,18 +93,19 @@ class QueueAdapter:
             id=str(uuid4())[:8],
             content_pack_id=content_pack_id,
             platform=platform,
-            scheduled_time=scheduled_time or datetime.utcnow() + timedelta(minutes=5),
+            scheduled_at=scheduled_time or datetime.utcnow() + timedelta(minutes=5),
             priority=priority,
             retry_count=0,
             content_hash=content_hash,
         )
 
+        self._enqueued_hashes.add(dedup_key)
         self._queue.append(item)
-        self._queue.sort(key=lambda x: (x.priority, x.scheduled_time))
+        self._queue.sort(key=lambda x: (x.priority, x.scheduled_at or datetime.min))
 
         logger.info(
             "Queue: Enqueued %s for %s at %s (priority=%d)",
-            item.id, platform, item.scheduled_time, priority,
+            item.id, platform, item.scheduled_at, priority,
         )
         return item
 
