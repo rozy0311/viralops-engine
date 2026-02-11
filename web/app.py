@@ -440,6 +440,104 @@ async def api_rss_import_entry(request: Request):
     return {"success": True, "post_id": post_id}
 
 
+# ── Bulk Import (Sendible-killer: 200-500 posts / call) ──
+
+@app.post("/api/rss/bulk-import")
+async def api_rss_bulk_import(request: Request):
+    """
+    Bulk import from ALL configured RSS feeds into SQLite drafts.
+    Like Sendible's 200-500 posts/day but in ONE API call.
+    Skips already-imported entries (dedup).
+    """
+    data = await request.json() if (await request.body()) else {}
+    from integrations.rss_reader import (
+        list_feeds, bulk_fetch_feed, bulk_import_as_drafts
+    )
+    platforms = data.get("platforms", ["medium", "shopify_blog"])
+    max_per_feed = data.get("max_per_feed", 50)
+
+    feeds = list_feeds()
+    total_imported = 0
+    total_skipped = 0
+    feed_results = []
+
+    for feed in feeds:
+        fetch = bulk_fetch_feed(feed_id=feed.get("id"), max_entries=max_per_feed)
+        if not fetch.get("success"):
+            feed_results.append({"feed": feed.get("name"), "error": fetch.get("error")})
+            continue
+        entries = fetch.get("entries", [])
+        if entries:
+            result = bulk_import_as_drafts(entries, platforms=platforms)
+            total_imported += result.get("imported", 0)
+            total_skipped += result.get("skipped_duplicates", 0)
+            feed_results.append({
+                "feed": feed.get("name"),
+                "imported": result.get("imported", 0),
+                "skipped": result.get("skipped_duplicates", 0),
+            })
+        else:
+            feed_results.append({
+                "feed": feed.get("name"),
+                "imported": 0,
+                "skipped": fetch.get("skipped_duplicates", 0),
+            })
+
+    return {
+        "success": True,
+        "total_imported": total_imported,
+        "total_skipped": total_skipped,
+        "feeds_processed": len(feeds),
+        "details": feed_results,
+    }
+
+
+@app.post("/api/rss/bulk-fetch/{feed_id}")
+async def api_rss_bulk_fetch(feed_id: str, request: Request):
+    """Bulk fetch up to 500 entries from a single feed (with dedup)."""
+    data = await request.json() if (await request.body()) else {}
+    from integrations.rss_reader import bulk_fetch_feed
+    return bulk_fetch_feed(
+        feed_id=feed_id,
+        max_entries=data.get("max_entries", 500),
+        skip_imported=data.get("skip_imported", True),
+    )
+
+
+# ── Railway RSS Server (TheRike full-text feeds) ──
+
+@app.get("/api/rss/railway/blogs")
+async def api_rss_railway_blogs():
+    """List all available TheRike blogs with their Railway RSS URLs."""
+    from integrations.rss_reader import list_therike_blogs
+    return list_therike_blogs()
+
+@app.post("/api/rss/railway/setup")
+async def api_rss_railway_setup(request: Request):
+    """
+    One-click: register ALL 10 TheRike blogs as RSS feeds.
+    Uses the Railway self-hosted full-text RSS server.
+    """
+    data = await request.json() if (await request.body()) else {}
+    from integrations.rss_reader import setup_therike_feeds
+    return setup_therike_feeds(
+        target_platforms=data.get("platforms", ["medium", "shopify_blog", "reddit"]),
+    )
+
+@app.post("/api/rss/railway/bulk-import")
+async def api_rss_railway_bulk_import(request: Request):
+    """
+    One-click bulk import from ALL TheRike blogs via Railway RSS.
+    Fetches full-text content + imports as drafts. Dedup included.
+    """
+    data = await request.json() if (await request.body()) else {}
+    from integrations.rss_reader import bulk_import_all_therike
+    return bulk_import_all_therike(
+        platforms=data.get("platforms", ["medium", "shopify_blog"]),
+        max_per_blog=data.get("max_per_blog", 50),
+    )
+
+
 # ════════════════════════════════════════════════════════════════
 # API — Hashtag Collections
 # ════════════════════════════════════════════════════════════════
@@ -541,10 +639,96 @@ async def api_scheduler_run_now():
 async def health():
     return {
         "status": "ok",
-        "version": "2.0.0",
-        "engine": "ViralOps Engine — EMADS-PR v1.0",
+        "version": "2.1.0",
+        "engine": "ViralOps Engine — EMADS-PR v1.0 (Sendible-killer)",
+        "features": [
+            "Bulk RSS Import (500/call)",
+            "Railway RSS Server (TheRike 10 blogs)",
+            "TikTok Auto Music Selection (AI-powered)",
+            "7-Layer Smart Hashtags",
+            "Multi-platform publishing (20+ channels)",
+        ],
         "timestamp": datetime.utcnow().isoformat(),
     }
+
+
+# ════════════════════════════════════════════════════════════════
+# API — TikTok Auto Music (Sendible CAN'T do this)
+# ════════════════════════════════════════════════════════════════
+
+@app.post("/api/tiktok/music/recommend")
+async def api_tiktok_music_recommend(request: Request):
+    """
+    🎵 Auto-recommend TikTok music based on content + niche + mood.
+
+    What Sendible CAN'T do:
+      - Sendible: user manually picks music (tedious for 200-500 posts/day)
+      - ViralOps: AI auto-recommends music per post based on content analysis
+    """
+    data = await request.json()
+    from integrations.tiktok_music import recommend_music
+    return recommend_music(
+        text=data.get("text", ""),
+        niche=data.get("niche"),
+        mood=data.get("mood"),
+        limit=data.get("limit", 5),
+        min_trending=data.get("min_trending", 0.0),
+    )
+
+@app.get("/api/tiktok/music/stats")
+async def api_tiktok_music_stats():
+    """Get music database stats — track counts by mood and niche."""
+    from integrations.tiktok_music import get_music_stats
+    return get_music_stats()
+
+@app.get("/api/tiktok/music/moods")
+async def api_tiktok_music_moods():
+    """List all available mood categories."""
+    from integrations.tiktok_music import MOODS, NICHE_DEFAULT_MOOD
+    return {"moods": MOODS, "niche_defaults": NICHE_DEFAULT_MOOD}
+
+@app.get("/api/tiktok/music/by-mood/{mood}")
+async def api_tiktok_music_by_mood(mood: str):
+    """List all tracks for a specific mood."""
+    from integrations.tiktok_music import list_tracks_by_mood
+    tracks = list_tracks_by_mood(mood)
+    return {"mood": mood, "count": len(tracks), "tracks": tracks}
+
+@app.get("/api/tiktok/music/by-niche/{niche}")
+async def api_tiktok_music_by_niche(niche: str):
+    """List all tracks tagged for a specific niche."""
+    from integrations.tiktok_music import list_tracks_by_niche
+    tracks = list_tracks_by_niche(niche)
+    return {"niche": niche, "count": len(tracks), "tracks": tracks}
+
+@app.post("/api/tiktok/music/tracks")
+async def api_tiktok_music_add_track(request: Request):
+    """Add a custom track to the music database."""
+    data = await request.json()
+    from integrations.tiktok_music import add_custom_track
+    return add_custom_track(
+        title=data.get("title", ""),
+        artist=data.get("artist", ""),
+        mood=data.get("mood", "chill"),
+        niches=data.get("niches", []),
+        bpm=data.get("bpm", 120),
+        tiktok_sound_url=data.get("tiktok_sound_url", ""),
+        tags=data.get("tags", []),
+        trending_score=data.get("trending_score", 0.7),
+    )
+
+@app.delete("/api/tiktok/music/tracks/{track_id}")
+async def api_tiktok_music_remove_track(track_id: str):
+    """Remove a custom track from the database."""
+    from integrations.tiktok_music import remove_custom_track
+    return remove_custom_track(track_id)
+
+@app.get("/api/tiktok/music/all")
+async def api_tiktok_music_all():
+    """Get all tracks (built-in + custom)."""
+    from integrations.tiktok_music import get_all_tracks
+    tracks = get_all_tracks()
+    return {"count": len(tracks), "tracks": tracks}
 
 
 # ════════════════════════════════════════════════════════════════

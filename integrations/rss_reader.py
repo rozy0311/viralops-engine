@@ -1,7 +1,13 @@
 """
 RSS Feed Reader — Import blog content for repurposing.
-Supports full content + excerpt modes (like SocialBee).
+Supports full content + excerpt modes (like SocialBee/Sendible).
 Uses feedparser library.
+
+Features (v2.0 — Sendible-killer):
+  - Bulk import up to 500 entries per fetch
+  - Pre-configured Railway RSS server for TheRike
+  - Batch import → SQLite drafts in one call
+  - Smart dedup (skip already-imported entries)
 """
 import os
 import json
@@ -17,6 +23,30 @@ logger = structlog.get_logger()
 
 # ── Persistent storage for RSS feeds ──
 RSS_DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "rss_feeds.json")
+IMPORTED_IDS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "rss_imported_ids.json")
+
+# ── Railway RSS Server (self-hosted full-text feed for TheRike) ──
+RAILWAY_RSS_BASE = os.environ.get(
+    "RAILWAY_RSS_URL",
+    "https://therike-rss-feed-production.up.railway.app"
+)
+
+# Pre-configured TheRike blog handles
+THERIKE_BLOG_HANDLES = [
+    "sustainable-living",
+    "home-stead",
+    "natural-healing-herbal-remedy-insights-and-solutions",
+    "how-to-diy",
+    "the-art-of-healing",
+    "agritourism-adventures-exploring-farm-based-tourism",
+    "permaculture",
+    "meditation",
+    "farm-destinations-the-beauty-of-rural-escapes",
+    "brand-partnerships",
+]
+
+# ── Bulk import settings ──
+MAX_BULK_ENTRIES = 500  # Sendible does 200-500/day, we match 500
 
 
 @dataclass
@@ -144,10 +174,11 @@ def _make_excerpt(text: str, max_length: int = 300) -> str:
     return excerpt.rstrip('.') + '...'
 
 
-def fetch_feed(feed_id: str = None, feed_url: str = None, max_entries: int = 10) -> dict:
+def fetch_feed(feed_id: str = None, feed_url: str = None, max_entries: int = 50) -> dict:
     """
     Fetch and parse an RSS feed.
     Returns entries with both full content and excerpt.
+    Supports up to MAX_BULK_ENTRIES (500) for bulk operations.
     """
     try:
         import feedparser
@@ -271,4 +302,267 @@ def import_entry_as_draft(entry: dict, platforms: list = None) -> dict:
             "image_url": entry.get("image_url", ""),
             "import_mode": "rss",
         }),
+    }
+
+
+# ════════════════════════════════════════════════════════════════
+# Bulk Import — Sendible-killer (200-500 posts/day)
+# ════════════════════════════════════════════════════════════════
+
+def _load_imported_ids() -> set:
+    """Load set of already-imported entry IDs for dedup."""
+    try:
+        if os.path.exists(IMPORTED_IDS_FILE):
+            with open(IMPORTED_IDS_FILE, 'r') as f:
+                return set(json.load(f))
+    except Exception:
+        pass
+    return set()
+
+
+def _save_imported_ids(ids: set):
+    """Persist imported entry IDs."""
+    os.makedirs(os.path.dirname(IMPORTED_IDS_FILE), exist_ok=True)
+    with open(IMPORTED_IDS_FILE, 'w') as f:
+        json.dump(list(ids), f)
+
+
+def bulk_fetch_feed(feed_id: str = None, feed_url: str = None,
+                    max_entries: int = MAX_BULK_ENTRIES,
+                    skip_imported: bool = True) -> dict:
+    """
+    Bulk fetch up to 500 entries from an RSS feed.
+    Skips already-imported entries (dedup).
+
+    Like Sendible's bulk import but with:
+      - Smart dedup (won't re-import same articles)
+      - Full-text content (not just excerpts)
+      - 7-layer hashtag extraction from tags
+    """
+    result = fetch_feed(feed_id=feed_id, feed_url=feed_url, max_entries=max_entries)
+
+    if not result.get("success"):
+        return result
+
+    entries = result.get("entries", [])
+    imported_ids = _load_imported_ids() if skip_imported else set()
+
+    # Filter out already-imported
+    new_entries = []
+    skipped = 0
+    for entry in entries:
+        entry_key = entry.get("url", "") or entry.get("id", "")
+        entry_hash = hashlib.md5(entry_key.encode()).hexdigest()[:16]
+        if entry_hash in imported_ids:
+            skipped += 1
+        else:
+            new_entries.append(entry)
+
+    result["entries"] = new_entries
+    result["entry_count"] = len(new_entries)
+    result["skipped_duplicates"] = skipped
+    result["total_available"] = len(entries)
+    result["bulk_mode"] = True
+
+    logger.info("rss.bulk_fetch",
+                total=len(entries), new=len(new_entries),
+                skipped=skipped, max=max_entries)
+    return result
+
+
+def bulk_import_as_drafts(entries: list[dict],
+                          platforms: list = None,
+                          db_path: str = None) -> dict:
+    """
+    Bulk import RSS entries as draft posts into SQLite.
+
+    This is the Sendible-killer feature:
+      - Import 200-500 entries in one call
+      - All saved as drafts (no auto-publish without review)
+      - Dedup tracking prevents re-import
+      - Returns count of new vs skipped
+
+    Args:
+        entries: List of RSS entry dicts from fetch_feed/bulk_fetch_feed
+        platforms: Target platforms for all entries
+        db_path: Path to SQLite database (auto-detected if None)
+    """
+    import sqlite3
+
+    if not entries:
+        return {"success": True, "imported": 0, "message": "No entries to import"}
+
+    if db_path is None:
+        db_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "data", "viralops.db"
+        )
+
+    imported_ids = _load_imported_ids()
+    new_count = 0
+    skipped = 0
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+
+        # Ensure table exists
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT, body TEXT, category TEXT,
+                platforms TEXT, status TEXT DEFAULT 'draft',
+                extra_fields TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        for entry in entries:
+            entry_key = entry.get("url", "") or entry.get("id", "")
+            entry_hash = hashlib.md5(entry_key.encode()).hexdigest()[:16]
+
+            if entry_hash in imported_ids:
+                skipped += 1
+                continue
+
+            draft = import_entry_as_draft(entry, platforms)
+            conn.execute(
+                "INSERT INTO posts (title, body, category, platforms, status, extra_fields) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (draft["title"], draft["body"], draft["category"],
+                 draft["platforms"], draft["status"], draft["extra_fields"])
+            )
+            imported_ids.add(entry_hash)
+            new_count += 1
+
+        conn.commit()
+        conn.close()
+
+        # Save dedup state
+        _save_imported_ids(imported_ids)
+
+        logger.info("rss.bulk_import_done",
+                     imported=new_count, skipped=skipped, total=len(entries))
+        return {
+            "success": True,
+            "imported": new_count,
+            "skipped_duplicates": skipped,
+            "total_processed": len(entries),
+        }
+
+    except Exception as e:
+        logger.error("rss.bulk_import_error", error=str(e))
+        return {"error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════
+# Railway RSS Server Integration
+# ════════════════════════════════════════════════════════════════
+
+def get_railway_rss_url(blog_handle: str) -> str:
+    """Get the full RSS URL for a TheRike blog handle via Railway server."""
+    return f"{RAILWAY_RSS_BASE}/rss/{blog_handle}"
+
+
+def list_therike_blogs() -> list[dict]:
+    """List all available TheRike blog handles with their Railway RSS URLs."""
+    return [
+        {
+            "handle": handle,
+            "name": handle.replace("-", " ").title(),
+            "rss_url": get_railway_rss_url(handle),
+        }
+        for handle in THERIKE_BLOG_HANDLES
+    ]
+
+
+def setup_therike_feeds(target_platforms: list = None) -> dict:
+    """
+    One-click setup: register ALL TheRike blogs as RSS feeds.
+    Uses the Railway self-hosted full-text RSS server.
+
+    This is equivalent to Sendible → Content → RSS feeds → Add Railway RSS.
+    """
+    results = []
+    for handle in THERIKE_BLOG_HANDLES:
+        url = get_railway_rss_url(handle)
+        name = f"TheRike — {handle.replace('-', ' ').title()}"
+        result = add_feed(
+            url=url,
+            name=name,
+            category="therike",
+            import_mode="full",
+            target_platforms=target_platforms or ["medium", "shopify_blog", "reddit"],
+        )
+        results.append({
+            "handle": handle,
+            "url": url,
+            "status": "added" if result.get("success") else "exists",
+        })
+
+    added = sum(1 for r in results if r["status"] == "added")
+    logger.info("rss.therike_setup", added=added, total=len(results))
+    return {
+        "success": True,
+        "feeds_added": added,
+        "feeds_existing": len(results) - added,
+        "feeds": results,
+    }
+
+
+def bulk_import_all_therike(platforms: list = None,
+                             max_per_blog: int = 50) -> dict:
+    """
+    Bulk import ALL TheRike blogs in one call.
+    Fetches from Railway RSS server, imports as drafts.
+
+    Sendible does ~200-500/day. This can do 500 in one call.
+    """
+    total_imported = 0
+    total_skipped = 0
+    blog_results = []
+
+    for handle in THERIKE_BLOG_HANDLES:
+        url = get_railway_rss_url(handle)
+        fetch_result = bulk_fetch_feed(
+            feed_url=url,
+            max_entries=max_per_blog,
+            skip_imported=True,
+        )
+
+        if not fetch_result.get("success"):
+            blog_results.append({
+                "handle": handle,
+                "error": fetch_result.get("error", "Unknown error"),
+                "imported": 0,
+            })
+            continue
+
+        entries = fetch_result.get("entries", [])
+        if entries:
+            import_result = bulk_import_as_drafts(entries, platforms=platforms)
+            imported = import_result.get("imported", 0)
+            skipped = import_result.get("skipped_duplicates", 0)
+        else:
+            imported = 0
+            skipped = fetch_result.get("skipped_duplicates", 0)
+
+        total_imported += imported
+        total_skipped += skipped
+
+        blog_results.append({
+            "handle": handle,
+            "imported": imported,
+            "skipped": skipped,
+        })
+
+    logger.info("rss.therike_bulk_done",
+                imported=total_imported, skipped=total_skipped,
+                blogs=len(THERIKE_BLOG_HANDLES))
+    return {
+        "success": True,
+        "total_imported": total_imported,
+        "total_skipped": total_skipped,
+        "blogs_processed": len(THERIKE_BLOG_HANDLES),
+        "details": blog_results,
     }
