@@ -27,6 +27,9 @@ import json
 import logging
 import os
 import hashlib
+import httpx
+import tempfile
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -37,10 +40,15 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 SHARE_HISTORY_FILE = os.path.join(DATA_DIR, "shopify_auto_share_history.json")
 SHARE_CONFIG_FILE = os.path.join(DATA_DIR, "shopify_auto_share_config.json")
 
+# ── Media cache for Sendible uploads ─────────────────────────
+MEDIA_CACHE_DIR = os.path.join(DATA_DIR, "media_cache")
+
 # ── Defaults ─────────────────────────────────────────────────
 DEFAULT_INTERVAL_MIN = 30
 DEFAULT_MAX_PER_CYCLE = 5
 DEFAULT_TIKTOK_MODE = "broadcast"  # broadcast | round_robin | specific
+DEFAULT_TIKTOK_VIA = "sendible"    # sendible | api
+DEFAULT_PINTEREST_VIA = "sendible"  # sendible | api
 
 
 class ShopifyAutoShare:
@@ -55,11 +63,26 @@ class ShopifyAutoShare:
 
     def __init__(self):
         self._watcher = None
-        self._tiktok = None
-        self._pinterest = None
+        self._sendible = None       # SendibleUIPublisher (Playwright stealth)
+        self._tiktok = None          # MultiTikTokPublisher (API fallback)
+        self._pinterest = None       # PinterestPublisher (API fallback)
         self._initialized = False
         self._config = self._load_config()
         self._history = self._load_history()
+
+    @property
+    def _tiktok_via(self) -> str:
+        return os.environ.get(
+            "SHOPIFY_AUTOSHARE_TIKTOK_VIA",
+            self._config.get("tiktok_via", DEFAULT_TIKTOK_VIA),
+        ).lower()
+
+    @property
+    def _pinterest_via(self) -> str:
+        return os.environ.get(
+            "SHOPIFY_AUTOSHARE_PINTEREST_VIA",
+            self._config.get("pinterest_via", DEFAULT_PINTEREST_VIA),
+        ).lower()
 
     # ════════════════════════════════════════════
     # Initialization
@@ -79,36 +102,75 @@ class ShopifyAutoShare:
         except Exception as e:
             errors.append(f"ShopifyBlogWatcher: {e}")
 
-        # 2. Multi-TikTok Publisher
+        # 2. Sendible UI Automation (primary for TikTok + Pinterest)
         try:
-            from integrations.multi_tiktok_publisher import MultiTikTokPublisher
-            self._tiktok = MultiTikTokPublisher()
-            if not self._tiktok.accounts:
-                errors.append("MultiTikTok: No accounts configured")
+            from integrations.sendible_ui_publisher import SendibleUIPublisher
+            self._sendible = SendibleUIPublisher()
+            if self._sendible.is_configured:
+                sendible_ok = await self._sendible.connect()
+                if not sendible_ok:
+                    errors.append("Sendible: Login failed")
+                    self._sendible = None
+                else:
+                    logger.info("ShopifyAutoShare: Sendible connected ✅")
+            else:
+                logger.warning(
+                    "ShopifyAutoShare: Sendible not configured "
+                    "(SENDIBLE_EMAIL/PASSWORD empty) — will try direct API"
+                )
+                self._sendible = None
         except Exception as e:
-            errors.append(f"MultiTikTok: {e}")
+            errors.append(f"Sendible: {e}")
+            self._sendible = None
 
-        # 3. Pinterest Publisher (from social_connectors)
+        # 3. Multi-TikTok Publisher (API fallback)
+        if self._tiktok_via == "api" or not self._sendible:
+            try:
+                from integrations.multi_tiktok_publisher import MultiTikTokPublisher
+                self._tiktok = MultiTikTokPublisher()
+                if not self._tiktok.accounts:
+                    if not self._sendible:
+                        errors.append(
+                            "TikTok: No API accounts and Sendible not available"
+                        )
+            except Exception as e:
+                errors.append(f"MultiTikTok: {e}")
+
+        # 4. Pinterest Publisher (API fallback)
         pinterest_enabled = os.environ.get(
             "SHOPIFY_AUTOSHARE_PINTEREST_ENABLED", "true"
         ).lower() == "true"
-        if pinterest_enabled:
+        if pinterest_enabled and (self._pinterest_via == "api" or not self._sendible):
             try:
                 from integrations.social_connectors import PinterestPublisher
                 self._pinterest = PinterestPublisher()
                 if not self._pinterest.access_token:
-                    logger.warning("Pinterest: No access token — pins will be skipped")
+                    if not self._sendible:
+                        logger.warning(
+                            "Pinterest: No API token and Sendible not available"
+                        )
                     self._pinterest = None
             except Exception as e:
                 errors.append(f"Pinterest: {e}")
 
         self._initialized = bool(self._watcher and self._watcher._connected)
 
+        # Determine effective publishers
+        tiktok_method = "sendible" if self._sendible and self._tiktok_via == "sendible" else (
+            "api" if self._tiktok and self._tiktok.accounts else "none"
+        )
+        pinterest_method = "sendible" if self._sendible and self._pinterest_via == "sendible" else (
+            "api" if self._pinterest else "none"
+        )
+
         result = {
             "initialized": self._initialized,
             "watcher_connected": bool(self._watcher and self._watcher._connected),
+            "sendible_connected": self._sendible is not None,
+            "tiktok_via": tiktok_method,
             "tiktok_accounts": len(self._tiktok.accounts) if self._tiktok else 0,
-            "pinterest_enabled": self._pinterest is not None,
+            "pinterest_via": pinterest_method,
+            "pinterest_enabled": pinterest_enabled,
             "errors": errors,
         }
         logger.info("ShopifyAutoShare: Initialized — %s", result)
@@ -254,9 +316,45 @@ class ShopifyAutoShare:
             "pinterest": None,
         }
 
-        # ── TikTok (photo post — blog image + caption) ──
-        if self._tiktok and self._tiktok.get_active_accounts() and image:
-            tiktok_caption = self._build_tiktok_caption(title, excerpt, url)
+        # Download image to temp file (needed for Sendible UI upload)
+        local_image = ""
+        if image:
+            local_image = await self._download_image(image)
+
+        # ── TikTok ──
+        tiktok_caption = self._build_tiktok_caption(title, excerpt, url)
+
+        if self._sendible and self._tiktok_via == "sendible" and (image or local_image):
+            # ── Route via Sendible UI Playwright stealth ──
+            sendible_content = {
+                "caption": tiktok_caption,
+                "hashtags": hashtags,
+                "platforms": ["tiktok"],
+            }
+            if local_image:
+                sendible_content["media_path"] = local_image
+            elif image:
+                sendible_content["media_url"] = image
+
+            try:
+                tr = await self._sendible.publish(sendible_content)
+                tr["account"] = "sendible"
+                result["tiktok"] = [tr]
+                if tr.get("success"):
+                    logger.info(
+                        "ShopifyAutoShare: TikTok (Sendible) ✅ '%s'",
+                        title[:50],
+                    )
+                else:
+                    logger.warning(
+                        "ShopifyAutoShare: TikTok (Sendible) ❌ '%s': %s",
+                        title[:50], tr.get("error"),
+                    )
+            except Exception as e:
+                result["tiktok"] = [{"success": False, "error": str(e), "account": "sendible"}]
+
+        elif self._tiktok and self._tiktok.get_active_accounts() and image:
+            # ── Fallback: direct TikTok API ──
             tiktok_content = {
                 "image_urls": [image],
                 "caption": tiktok_caption,
@@ -278,7 +376,6 @@ class ShopifyAutoShare:
                 )
                 tiktok_results = [single]
             else:
-                # specific account
                 target = self._config.get("tiktok_target_account", "1")
                 single = await self._tiktok.publish_to_account(
                     target, tiktok_content, mode="photo"
@@ -289,17 +386,50 @@ class ShopifyAutoShare:
             for tr in tiktok_results:
                 if tr.get("success"):
                     logger.info(
-                        "ShopifyAutoShare: TikTok ✅ '%s' → %s",
+                        "ShopifyAutoShare: TikTok (API) ✅ '%s' → %s",
                         title[:50], tr.get("account"),
                     )
                 else:
                     logger.warning(
-                        "ShopifyAutoShare: TikTok ❌ '%s' → %s: %s",
+                        "ShopifyAutoShare: TikTok (API) ❌ '%s' → %s: %s",
                         title[:50], tr.get("account"), tr.get("error"),
                     )
 
-        # ── Pinterest (pin — image + title + link) ──
-        if self._pinterest and image:
+        # ── Pinterest ──
+        pinterest_enabled = os.environ.get(
+            "SHOPIFY_AUTOSHARE_PINTEREST_ENABLED", "true"
+        ).lower() == "true"
+
+        if pinterest_enabled and self._sendible and self._pinterest_via == "sendible" and (image or local_image):
+            # ── Route via Sendible UI ──
+            pin_content = {
+                "caption": self._build_pinterest_description(title, excerpt, tags),
+                "hashtags": hashtags,
+                "platforms": ["pinterest"],
+            }
+            if local_image:
+                pin_content["media_path"] = local_image
+            elif image:
+                pin_content["media_url"] = image
+
+            try:
+                pin_result = await self._sendible.publish(pin_content)
+                result["pinterest"] = pin_result
+                if pin_result.get("success"):
+                    logger.info(
+                        "ShopifyAutoShare: Pinterest (Sendible) ✅ '%s'",
+                        title[:50],
+                    )
+                else:
+                    logger.warning(
+                        "ShopifyAutoShare: Pinterest (Sendible) ❌ '%s': %s",
+                        title[:50], pin_result.get("error"),
+                    )
+            except Exception as e:
+                result["pinterest"] = {"success": False, "error": str(e)}
+
+        elif pinterest_enabled and self._pinterest and image:
+            # ── Fallback: direct Pinterest API ──
             pinterest_content = {
                 "title": title[:100],
                 "caption": self._build_pinterest_description(title, excerpt, tags),
@@ -311,16 +441,23 @@ class ShopifyAutoShare:
                 result["pinterest"] = pin_result
                 if pin_result.get("success"):
                     logger.info(
-                        "ShopifyAutoShare: Pinterest ✅ '%s' → pin %s",
+                        "ShopifyAutoShare: Pinterest (API) ✅ '%s' → pin %s",
                         title[:50], pin_result.get("post_id"),
                     )
                 else:
                     logger.warning(
-                        "ShopifyAutoShare: Pinterest ❌ '%s': %s",
+                        "ShopifyAutoShare: Pinterest (API) ❌ '%s': %s",
                         title[:50], pin_result.get("error"),
                     )
             except Exception as e:
                 result["pinterest"] = {"success": False, "error": str(e)}
+
+        # ── Cleanup temp image ──
+        if local_image:
+            try:
+                os.unlink(local_image)
+            except OSError:
+                pass
 
         return result
 
@@ -437,6 +574,37 @@ class ShopifyAutoShare:
         return results
 
     # ════════════════════════════════════════════
+    # Image Download Helper
+    # ════════════════════════════════════════════
+
+    @staticmethod
+    async def _download_image(url: str) -> str:
+        """Download image from URL to temp file. Returns local path or '' on failure."""
+        try:
+            os.makedirs(MEDIA_CACHE_DIR, exist_ok=True)
+            # Derive extension from URL
+            ext = ".jpg"
+            for candidate in (".png", ".webp", ".gif", ".jpeg"):
+                if candidate in url.lower():
+                    ext = candidate
+                    break
+
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+
+            tmp = tempfile.NamedTemporaryFile(
+                dir=MEDIA_CACHE_DIR, suffix=ext, delete=False,
+            )
+            tmp.write(resp.content)
+            tmp.close()
+            logger.debug("Downloaded image %s → %s (%d bytes)", url[:80], tmp.name, len(resp.content))
+            return tmp.name
+        except Exception as e:
+            logger.warning("Failed to download image %s: %s", url[:80], e)
+            return ""
+
+    # ════════════════════════════════════════════
     # Content Transformation
     # ════════════════════════════════════════════
 
@@ -508,13 +676,16 @@ class ShopifyAutoShare:
                 "SHOPIFY_AUTOSHARE_MAX_PER_CYCLE",
                 self._config.get("max_per_cycle", DEFAULT_MAX_PER_CYCLE),
             )),
+            "tiktok_via": self._tiktok_via,
             "tiktok_mode": os.environ.get(
                 "SHOPIFY_AUTOSHARE_TIKTOK_MODE",
                 self._config.get("tiktok_mode", DEFAULT_TIKTOK_MODE),
             ),
+            "pinterest_via": self._pinterest_via,
             "pinterest_enabled": os.environ.get(
                 "SHOPIFY_AUTOSHARE_PINTEREST_ENABLED", "true"
             ).lower() == "true",
+            "sendible_connected": self._sendible is not None,
             "total_shared": self._config.get("total_shared", 0),
             "last_tick": self._config.get("last_tick", ""),
             "watched_blogs": self._watcher.get_watched_blogs() if self._watcher else {},
@@ -525,7 +696,8 @@ class ShopifyAutoShare:
         """Update auto-share configuration."""
         allowed = {
             "paused", "interval_min", "max_per_cycle",
-            "tiktok_mode", "tiktok_target_account",
+            "tiktok_via", "tiktok_mode", "tiktok_target_account",
+            "pinterest_via",
         }
         for key, value in updates.items():
             if key in allowed:
@@ -668,6 +840,11 @@ class ShopifyAutoShare:
         """Close connections."""
         if self._watcher:
             await self._watcher.close()
+        if self._sendible:
+            try:
+                await self._sendible.close()
+            except Exception:
+                pass
 
 
 # ════════════════════════════════════════════════════════════════
