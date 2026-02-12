@@ -763,26 +763,9 @@ class ShopifyAutoShare:
     ):
         """Send Telegram notification about shared articles."""
         try:
-            from integrations.telegram_bot import send_alert
+            from integrations.telegram_bot import alert_blog_shared
 
-            lines = ["📢 *Shopify Auto-Share Report*\n"]
-            for i, (result, article) in enumerate(zip(results, articles)):
-                title = article.get("title", "Untitled")[:60]
-                blog = article.get("blog_handle", "")
-                tiktok_ok = sum(
-                    1 for t in result.get("tiktok", []) if t.get("success")
-                )
-                tiktok_total = len(result.get("tiktok", []))
-                pin_ok = "✅" if (result.get("pinterest") or {}).get("success") else "❌"
-
-                lines.append(f"{i+1}. *{title}*")
-                lines.append(f"   Blog: {blog}")
-                lines.append(f"   TikTok: {tiktok_ok}/{tiktok_total} ✅")
-                lines.append(f"   Pinterest: {pin_ok}")
-                lines.append("")
-
-            message = "\n".join(lines)
-            send_alert(message)
+            alert_blog_shared(results, articles)
         except Exception as e:
             logger.warning("ShopifyAutoShare: Telegram alert failed: %s", e)
 

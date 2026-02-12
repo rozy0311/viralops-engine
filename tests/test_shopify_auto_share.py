@@ -1061,6 +1061,87 @@ class TestBlogShareAPI:
 
 
 # ════════════════════════════════════════════════════════════════
+# Telegram Alert Tests
+# ════════════════════════════════════════════════════════════════
+
+class TestTelegramBlogAlert:
+    """Tests for Telegram blog-share alert template."""
+
+    def test_alert_blog_shared_import(self):
+        """alert_blog_shared is importable from telegram_bot."""
+        from integrations.telegram_bot import alert_blog_shared
+        assert callable(alert_blog_shared)
+
+    def test_alert_blog_shared_empty(self):
+        """Empty results returns skipped."""
+        from integrations.telegram_bot import alert_blog_shared
+        with patch("integrations.telegram_bot.send_message") as mock_send:
+            result = alert_blog_shared([], [])
+        assert result.get("skipped") is True
+        mock_send.assert_not_called()
+
+    def test_alert_blog_shared_with_data(self):
+        """alert_blog_shared formats and sends message."""
+        from integrations.telegram_bot import alert_blog_shared
+        results = [
+            {"tiktok": [{"success": True, "account": "sendible"}], "pinterest": {"success": True}},
+        ]
+        articles = [
+            {"title": "Test Post", "blog_handle": "sustainable-living"},
+        ]
+        with patch("integrations.telegram_bot.send_message", return_value={"success": True}) as mock_send:
+            result = alert_blog_shared(results, articles)
+        mock_send.assert_called_once()
+        msg = mock_send.call_args[0][0]
+        assert "Shopify Blog Auto-Share" in msg
+        assert "Test Post" in msg
+        assert "sustainable-living" in msg
+        assert "sendible" in msg
+
+    def test_send_telegram_alert_uses_alert_blog_shared(self):
+        """ShopifyAutoShare._send_telegram_alert calls alert_blog_shared."""
+        from integrations.shopify_auto_share import ShopifyAutoShare as SA
+        auto_share = SA()
+        results = [{"tiktok": [{"success": True}], "pinterest": None}]
+        articles = [{"title": "X", "blog_handle": "y"}]
+        with patch("integrations.telegram_bot.alert_blog_shared") as mock_alert:
+            auto_share._send_telegram_alert(results, articles)
+        mock_alert.assert_called_once_with(results, articles)
+
+
+# ════════════════════════════════════════════════════════════════
+# Background Scheduler Tests
+# ════════════════════════════════════════════════════════════════
+
+class TestBackgroundSchedulers:
+    """Tests for background scheduler loops in app lifespan."""
+
+    def test_lifespan_creates_all_tasks(self):
+        """Lifespan starts scheduler, RSS tick, and blog-share tick tasks."""
+        from web.app import app
+        import web.app as app_module
+        # Just verify the functions exist
+        assert callable(app_module.scheduler_loop)
+        assert callable(app_module.rss_tick_loop)
+        assert callable(app_module.blog_share_tick_loop)
+
+    def test_version_is_3_4_0(self):
+        """Health endpoint returns version 3.4.0."""
+        from httpx import ASGITransport, AsyncClient
+        from web.app import app
+        import asyncio
+        async def _check():
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                r = await client.get("/api/health")
+                return r.json()
+        result = asyncio.get_event_loop().run_until_complete(_check())
+        # Health may return version at top level or nested in body
+        version = result.get("version") or result.get("body", {}).get("version", "")
+        assert "3.4.0" in str(result), f"Expected 3.4.0 in health response, got: {result}"
+
+
+# ════════════════════════════════════════════════════════════════
 # Integration Tests
 # ════════════════════════════════════════════════════════════════
 

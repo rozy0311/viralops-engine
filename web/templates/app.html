@@ -75,6 +75,9 @@
     <a href="/sendible" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'sendible' %}bg-brand-600 text-white{% endif %}">
       <span>🔗</span> Sendible Bridge
     </a>
+    <a href="/blog-share" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'blog-share' %}bg-brand-600 text-white{% endif %}">
+      <span>🛍️</span> Blog Auto-Share
+    </a>
     <a href="/platforms" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'platforms' %}bg-brand-600 text-white{% endif %}">
       <span>🔌</span> Platforms
     </a>
@@ -904,6 +907,125 @@
     </div>
   </div>
 
+  <!-- ═══ BLOG AUTO-SHARE PAGE ═══ -->
+  <div class="page {% if page == 'blog-share' %}active{% endif %}" id="page-blog-share">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">🛍️ Shopify Blog Auto-Share</h2>
+    <p class="text-gray-500 mb-6">Automatically share new blog posts from <strong>therike.com</strong> to TikTok + Pinterest via Sendible.</p>
+
+    <!-- Status Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">Status</p>
+        <p class="text-2xl font-bold mt-1" id="bs-status">Loading...</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">Total Shared</p>
+        <p class="text-2xl font-bold text-green-600 mt-1" id="bs-total-shared">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">TikTok Via</p>
+        <p class="text-2xl font-bold text-pink-500 mt-1" id="bs-tiktok-via">-</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <p class="text-sm text-gray-500">Pinterest Via</p>
+        <p class="text-2xl font-bold text-red-500 mt-1" id="bs-pinterest-via">-</p>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <!-- Config Panel -->
+      <div class="bg-dark-900 rounded-xl p-6 border border-dark-700">
+        <h3 class="font-semibold text-white mb-4">⚙️ Configuration</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Check Interval (minutes)</label>
+            <input id="bs-interval" type="number" value="30" min="5" max="1440" class="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white text-sm">
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Max Articles Per Cycle</label>
+            <input id="bs-max-per-cycle" type="number" value="5" min="1" max="20" class="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white text-sm">
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">TikTok Mode</label>
+            <select id="bs-tiktok-mode" class="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white text-sm">
+              <option value="broadcast">Broadcast (all accounts)</option>
+              <option value="round_robin">Round Robin</option>
+              <option value="specific">Specific Account</option>
+            </select>
+          </div>
+          <button onclick="bsSaveConfig()" class="w-full bg-brand-600 hover:bg-brand-700 text-white py-2 px-4 rounded-lg text-sm transition">💾 Save Config</button>
+        </div>
+      </div>
+
+      <!-- Actions Panel -->
+      <div class="bg-dark-900 rounded-xl p-6 border border-dark-700">
+        <h3 class="font-semibold text-white mb-4">🎮 Actions</h3>
+        <div class="space-y-3">
+          <div class="flex gap-3">
+            <button onclick="bsPause()" class="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-2.5 px-4 rounded-lg text-sm transition">⏸️ Pause</button>
+            <button onclick="bsResume()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 px-4 rounded-lg text-sm transition">▶️ Resume</button>
+          </div>
+          <button onclick="bsTick()" class="w-full bg-purple-600 hover:bg-purple-700 text-white py-2.5 px-4 rounded-lg text-sm transition">🔄 Run Tick Now</button>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Manual Share (article URL)</label>
+            <div class="flex gap-2">
+              <input id="bs-manual-url" class="flex-1 bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white text-sm" placeholder="https://therike.com/blogs/sustainable-living/...">
+              <button onclick="bsManualShare()" class="bg-brand-600 hover:bg-brand-700 text-white py-2 px-4 rounded-lg text-sm transition">🚀 Share</button>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Share Latest from Blog</label>
+            <div class="flex gap-2">
+              <select id="bs-latest-blog" class="flex-1 bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white text-sm">
+                <option value="sustainable-living">sustainable-living</option>
+                <option value="brand-partnerships">brand-partnerships</option>
+              </select>
+              <button onclick="bsShareLatest()" class="bg-pink-600 hover:bg-pink-700 text-white py-2 px-4 rounded-lg text-sm transition">📤 Latest</button>
+            </div>
+          </div>
+          <button onclick="bsClearHistory()" class="w-full bg-red-600/20 hover:bg-red-600/30 text-red-400 py-2 px-4 rounded-lg text-sm transition border border-red-600/30">🗑️ Clear History (allows re-share)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Watched Blogs -->
+    <div class="bg-dark-900 rounded-xl p-6 border border-dark-700 mb-8">
+      <h3 class="font-semibold text-white mb-4">📚 Watched Blogs</h3>
+      <div id="bs-blogs" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="bg-dark-800 rounded-lg p-4 border border-dark-600">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">🌿</span>
+            <div>
+              <p class="text-white font-medium">sustainable-living</p>
+              <p class="text-xs text-gray-400">therike.com/blogs/sustainable-living</p>
+            </div>
+          </div>
+        </div>
+        <div class="bg-dark-800 rounded-lg p-4 border border-dark-600">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">🤝</span>
+            <div>
+              <p class="text-white font-medium">brand-partnerships</p>
+              <p class="text-xs text-gray-400">therike.com/blogs/brand-partnerships</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Share History -->
+    <div class="bg-dark-900 rounded-xl p-6 border border-dark-700">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold text-white">📋 Share History</h3>
+        <button onclick="loadBlogShareStatus()" class="bg-dark-700 hover:bg-dark-600 text-white py-1.5 px-4 rounded-lg text-sm transition">🔄 Refresh</button>
+      </div>
+      <div id="bs-history" class="space-y-2">
+        <p class="text-gray-500 text-sm">Loading history...</p>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ LIVE PREVIEW PAGE ═══ -->
   <div class="page {% if page == 'preview' %}active{% endif %}" id="page-preview">
     <h2 class="text-2xl font-bold text-gray-800 mb-6">👁️ Live Post Preview</h2>
@@ -1167,6 +1289,7 @@ document.addEventListener('DOMContentLoaded', () => {
     else if(page.id==='page-preview') updatePreviews();
     else if(page.id==='page-autopilot') loadAutoPilotPlatforms();
     else if(page.id==='page-sendible') loadSendibleStatus();
+    else if(page.id==='page-blog-share') loadBlogShareStatus();
   }
   // Always load sidebar channels
   loadSidebarChannels();
@@ -2407,6 +2530,113 @@ async function loadSendibleMessages() {
   } catch (e) {
     el.innerHTML = `<p class="text-red-400 text-sm">Error: ${e.message}</p>`;
   }
+}
+
+// ── Blog Auto-Share ──
+async function loadBlogShareStatus() {
+  try {
+    const [status, config, history] = await Promise.all([
+      fetch('/api/blog-share/status').then(r=>r.json()),
+      fetch('/api/blog-share/config').then(r=>r.json()),
+      fetch('/api/blog-share/history?limit=30').then(r=>r.json()),
+    ]);
+
+    // Status cards
+    const paused = config.paused || status.paused;
+    document.getElementById('bs-status').innerHTML = paused
+      ? '<span class="text-amber-500">⏸️ Paused</span>'
+      : '<span class="text-green-500">▶️ Active</span>';
+    document.getElementById('bs-total-shared').textContent = (history.history || []).length;
+    document.getElementById('bs-tiktok-via').textContent = (config.tiktok_via || 'sendible').toUpperCase();
+    document.getElementById('bs-pinterest-via').textContent = (config.pinterest_via || 'sendible').toUpperCase();
+
+    // Config inputs
+    if(config.interval_min) document.getElementById('bs-interval').value = config.interval_min;
+    if(config.max_per_cycle) document.getElementById('bs-max-per-cycle').value = config.max_per_cycle;
+    if(config.tiktok_mode) document.getElementById('bs-tiktok-mode').value = config.tiktok_mode;
+
+    // History
+    const histEl = document.getElementById('bs-history');
+    const items = history.history || [];
+    if(items.length === 0) {
+      histEl.innerHTML = '<p class="text-gray-500 text-sm">No articles shared yet.</p>';
+    } else {
+      histEl.innerHTML = items.map(h => {
+        const tkOk = (h.tiktok||[]).filter(t=>t.success).length;
+        const tkTotal = (h.tiktok||[]).length;
+        const pinOk = h.pinterest?.success ? '✅' : (h.pinterest ? '❌' : '—');
+        const via = h.tiktok?.[0]?.account === 'sendible' ? '🔗Sendible' : '🔌API';
+        return `<div class="flex justify-between items-center p-3 bg-dark-800 rounded-lg border border-dark-600">
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-white truncate">${h.title||'Untitled'}</p>
+            <p class="text-xs text-gray-400">${h.blog||''} · ${h.shared_at||''}</p>
+          </div>
+          <div class="flex gap-3 text-xs ml-4 flex-shrink-0">
+            <span class="px-2 py-1 rounded-full bg-pink-900/30 text-pink-300">TikTok ${tkOk}/${tkTotal}</span>
+            <span class="px-2 py-1 rounded-full bg-red-900/30 text-red-300">Pin ${pinOk}</span>
+            <span class="px-2 py-1 rounded-full bg-dark-600 text-gray-300">${via}</span>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  } catch(e) {
+    document.getElementById('bs-status').innerHTML = '<span class="text-red-400">Error</span>';
+    console.error('Blog share load error:', e);
+  }
+}
+
+async function bsSaveConfig() {
+  const body = {
+    interval_min: parseInt(document.getElementById('bs-interval').value) || 30,
+    max_per_cycle: parseInt(document.getElementById('bs-max-per-cycle').value) || 5,
+    tiktok_mode: document.getElementById('bs-tiktok-mode').value,
+  };
+  await fetch('/api/blog-share/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  showToast('Config saved ✅');
+  loadBlogShareStatus();
+}
+
+async function bsPause() {
+  await fetch('/api/blog-share/pause', {method:'POST'});
+  showToast('Auto-share paused ⏸️');
+  loadBlogShareStatus();
+}
+
+async function bsResume() {
+  await fetch('/api/blog-share/resume', {method:'POST'});
+  showToast('Auto-share resumed ▶️');
+  loadBlogShareStatus();
+}
+
+async function bsTick() {
+  showToast('Running tick... 🔄');
+  const r = await fetch('/api/blog-share/tick', {method:'POST'}).then(r=>r.json());
+  showToast(`Tick done — shared ${r.shared||0} articles`);
+  loadBlogShareStatus();
+}
+
+async function bsManualShare() {
+  const url = document.getElementById('bs-manual-url').value.trim();
+  if(!url) { showToast('Enter article URL first', 'error'); return; }
+  showToast('Sharing... 🚀');
+  const r = await fetch('/api/blog-share/manual', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url, force:false})}).then(r=>r.json());
+  showToast(r.error ? `Error: ${r.error}` : 'Shared successfully ✅');
+  loadBlogShareStatus();
+}
+
+async function bsShareLatest() {
+  const blog = document.getElementById('bs-latest-blog').value;
+  showToast(`Sharing latest from ${blog}... 📤`);
+  const r = await fetch('/api/blog-share/latest', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blog_handle:blog, count:1, force:false})}).then(r=>r.json());
+  showToast(r.error ? `Error: ${r.error}` : 'Shared latest ✅');
+  loadBlogShareStatus();
+}
+
+async function bsClearHistory() {
+  if(!confirm('Clear all share history? This allows all articles to be re-shared.')) return;
+  await fetch('/api/blog-share/history', {method:'DELETE'});
+  showToast('History cleared 🗑️');
+  loadBlogShareStatus();
 }
 </script>
 </body>

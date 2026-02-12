@@ -231,9 +231,30 @@ def send_custom(text: str) -> dict:
     return send_message(text)
 
 
-# ════════════════════════════════════════════════
-# Bot Info
-# ════════════════════════════════════════════════
+def alert_blog_shared(
+    results: list,
+    articles: list,
+) -> dict:
+    """Send alert when Shopify Blog Auto-Share publishes articles."""
+    if not results:
+        return {"success": True, "skipped": True, "reason": "nothing_shared"}
+
+    lines = ["🛍️ *Shopify Blog Auto-Share*\n━━━━━━━━━━━━━━━"]
+    for i, (result, article) in enumerate(zip(results, articles)):
+        title = (article.get("title") or "Untitled")[:60]
+        blog = article.get("blog_handle", "")
+        tiktok_ok = sum(1 for t in result.get("tiktok", []) if t.get("success"))
+        tiktok_total = len(result.get("tiktok", []))
+        via = result.get("tiktok", [{}])[0].get("account", "api") if result.get("tiktok") else "—"
+        pin_ok = "✅" if (result.get("pinterest") or {}).get("success") else "❌"
+
+        lines.append(f"\n{i+1}. *{title}*")
+        lines.append(f"   📚 Blog: `{blog}`")
+        lines.append(f"   🎵 TikTok: {tiktok_ok}/{tiktok_total} via {via}")
+        lines.append(f"   📌 Pinterest: {pin_ok}")
+
+    lines.append(f"\n🕐 {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    return send_message("\n".join(lines))
 
 def get_bot_info() -> dict:
     """Get Telegram bot info (for verifying setup)."""

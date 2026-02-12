@@ -107,6 +107,8 @@ def init_db():
 
 # ── Scheduler background task ──
 _scheduler_task = None
+_rss_tick_task = None
+_blog_share_tick_task = None
 
 
 async def scheduler_loop():
@@ -123,16 +125,56 @@ async def scheduler_loop():
         await asyncio.sleep(60)  # Check every minute
 
 
+async def rss_tick_loop():
+    """Background loop that triggers RSS Auto Poster tick every 5 minutes."""
+    await asyncio.sleep(30)  # Initial delay to let app start
+    while True:
+        try:
+            from integrations.rss_auto_poster import tick
+            result = await tick()
+            posted = sum(r.get("posted", 0) for r in result.get("results", []))
+            if posted > 0:
+                logger.info("rss_tick.auto_posted", count=posted)
+        except Exception as e:
+            logger.error("rss_tick.error", error=str(e))
+        await asyncio.sleep(300)  # Every 5 minutes
+
+
+async def blog_share_tick_loop():
+    """Background loop that triggers Shopify Blog Auto-Share tick."""
+    await asyncio.sleep(60)  # Initial delay
+    while True:
+        try:
+            from integrations.shopify_auto_share import auto_share_tick
+            result = await auto_share_tick()
+            shared = result.get("shared", 0)
+            if shared > 0:
+                logger.info("blog_share_tick.auto_shared", count=shared)
+        except Exception as e:
+            logger.error("blog_share_tick.error", error=str(e))
+        # Respect configured interval (default 30 min = 1800 sec)
+        try:
+            from integrations.shopify_auto_share import get_auto_share
+            instance = await get_auto_share()
+            interval = instance._config.get("interval_min", 30) * 60
+        except Exception:
+            interval = 1800
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """App lifespan — init DB and start scheduler."""
+    """App lifespan — init DB and start scheduler + auto-tick loops."""
     init_db()
-    global _scheduler_task
+    global _scheduler_task, _rss_tick_task, _blog_share_tick_task
     _scheduler_task = asyncio.create_task(scheduler_loop())
+    _rss_tick_task = asyncio.create_task(rss_tick_loop())
+    _blog_share_tick_task = asyncio.create_task(blog_share_tick_loop())
     logger.info("app.started", msg="Dashboard ready at http://localhost:8000")
     yield
-    if _scheduler_task:
-        _scheduler_task.cancel()
+    for task in (_scheduler_task, _rss_tick_task, _blog_share_tick_task):
+        if task:
+            task.cancel()
 
 
 # ── FastAPI App ──
@@ -939,7 +981,7 @@ async def api_telegram_send(request: Request):
 async def health():
     return {
         "status": "ok",
-        "version": "3.3.0",
+        "version": "3.4.0",
         "engine": "ViralOps Engine — EMADS-PR v1.0",
         "features": [
             "5 Micro-Niche Hashtags (smart, no generic)",
