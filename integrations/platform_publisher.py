@@ -100,6 +100,17 @@ class PublisherRegistry:
         except Exception as e:
             logger.warning("registry.skip", platform="sendible", error=str(e))
 
+        # ── Multi-TikTok publisher (N accounts) ──
+        try:
+            from integrations.multi_tiktok_publisher import MultiTikTokPublisher
+            multi_tt = MultiTikTokPublisher()
+            if multi_tt.accounts:
+                self._publishers["tiktok_multi"] = multi_tt
+                logger.info("registry.loaded", platform="tiktok_multi",
+                            accounts=len(multi_tt.accounts))
+        except Exception as e:
+            logger.warning("registry.skip", platform="tiktok_multi", error=str(e))
+
         logger.info("registry.complete", total=len(self._publishers))
 
     def get(self, platform: str):

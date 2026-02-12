@@ -221,6 +221,10 @@ async def autopilot_page(request: Request):
 async def sendible_page(request: Request):
     return templates.TemplateResponse("app.html", {"request": request, "page": "sendible"})
 
+@app.get("/blog-share", response_class=HTMLResponse)
+async def blog_share_page(request: Request):
+    return templates.TemplateResponse("app.html", {"request": request, "page": "blog-share"})
+
 
 # ════════════════════════════════════════════════════════════════
 # API — Posts
@@ -935,7 +939,7 @@ async def api_telegram_send(request: Request):
 async def health():
     return {
         "status": "ok",
-        "version": "2.4.0",
+        "version": "3.3.0",
         "engine": "ViralOps Engine — EMADS-PR v1.0",
         "features": [
             "5 Micro-Niche Hashtags (smart, no generic)",
@@ -947,8 +951,10 @@ async def health():
             "Analytics + Hashtag Performance Tracking",
             "Background Scheduler (rate-limited, 11 platforms)",
             "RSS Auto Poster — Sendible-style",
-            "Media Processor — Image→Video + TikTok Music (NEW)",
-            "Telegram Alert Bot — publish notifications (NEW)",
+            "Media Processor — Image→Video + TikTok Music",
+            "Telegram Alert Bot — publish notifications",
+            "Sendible UI Automation (Playwright Stealth)",
+            "Shopify Blog Auto-Share → TikTok Multi-Account + Pinterest (NEW v3.3)",
             "Docker + Railway deployment ready",
         ],
         "timestamp": datetime.utcnow().isoformat(),
@@ -1276,6 +1282,115 @@ async def api_platforms_setup_status():
         "configured": configured_count,
         "not_configured": len(result) - configured_count,
     }
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Shopify Blog Auto-Share (→ TikTok Multi-Account + Pinterest)
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/blog-share/status")
+async def api_blog_share_status():
+    """Get auto-share status + stats."""
+    from integrations.shopify_auto_share import auto_share_status
+    return await auto_share_status()
+
+@app.get("/api/blog-share/config")
+async def api_blog_share_config():
+    """Get current auto-share configuration."""
+    from integrations.shopify_auto_share import auto_share_config
+    return await auto_share_config()
+
+@app.put("/api/blog-share/config")
+async def api_blog_share_update_config(request: Request):
+    """Update auto-share configuration."""
+    data = await request.json()
+    from integrations.shopify_auto_share import auto_share_update_config
+    return await auto_share_update_config(data)
+
+@app.post("/api/blog-share/tick")
+async def api_blog_share_tick():
+    """Manually trigger one auto-share cycle."""
+    from integrations.shopify_auto_share import auto_share_tick
+    return await auto_share_tick()
+
+@app.post("/api/blog-share/pause")
+async def api_blog_share_pause():
+    """Pause auto-sharing."""
+    from integrations.shopify_auto_share import auto_share_pause
+    return await auto_share_pause()
+
+@app.post("/api/blog-share/resume")
+async def api_blog_share_resume():
+    """Resume auto-sharing."""
+    from integrations.shopify_auto_share import auto_share_resume
+    return await auto_share_resume()
+
+@app.get("/api/blog-share/history")
+async def api_blog_share_history(limit: int = 50):
+    """Get share history."""
+    from integrations.shopify_auto_share import auto_share_history
+    return await auto_share_history(limit)
+
+@app.delete("/api/blog-share/history")
+async def api_blog_share_clear_history():
+    """Clear share history (allows re-sharing)."""
+    from integrations.shopify_auto_share import get_auto_share
+    instance = await get_auto_share()
+    return instance.clear_history()
+
+@app.post("/api/blog-share/manual")
+async def api_blog_share_manual(request: Request):
+    """Manually share a specific article by URL."""
+    data = await request.json()
+    from integrations.shopify_auto_share import auto_share_manual
+    return await auto_share_manual(data.get("url", ""))
+
+@app.post("/api/blog-share/latest")
+async def api_blog_share_latest(request: Request):
+    """Share the latest article(s) from a specific blog."""
+    data = await request.json()
+    from integrations.shopify_auto_share import auto_share_latest
+    return await auto_share_latest(
+        blog_handle=data.get("blog_handle", "sustainable-living"),
+        count=data.get("count", 1),
+    )
+
+@app.get("/api/blog-share/tiktok/accounts")
+async def api_blog_share_tiktok_accounts():
+    """List all configured TikTok accounts."""
+    from integrations.multi_tiktok_publisher import MultiTikTokPublisher
+    pub = MultiTikTokPublisher()
+    return pub.status()
+
+@app.post("/api/blog-share/tiktok/test")
+async def api_blog_share_tiktok_test():
+    """Test all TikTok account connections."""
+    from integrations.multi_tiktok_publisher import MultiTikTokPublisher
+    pub = MultiTikTokPublisher()
+    results = await pub.test_all_accounts()
+    return {"results": results}
+
+@app.get("/api/blog-share/watcher/blogs")
+async def api_blog_share_watcher_blogs():
+    """List all blogs in the Shopify store."""
+    from integrations.shopify_blog_watcher import ShopifyBlogWatcher
+    watcher = ShopifyBlogWatcher()
+    connected = await watcher.connect()
+    if not connected:
+        return {"error": "Failed to connect to Shopify"}
+    blogs = await watcher.list_all_blogs()
+    await watcher.close()
+    return {"blogs": blogs}
+
+@app.post("/api/blog-share/watcher/reset")
+async def api_blog_share_watcher_reset(request: Request):
+    """Reset watcher state (re-fetch all articles on next check)."""
+    data = await request.json() if await request.body() else {}
+    from integrations.shopify_auto_share import get_auto_share
+    instance = await get_auto_share()
+    if instance._watcher:
+        return instance._watcher.reset_state(data.get("blog_handle"))
+    return {"error": "Watcher not initialized"}
 
 
 # ════════════════════════════════════════════════════════════════
