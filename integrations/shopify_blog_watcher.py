@@ -204,6 +204,7 @@ class ShopifyBlogWatcher:
         """Fetch new articles for a single blog."""
         state_key = str(blog_id)
         last_seen_id = self._state.get(state_key, {}).get("last_article_id")
+        is_first_run = last_seen_id is None
 
         params: dict[str, Any] = {
             "limit": min(limit, 250),
@@ -231,6 +232,15 @@ class ShopifyBlogWatcher:
             "last_checked": datetime.now(timezone.utc).isoformat(),
             "articles_found": len(articles),
         }
+
+        # ── FIRST-RUN SEED: Mark existing articles as seen, don't share ──
+        if is_first_run:
+            logger.info(
+                "ShopifyBlogWatcher: First run for blog '%s' — seeding "
+                "since_id=%s from %d existing articles (will NOT share them)",
+                handle, newest_id, len(articles),
+            )
+            return []
 
         # Transform to social-sharing format
         new_articles = []

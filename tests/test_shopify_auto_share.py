@@ -208,12 +208,52 @@ class TestShopifyBlogWatcher:
             assert loaded["111"]["last_article_id"] == 99999
 
     @pytest.mark.asyncio
-    async def test_check_new_articles(self):
-        """check_new_articles fetches and transforms articles."""
+    async def test_check_new_articles_first_run_seeds(self):
+        """First run seeds since_id without returning articles (dedup)."""
         w = self._make_watcher()
         w._connected = True
         w._blog_map = {"sustainable-living": 111}
-        w._state = {}
+        w._state = {}  # No last_article_id → first run
+        w._shop = "test.myshopify.com"
+
+        mock_articles = [
+            {
+                "id": 1001,
+                "title": "Existing Article",
+                "body_html": "<p>Content</p>",
+                "handle": "existing-article",
+                "tags": "eco",
+                "author": "Test",
+                "published_at": "2025-01-01",
+                "created_at": "2025-01-01",
+                "image": {"src": "https://cdn.shopify.com/img.jpg"},
+            }
+        ]
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"articles": mock_articles}
+        mock_resp.raise_for_status = MagicMock()
+
+        w._client = AsyncMock()
+        w._client.get = AsyncMock(return_value=mock_resp)
+        w._last_request_time = 0
+
+        with patch.object(type(w), '_save_state', staticmethod(lambda s: None)):
+            new = await w.check_new_articles()
+
+        # First run → seed only, NO articles returned
+        assert len(new) == 0
+        # But since_id is now set for next run
+        assert w._state["111"]["last_article_id"] == 1001
+
+    @pytest.mark.asyncio
+    async def test_check_new_articles_subsequent_run(self):
+        """Subsequent run (since_id exists) returns new articles normally."""
+        w = self._make_watcher()
+        w._connected = True
+        w._blog_map = {"sustainable-living": 111}
+        # Simulate previously seeded state
+        w._state = {"111": {"last_article_id": 900, "blog_handle": "sustainable-living"}}
         w._shop = "test.myshopify.com"
 
         mock_articles = [
@@ -732,6 +772,151 @@ class TestShopifyAutoShare:
 
         assert result["skipped"]
         assert "paused" in result["reason"]
+
+    @pytest.mark.asyncio
+    async def test_share_specific_skips_already_shared(self):
+        """share_specific_article skips article already in history."""
+        from integrations.shopify_auto_share import ShopifyAutoShare
+
+        auto_share = ShopifyAutoShare()
+        auto_share._initialized = True
+
+        # Set up watcher mock
+        mock_watcher = AsyncMock()
+        mock_watcher._connected = True
+        article = {
+            "blog_handle": "sustainable-living",
+            "article_id": 999,
+            "title": "Old Post",
+            "handle": "old-post",
+            "url": "https://therike.com/blogs/sustainable-living/old-post",
+        }
+        mock_watcher.get_recent_articles = AsyncMock(return_value=[article])
+        auto_share._watcher = mock_watcher
+
+        # Pre-populate history with that article
+        article_hash = auto_share._article_hash(article)
+        auto_share._history = {
+            article_hash: {
+                "title": "Old Post",
+                "shared_at": "2025-01-01T00:00:00+00:00",
+            },
+        }
+
+        result = await auto_share.share_specific_article(
+            "https://therike.com/blogs/sustainable-living/old-post"
+        )
+        assert result["skipped"] is True
+        assert result["reason"] == "already_shared"
+
+    @pytest.mark.asyncio
+    async def test_share_specific_force_reshares(self):
+        """share_specific_article with force=True re-shares even if in history."""
+        from integrations.shopify_auto_share import ShopifyAutoShare
+
+        auto_share = ShopifyAutoShare()
+        auto_share._initialized = True
+
+        mock_watcher = AsyncMock()
+        mock_watcher._connected = True
+        article = {
+            "blog_handle": "sustainable-living",
+            "article_id": 999,
+            "title": "Old Post",
+            "handle": "old-post",
+            "url": "https://therike.com/blogs/sustainable-living/old-post",
+            "excerpt": "Test",
+            "featured_image": "",
+            "tags": [],
+        }
+        mock_watcher.get_recent_articles = AsyncMock(return_value=[article])
+        auto_share._watcher = mock_watcher
+        auto_share._tiktok = None
+        auto_share._pinterest = None
+
+        # Pre-populate history
+        article_hash = auto_share._article_hash(article)
+        auto_share._history = {
+            article_hash: {"title": "Old Post", "shared_at": "2025-01-01T00:00:00"},
+        }
+
+        with patch.object(ShopifyAutoShare, '_save_history'):
+            result = await auto_share.share_specific_article(
+                "https://therike.com/blogs/sustainable-living/old-post",
+                force=True,
+            )
+        # force=True → no skip, actual share result returned
+        assert "skipped" not in result
+        assert result["title"] == "Old Post"
+
+    @pytest.mark.asyncio
+    async def test_share_latest_skips_already_shared(self):
+        """share_latest skips articles already in history."""
+        from integrations.shopify_auto_share import ShopifyAutoShare
+
+        auto_share = ShopifyAutoShare()
+        auto_share._initialized = True
+
+        articles = [
+            {"blog_handle": "sustainable-living", "article_id": 1, "title": "A",
+             "handle": "a", "url": "u1", "excerpt": "", "featured_image": "", "tags": []},
+            {"blog_handle": "sustainable-living", "article_id": 2, "title": "B",
+             "handle": "b", "url": "u2", "excerpt": "", "featured_image": "", "tags": []},
+        ]
+
+        mock_watcher = AsyncMock()
+        mock_watcher._connected = True
+        mock_watcher.get_recent_articles = AsyncMock(return_value=articles)
+        auto_share._watcher = mock_watcher
+        auto_share._tiktok = None
+        auto_share._pinterest = None
+
+        # Article "A" already shared
+        hash_a = auto_share._article_hash(articles[0])
+        auto_share._history = {
+            hash_a: {"title": "A", "shared_at": "2025-01-01T00:00:00"},
+        }
+
+        with patch.object(ShopifyAutoShare, '_save_history'):
+            results = await auto_share.share_latest("sustainable-living", count=2)
+
+        assert len(results) == 2
+        # First result skipped (already shared)
+        assert results[0]["skipped"] is True
+        assert results[0]["reason"] == "already_shared"
+        # Second result actually shared
+        assert results[1]["title"] == "B"
+        assert "skipped" not in results[1]
+
+    @pytest.mark.asyncio
+    async def test_share_latest_records_history(self):
+        """share_latest records newly shared articles to history."""
+        from integrations.shopify_auto_share import ShopifyAutoShare
+
+        auto_share = ShopifyAutoShare()
+        auto_share._initialized = True
+
+        article = {
+            "blog_handle": "brand-partnerships", "article_id": 55, "title": "New",
+            "handle": "new", "url": "u", "excerpt": "", "featured_image": "", "tags": [],
+        }
+
+        mock_watcher = AsyncMock()
+        mock_watcher._connected = True
+        mock_watcher.get_recent_articles = AsyncMock(return_value=[article])
+        auto_share._watcher = mock_watcher
+        auto_share._tiktok = None
+        auto_share._pinterest = None
+        auto_share._history = {}
+
+        with patch.object(ShopifyAutoShare, '_save_history'):
+            results = await auto_share.share_latest("brand-partnerships", count=1)
+
+        assert len(results) == 1
+        # History should now contain the article
+        article_hash = auto_share._article_hash(article)
+        assert article_hash in auto_share._history
+        assert auto_share._history[article_hash]["title"] == "New"
 
 
 # ════════════════════════════════════════════════════════════════

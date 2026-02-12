@@ -1343,7 +1343,10 @@ async def api_blog_share_manual(request: Request):
     """Manually share a specific article by URL."""
     data = await request.json()
     from integrations.shopify_auto_share import auto_share_manual
-    return await auto_share_manual(data.get("url", ""))
+    return await auto_share_manual(
+        data.get("url", ""),
+        force=data.get("force", False),
+    )
 
 @app.post("/api/blog-share/latest")
 async def api_blog_share_latest(request: Request):
@@ -1353,6 +1356,7 @@ async def api_blog_share_latest(request: Request):
     return await auto_share_latest(
         blog_handle=data.get("blog_handle", "sustainable-living"),
         count=data.get("count", 1),
+        force=data.get("force", False),
     )
 
 @app.get("/api/blog-share/tiktok/accounts")

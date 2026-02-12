@@ -328,8 +328,15 @@ class ShopifyAutoShare:
     # Manual Triggers
     # ════════════════════════════════════════════
 
-    async def share_specific_article(self, article_url: str) -> dict:
-        """Manually share a specific article by URL or handle."""
+    async def share_specific_article(
+        self, article_url: str, force: bool = False
+    ) -> dict:
+        """Manually share a specific article by URL or handle.
+
+        Args:
+            article_url: Full URL or path containing /blogs/{handle}/{slug}.
+            force: If True, share even if already shared before.
+        """
         if not self._initialized:
             await self.initialize()
         if not self._watcher or not self._watcher._connected:
@@ -355,9 +362,20 @@ class ShopifyAutoShare:
         if not target:
             return {"error": f"Article not found: {article_handle}"}
 
+        # ── Dedup check ──
+        article_hash = self._article_hash(target)
+        if article_hash in self._history and not force:
+            prev = self._history[article_hash]
+            return {
+                "skipped": True,
+                "reason": "already_shared",
+                "title": prev.get("title", ""),
+                "shared_at": prev.get("shared_at", ""),
+                "hint": "Use force=True to re-share",
+            }
+
         result = await self._share_article(target)
         # Record in history
-        article_hash = self._article_hash(target)
         self._history[article_hash] = {
             "title": target.get("title", "")[:100],
             "blog": blog_handle,
@@ -370,8 +388,16 @@ class ShopifyAutoShare:
         self._save_history(self._history)
         return result
 
-    async def share_latest(self, blog_handle: str, count: int = 1) -> list[dict]:
-        """Share the N latest articles from a specific blog."""
+    async def share_latest(
+        self, blog_handle: str, count: int = 1, force: bool = False
+    ) -> list[dict]:
+        """Share the N latest articles from a specific blog.
+
+        Args:
+            blog_handle: Blog handle (e.g. 'sustainable-living').
+            count: Number of latest articles to share.
+            force: If True, share even if already shared before.
+        """
         if not self._initialized:
             await self.initialize()
         if not self._watcher:
@@ -380,8 +406,34 @@ class ShopifyAutoShare:
         articles = await self._watcher.get_recent_articles(blog_handle, limit=count)
         results = []
         for article in articles:
+            article_hash = self._article_hash(article)
+
+            # ── Dedup check ──
+            if article_hash in self._history and not force:
+                prev = self._history[article_hash]
+                results.append({
+                    "skipped": True,
+                    "reason": "already_shared",
+                    "title": prev.get("title", ""),
+                    "shared_at": prev.get("shared_at", ""),
+                })
+                continue
+
             result = await self._share_article(article)
+            # Record in history
+            self._history[article_hash] = {
+                "title": article.get("title", "")[:100],
+                "blog": blog_handle,
+                "url": article.get("url", ""),
+                "shared_at": datetime.now(timezone.utc).isoformat(),
+                "manual": True,
+                "tiktok_results": result.get("tiktok", []),
+                "pinterest_result": result.get("pinterest"),
+            }
             results.append(result)
+
+        if results:
+            self._save_history(self._history)
         return results
 
     # ════════════════════════════════════════════
@@ -676,13 +728,15 @@ async def auto_share_resume() -> dict:
     return instance.resume()
 
 
-async def auto_share_manual(article_url: str) -> dict:
+async def auto_share_manual(article_url: str, force: bool = False) -> dict:
     """Manually share a specific article."""
     instance = await get_auto_share()
-    return await instance.share_specific_article(article_url)
+    return await instance.share_specific_article(article_url, force=force)
 
 
-async def auto_share_latest(blog_handle: str, count: int = 1) -> list[dict]:
+async def auto_share_latest(
+    blog_handle: str, count: int = 1, force: bool = False
+) -> list[dict]:
     """Share latest articles from a blog."""
     instance = await get_auto_share()
-    return await instance.share_latest(blog_handle, count)
+    return await instance.share_latest(blog_handle, count, force=force)
