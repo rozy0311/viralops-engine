@@ -1,5 +1,15 @@
 """
-ViralOps Engine — Sendible API Publisher (REAL Implementation)
+⚠️ DEPRECATED — Use publer_publisher.py instead.
+
+Sendible ($199/mo) has been replaced by Publer (~$10/mo per account).
+This file is kept for reference and legacy compatibility only.
+It will be removed in v5.0.
+
+Migration: python setup_publer.py
+
+---
+
+ViralOps Engine — Sendible API Publisher (LEGACY — DEPRECATED)
 
 Official Sendible REST API — posts, schedules, media upload, analytics.
 Python port of the Ruby SDK (radiatemedia/sendible).

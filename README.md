@@ -55,7 +55,10 @@ Loops 24/7 — you do nothing
 | 🔴 Hard | **Threads** | Meta Business | ✅ |
 | 🔴 Hard | **Quora** | Session Cookie | ✅ |
 | 🔴 Hard | **Lemon8** | Session Token | ✅ |
+| 🌉 Bridge | **Publer** | REST API Key (~$10/mo) | ✅ |
 
+> **Bridge Publisher**: Publer can post to any connected account (TikTok, IG, Pinterest, LinkedIn, etc.) via REST API — useful for platforms where direct OAuth setup is complex.
+>
 > See [SETUP_GUIDE.md](SETUP_GUIDE.md) for step-by-step API key setup for each platform.
 
 ---

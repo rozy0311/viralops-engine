@@ -197,7 +197,23 @@ Budget empty (0%)       → STOP & report to human
 ## 8. Integration Strategy (Self-Contained Pipeline)
 
 **ViralOps Engine IS the pipeline** — no third-party schedulers.
-All publishing via direct Platform OAuth APIs.
+Primary: direct Platform OAuth APIs. Fallback: **Publer REST API bridge** (~$10/mo per account).
+
+### Publer Bridge Publisher (NEW — v4.0)
+
+For platforms where direct OAuth setup is complex (TikTok app review, Meta Business verification),
+Publer provides a REST API bridge at `https://app.publer.com/api/v1/`.
+
+| Feature | Detail |
+|---------|--------|
+| Auth | `Bearer-API {key}` + `Publer-Workspace-Id` header |
+| Workflow | Async: submit → job_id → poll `/job_status/{id}` |
+| Cost | ~$10/mo per social account (vs Sendible $199/mo) |
+| Module | `integrations.publer_publisher.PublerPublisher` |
+| Setup | `python setup_publer.py` |
+
+> **Priority**: Direct OAuth APIs are always preferred (free, no middleman).
+> Publer bridge is used ONLY when direct API access requires app review or business verification.
 
 ### Platform API Clients
 | Platform | API | Auth | Module |

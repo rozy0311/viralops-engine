@@ -1,5 +1,17 @@
 """
-ViralOps Engine — Sendible UI Automation Publisher (Stealth Mode)
+⚠️ DEPRECATED — Use publer_publisher.py instead.
+
+Sendible ($199/mo) has been replaced by Publer (~$10/mo per account).
+This file is kept for reference only. It will be removed in v5.0.
+
+Browser automation is NO LONGER NEEDED — Publer provides a proper REST API
+at $10/mo per account vs Sendible's $199/mo.
+
+Migration: python setup_publer.py
+
+---
+
+ViralOps Engine — Sendible UI Automation Publisher (LEGACY — DEPRECATED)
 
 Browser automation via Playwright with FULL anti-detect:
   - playwright-stealth: hide webdriver flags, fake navigator properties

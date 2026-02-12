@@ -451,6 +451,69 @@ open http://localhost:8000
 
 ---
 
+---
+
+## 🌉 Publer — Bridge Publisher (Optional)
+
+| Field | Value |
+|-------|-------|
+| Time | ~10 minutes |
+| Cost | ~$10/mo per social account |
+| Approval | None |
+
+Publer is a **REST API bridge** that can post to any connected social account.
+Useful for platforms where direct OAuth setup requires app review (TikTok) or business verification (Meta).
+
+> **Note**: Direct OAuth APIs are always preferred (free). Use Publer only as fallback.
+
+### Automated Setup (Recommended)
+
+```bash
+python setup_publer.py
+```
+
+The wizard will guide you through all 6 steps.
+
+### Manual Setup
+
+**Steps:**
+1. Sign up at [publer.com](https://publer.com)
+2. Upgrade to **Business plan** ($10/mo per account)
+3. Go to **Settings → API** → Generate API Key
+4. Connect your social accounts (TikTok, Pinterest, LinkedIn, etc.)
+5. Note your **Workspace ID** from the URL: `app.publer.com/workspaces/{WORKSPACE_ID}`
+6. Test connection:
+
+```bash
+curl -H "Authorization: Bearer-API YOUR_KEY" \
+     -H "Publer-Workspace-Id: YOUR_WORKSPACE_ID" \
+     https://app.publer.com/api/v1/me
+```
+
+```env
+PUBLER_API_KEY=your-api-key-here
+PUBLER_WORKSPACE_ID=your-workspace-id-here
+```
+
+### Supported Platforms via Publer
+
+| Platform | Publer Network Key |
+|----------|--------------------|
+| TikTok | `tiktok` |
+| Instagram | `instagram` |
+| Facebook | `facebook` |
+| Pinterest | `pinterest` |
+| LinkedIn | `linkedin` |
+| YouTube | `youtube` |
+| Twitter/X | `twitter` |
+| Threads | `threads` |
+| Mastodon | `mastodon` |
+| Bluesky | `bluesky` |
+| Telegram | `telegram` |
+| Google Business | `google` |
+
+---
+
 ## 💡 Tips
 
 - **Start small**: Just set up OpenAI + 1-2 easy platforms (Bluesky, Mastodon)
@@ -458,3 +521,4 @@ open http://localhost:8000
 - **Token refresh**: Meta/Google tokens expire — set up token refresh cron jobs
 - **Rate limits**: Each platform has daily limits built into the scheduler
 - **Monitoring**: Enable Telegram alerts to get notified of publish results
+- **Publer bridge**: Use `python setup_publer.py` for quick multi-platform access without individual OAuth setup

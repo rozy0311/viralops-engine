@@ -92,13 +92,25 @@ class PublisherRegistry:
         except Exception as e:
             logger.warning("registry.skip", platform="lemon8", error=str(e))
 
-        # ── Sendible bridge (UI automation → TikTok/IG/FB/etc.) ──
+        # ── Publer bridge (REST API → TikTok/IG/FB/Pinterest/LinkedIn/etc.) ──
+        # Replaces Sendible ($199/mo) with Publer ($10/mo per account)
         try:
-            from integrations.sendible_ui_publisher import SendibleUIPublisher
-            self._publishers["sendible"] = SendibleUIPublisher()
-            logger.info("registry.loaded", platform="sendible", method="ui_automation")
+            from integrations.publer_publisher import PublerPublisher
+            self._publishers["publer"] = PublerPublisher()
+            logger.info("registry.loaded", platform="publer", method="rest_api")
         except Exception as e:
-            logger.warning("registry.skip", platform="sendible", error=str(e))
+            logger.warning("registry.skip", platform="publer", error=str(e))
+
+        # ── Legacy Sendible bridge (DEPRECATED — kept for backward compat) ──
+        try:
+            from integrations.sendible_publisher import SendiblePublisher
+            pub = SendiblePublisher()
+            if pub.auth.is_configured and "publer" not in self._publishers:
+                self._publishers["sendible"] = pub
+                logger.warning("registry.loaded_legacy", platform="sendible",
+                              note="DEPRECATED: migrate to Publer (setup_publer.py)")
+        except Exception:
+            pass  # Expected — Sendible is deprecated
 
         # ── Multi-TikTok publisher (N accounts) ──
         try:
@@ -128,8 +140,10 @@ class PublisherRegistry:
             module = type(pub).__module__
             if "social_connectors" in module:
                 result[name] = "social_connector"
+            elif "publer" in module:
+                result[name] = "publer_bridge"
             elif "sendible" in module:
-                result[name] = "sendible_bridge"
+                result[name] = "sendible_bridge_deprecated"
             else:
                 result[name] = "direct_api"
         return result
