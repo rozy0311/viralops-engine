@@ -1279,39 +1279,34 @@ async def api_platforms_setup_status():
 
 
 # ════════════════════════════════════════════════════════════════
-# API — Sendible Bridge (REST API → TikTok/IG/FB/etc.)
+# API — Sendible Bridge (UI Automation → TikTok/IG/FB/etc.)
 # ════════════════════════════════════════════════════════════════
 
 @app.get("/api/sendible/status")
 async def api_sendible_status():
-    """Check Sendible connection status and env var configuration."""
+    """Check Sendible UI automation status (email/password configured)."""
     import os
     env_vars = {
-        "SENDIBLE_APPLICATION_ID": bool(os.environ.get("SENDIBLE_APPLICATION_ID")),
-        "SENDIBLE_SHARED_KEY": bool(os.environ.get("SENDIBLE_SHARED_KEY")),
-        "SENDIBLE_SHARED_IV": bool(os.environ.get("SENDIBLE_SHARED_IV")),
-        "SENDIBLE_USERNAME": bool(os.environ.get("SENDIBLE_USERNAME")),
-        "SENDIBLE_API_KEY": bool(os.environ.get("SENDIBLE_API_KEY")),
-        "SENDIBLE_ACCESS_TOKEN": bool(os.environ.get("SENDIBLE_ACCESS_TOKEN")),
+        "SENDIBLE_EMAIL": bool(os.environ.get("SENDIBLE_EMAIL")),
+        "SENDIBLE_PASSWORD": bool(os.environ.get("SENDIBLE_PASSWORD")),
+        "SENDIBLE_PROXY": bool(os.environ.get("SENDIBLE_PROXY")),
+        "SENDIBLE_HEADLESS": os.environ.get("SENDIBLE_HEADLESS", "false"),
     }
-    has_oauth = all(env_vars[k] for k in [
-        "SENDIBLE_APPLICATION_ID", "SENDIBLE_SHARED_KEY",
-        "SENDIBLE_SHARED_IV", "SENDIBLE_USERNAME", "SENDIBLE_API_KEY"
-    ])
-    has_direct = env_vars["SENDIBLE_ACCESS_TOKEN"]
+    configured = env_vars["SENDIBLE_EMAIL"] and env_vars["SENDIBLE_PASSWORD"]
     return {
-        "configured": has_oauth or has_direct,
-        "auth_mode": "oauth" if has_oauth else ("direct_token" if has_direct else "none"),
+        "configured": configured,
+        "auth_mode": "ui_automation" if configured else "none",
         "env_vars": env_vars,
+        "method": "playwright_stealth",
     }
 
 
 @app.post("/api/sendible/test")
 async def api_sendible_test():
-    """Test Sendible API connection."""
+    """Test Sendible UI automation connection (browser login)."""
     try:
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         result = await pub.test_connection()
         await pub.close()
         return result
@@ -1321,13 +1316,13 @@ async def api_sendible_test():
 
 @app.get("/api/sendible/services")
 async def api_sendible_services():
-    """List all connected services in Sendible account."""
+    """List connected services via Sendible UI scraping."""
     try:
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         connected = await pub.connect()
         if not connected:
-            return {"services": [], "error": "Not connected"}
+            return {"services": [], "error": "Not connected — check SENDIBLE_EMAIL/PASSWORD"}
         services = await pub.get_services(force=True)
         await pub.close()
         return {"services": services, "count": len(services)}
@@ -1337,11 +1332,11 @@ async def api_sendible_services():
 
 @app.post("/api/sendible/publish")
 async def api_sendible_publish(request: Request):
-    """Publish content via Sendible to connected platforms."""
+    """Publish content via Sendible UI automation (Playwright stealth)."""
     try:
         body = await request.json()
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         result = await pub.publish(body)
         await pub.close()
         return result
@@ -1351,10 +1346,10 @@ async def api_sendible_publish(request: Request):
 
 @app.get("/api/sendible/messages")
 async def api_sendible_messages(status: str = "", per_page: int = 20, page: int = 1):
-    """List messages from Sendible."""
+    """List messages from Sendible outbox via UI scraping."""
     try:
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         await pub.connect()
         messages = await pub.get_messages(status=status, per_page=per_page, page=page)
         await pub.close()
@@ -1365,10 +1360,10 @@ async def api_sendible_messages(status: str = "", per_page: int = 20, page: int 
 
 @app.get("/api/sendible/account")
 async def api_sendible_account():
-    """Get Sendible account details."""
+    """Get Sendible account details via UI automation."""
     try:
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         await pub.connect()
         details = await pub.get_account_details()
         await pub.close()

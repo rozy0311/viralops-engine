@@ -1,18 +1,20 @@
 """
-Tests for v3.1.0 — Sendible Bridge (REST API → TikTok/IG/FB/etc.)
+Tests for v3.2.0 — Sendible UI Automation (Playwright Stealth)
 
 Tests cover:
   1. Sendible page HTML route
   2. Sendible API endpoints (/api/sendible/*)
-  3. SendibleAuth (encryption, token caching)
-  4. SendiblePublisher (publish, schedule, services, messages)
+  3. SendibleUIPublisher class (import, interface, methods)
+  4. Anti-detect helpers (bezier, random delay, human type)
   5. Platform publisher registry integration
-  6. .env.example Sendible vars
+  6. .env.example Sendible UI vars
+  7. UI HTML elements
 """
 import pytest
 import json
 import os
 import time
+import math
 from unittest.mock import patch, AsyncMock, MagicMock, PropertyMock
 from fastapi.testclient import TestClient
 
@@ -72,9 +74,9 @@ class TestSendiblePageRoute:
         r = client.get("/sendible")
         assert "Sendible Bridge" in r.text
 
-    def test_sendible_page_mentions_developer_app(self):
+    def test_sendible_page_mentions_sendible(self):
         r = client.get("/sendible")
-        assert "Developer Application" in r.text
+        assert "Sendible" in r.text
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -97,14 +99,19 @@ class TestSendibleStatusAPI:
         r = client.get("/api/sendible/status")
         data = r.json()
         assert "auth_mode" in data
-        assert data["auth_mode"] in ("oauth", "direct_token", "none")
+        assert data["auth_mode"] in ("ui_automation", "none")
 
     def test_status_has_env_vars(self):
         r = client.get("/api/sendible/status")
         data = r.json()
         assert "env_vars" in data
-        assert "SENDIBLE_APPLICATION_ID" in data["env_vars"]
-        assert "SENDIBLE_ACCESS_TOKEN" in data["env_vars"]
+        assert "SENDIBLE_EMAIL" in data["env_vars"]
+        assert "SENDIBLE_PASSWORD" in data["env_vars"]
+
+    def test_status_has_method_field(self):
+        r = client.get("/api/sendible/status")
+        data = r.json()
+        assert data["method"] == "playwright_stealth"
 
     def test_status_unconfigured_by_default(self):
         """Without env vars, should show unconfigured."""
@@ -113,25 +120,25 @@ class TestSendibleStatusAPI:
         # Unless env vars are set in test env
         assert isinstance(data["configured"], bool)
 
-    @patch.dict(os.environ, {"SENDIBLE_ACCESS_TOKEN": "test-token"})
-    def test_status_direct_token_mode(self):
+    @patch.dict(os.environ, {
+        "SENDIBLE_EMAIL": "test@example.com",
+        "SENDIBLE_PASSWORD": "secret123",
+    })
+    def test_status_configured_with_credentials(self):
         r = client.get("/api/sendible/status")
         data = r.json()
         assert data["configured"] is True
-        assert data["auth_mode"] == "direct_token"
+        assert data["auth_mode"] == "ui_automation"
 
     @patch.dict(os.environ, {
-        "SENDIBLE_APPLICATION_ID": "app123",
-        "SENDIBLE_SHARED_KEY": "key123",
-        "SENDIBLE_SHARED_IV": "iv123",
-        "SENDIBLE_USERNAME": "user@test.com",
-        "SENDIBLE_API_KEY": "apikey123",
+        "SENDIBLE_EMAIL": "",
+        "SENDIBLE_PASSWORD": "",
     })
-    def test_status_oauth_mode(self):
+    def test_status_unconfigured_empty_credentials(self):
         r = client.get("/api/sendible/status")
         data = r.json()
-        assert data["configured"] is True
-        assert data["auth_mode"] == "oauth"
+        assert data["configured"] is False
+        assert data["auth_mode"] == "none"
 
 
 class TestSendibleTestAPI:
@@ -214,207 +221,226 @@ class TestSendibleAccountAPI:
 
 
 # ═══════════════════════════════════════════════════════════════
-# 3. SENDIBLE AUTH
+# 3. SENDIBLE UI PUBLISHER CLASS
 # ═══════════════════════════════════════════════════════════════
 
-class TestSendibleAuth:
-    """Test SendibleAuth class."""
+class TestSendibleUIPublisher:
+    """Test SendibleUIPublisher class (unit tests, no browser)."""
 
     def test_import(self):
-        from integrations.sendible_publisher import SendibleAuth
-        assert SendibleAuth
-
-    def test_default_not_configured(self):
-        from integrations.sendible_publisher import SendibleAuth
-        auth = SendibleAuth()
-        # Without env vars, should not be configured
-        if not os.environ.get("SENDIBLE_ACCESS_TOKEN"):
-            assert auth.is_configured is False or auth.is_configured is True  # depends on env
-
-    @patch.dict(os.environ, {"SENDIBLE_ACCESS_TOKEN": "direct-tok"})
-    def test_direct_token_configured(self):
-        from integrations.sendible_publisher import SendibleAuth
-        auth = SendibleAuth()
-        assert auth.is_configured is True
-
-    @patch.dict(os.environ, {
-        "SENDIBLE_APPLICATION_ID": "app",
-        "SENDIBLE_SHARED_KEY": "key",
-        "SENDIBLE_SHARED_IV": "iv",
-        "SENDIBLE_USERNAME": "user",
-        "SENDIBLE_API_KEY": "apikey",
-    })
-    def test_oauth_configured(self):
-        from integrations.sendible_publisher import SendibleAuth
-        auth = SendibleAuth()
-        assert auth.is_configured is True
-
-    def test_api_url(self):
-        from integrations.sendible_publisher import SendibleAuth
-        assert "sendible.com" in SendibleAuth.API_URL or "api" in SendibleAuth.API_URL
-
-    @patch.dict(os.environ, {"SENDIBLE_ACCESS_TOKEN": "test-token-123"})
-    @pytest.mark.asyncio
-    async def test_direct_token_returns_immediately(self):
-        from integrations.sendible_publisher import SendibleAuth
-        import httpx
-        auth = SendibleAuth()
-        async with httpx.AsyncClient() as c:
-            token = await auth.get_access_token(c)
-            assert token == "test-token-123"
-
-    def test_token_cache(self):
-        from integrations.sendible_publisher import SendibleAuth
-        auth = SendibleAuth()
-        auth._direct_token = "cached-tok"
-        # Direct token should be instant, no network call
-
-
-# ═══════════════════════════════════════════════════════════════
-# 4. SENDIBLE PUBLISHER
-# ═══════════════════════════════════════════════════════════════
-
-class TestSendiblePublisher:
-    """Test SendiblePublisher class."""
-
-    def test_import(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        assert SendiblePublisher
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        assert SendibleUIPublisher
 
     def test_platform_name(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert pub.platform == "sendible"
 
     def test_default_account_id(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert pub.account_id == "sendible_main"
 
     def test_custom_account_id(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher(account_id="alt")
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher(account_id="alt")
         assert pub.account_id == "alt"
 
+    def test_base_url(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        assert "sendible.com" in SendibleUIPublisher.BASE_URL
+
     def test_has_publish_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert hasattr(pub, "publish")
         assert callable(pub.publish)
 
     def test_has_schedule_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert hasattr(pub, "schedule")
 
     def test_has_connect_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert hasattr(pub, "connect")
 
+    def test_has_login_method(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
+        assert hasattr(pub, "login")
+
     def test_has_get_services_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert hasattr(pub, "get_services")
 
     def test_has_get_messages_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert hasattr(pub, "get_messages")
 
     def test_has_close_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert hasattr(pub, "close")
 
     def test_has_test_connection_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert hasattr(pub, "test_connection")
 
-    def test_has_shorten_url_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
-        assert hasattr(pub, "shorten_url")
-
-    def test_has_get_reports_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
-        assert hasattr(pub, "get_reports")
-
     def test_has_get_account_details_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert hasattr(pub, "get_account_details")
 
-    def test_has_delete_message_method(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
-        assert hasattr(pub, "delete_message")
+    def test_default_not_configured(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
+        if not os.environ.get("SENDIBLE_EMAIL"):
+            assert pub.is_configured is False
 
-    def test_retry_config(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
-        assert pub.MAX_RETRIES == 3
-        assert pub.RETRY_DELAY == 2.0
+    @patch.dict(os.environ, {
+        "SENDIBLE_EMAIL": "test@example.com",
+        "SENDIBLE_PASSWORD": "secret",
+    })
+    def test_configured_with_credentials(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
+        assert pub.is_configured is True
+
+    @patch.dict(os.environ, {
+        "SENDIBLE_EMAIL": "test@example.com",
+        "SENDIBLE_PASSWORD": "secret",
+        "SENDIBLE_PROXY": "socks5://user:pass@proxy:1080",
+    })
+    def test_proxy_from_env(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
+        assert pub.proxy == "socks5://user:pass@proxy:1080"
+
+    @patch.dict(os.environ, {"SENDIBLE_HEADLESS": "true"})
+    def test_headless_from_env(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
+        assert pub.headless is True
+
+    def test_default_non_headless(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
+        assert pub.headless is False
 
     @pytest.mark.asyncio
     async def test_publish_not_connected(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
-        # Publish without connection should return error
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         result = await pub.publish({"caption": "test"})
         assert result["success"] is False
         assert "error" in result
 
     @pytest.mark.asyncio
     async def test_schedule_without_date(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         result = await pub.schedule({"caption": "test"})
         assert result["success"] is False
         assert "schedule_at" in result.get("error", "")
 
     @pytest.mark.asyncio
-    async def test_close_without_client(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+    async def test_close_without_browser(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         await pub.close()  # Should not raise
 
     @pytest.mark.asyncio
-    async def test_get_service_ids_empty(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
-        pub._services = [
-            {"id": "1", "service_type": "Instagram", "name": "My IG"},
-            {"id": "2", "service_type": "TikTok", "name": "My TT"},
-            {"id": "3", "service_type": "Facebook", "name": "My FB"},
-        ]
-        # No filter — returns all
-        ids = await pub.get_service_ids()
-        assert len(ids) == 3
+    async def test_get_services_not_connected(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
+        services = await pub.get_services()
+        assert isinstance(services, list)
 
     @pytest.mark.asyncio
-    async def test_get_service_ids_filtered(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
-        pub._services = [
-            {"id": "1", "service_type": "Instagram", "name": "My IG"},
-            {"id": "2", "service_type": "TikTok", "name": "My TT"},
-            {"id": "3", "service_type": "Facebook", "name": "My FB"},
-        ]
-        ids = await pub.get_service_ids("instagram")
-        assert ids == ["1"]
+    async def test_get_messages_not_connected(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
+        messages = await pub.get_messages()
+        assert isinstance(messages, list)
 
     @pytest.mark.asyncio
-    async def test_get_service_ids_case_insensitive(self):
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
-        pub._services = [
-            {"id": "10", "service_type": "TIKTOK", "name": "TikTok Account"},
-        ]
-        ids = await pub.get_service_ids("tiktok")
-        assert ids == ["10"]
+    async def test_get_account_details_not_connected(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
+        details = await pub.get_account_details()
+        assert isinstance(details, dict)
+
+    @pytest.mark.asyncio
+    async def test_test_connection_fails_without_creds(self):
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
+        result = await pub.test_connection()
+        assert result["connected"] is False
+
+
+# ═══════════════════════════════════════════════════════════════
+# 4. ANTI-DETECT HELPERS
+# ═══════════════════════════════════════════════════════════════
+
+class TestAntiDetectHelpers:
+    """Test stealth helper functions."""
+
+    def test_random_delay_within_range(self):
+        from integrations.sendible_ui_publisher import _random_delay
+        for _ in range(50):
+            d = _random_delay(2.0, 5.0)
+            assert 2.0 <= d <= 5.0
+
+    def test_random_delay_custom_range(self):
+        from integrations.sendible_ui_publisher import _random_delay
+        for _ in range(20):
+            d = _random_delay(0.5, 1.0)
+            assert 0.5 <= d <= 1.0
+
+    def test_bezier_points_count(self):
+        from integrations.sendible_ui_publisher import _bezier_points
+        pts = _bezier_points((0, 0), (100, 100), steps=20)
+        assert len(pts) == 21  # steps + 1
+
+    def test_bezier_points_start(self):
+        from integrations.sendible_ui_publisher import _bezier_points
+        pts = _bezier_points((10, 20), (200, 300), steps=10)
+        assert pts[0] == (10, 20)
+
+    def test_bezier_points_end(self):
+        from integrations.sendible_ui_publisher import _bezier_points
+        pts = _bezier_points((10, 20), (200, 300), steps=10)
+        assert abs(pts[-1][0] - 200) < 0.01
+        assert abs(pts[-1][1] - 300) < 0.01
+
+    def test_bezier_points_are_tuples(self):
+        from integrations.sendible_ui_publisher import _bezier_points
+        pts = _bezier_points((0, 0), (50, 50), steps=5)
+        for p in pts:
+            assert isinstance(p, tuple)
+            assert len(p) == 2
+
+    def test_bezier_produces_curve(self):
+        """Bezier should produce multiple points."""
+        from integrations.sendible_ui_publisher import _bezier_points
+        pts = _bezier_points((0, 0), (100, 100), steps=20)
+        assert len(pts) > 2
+
+    def test_user_agents_list(self):
+        from integrations.sendible_ui_publisher import USER_AGENTS
+        assert len(USER_AGENTS) >= 3
+        for ua in USER_AGENTS:
+            assert "Chrome" in ua
+            assert "Mozilla" in ua
+
+    def test_cookies_dir_path(self):
+        from integrations.sendible_ui_publisher import COOKIES_DIR
+        assert "sendible_session" in str(COOKIES_DIR)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -425,9 +451,9 @@ class TestRegistryIntegration:
     """Test Sendible in platform publisher registry."""
 
     def test_sendible_in_registry_imports(self):
-        """Sendible publisher should be importable."""
-        from integrations.sendible_publisher import SendiblePublisher
-        pub = SendiblePublisher()
+        """SendibleUIPublisher should be importable."""
+        from integrations.sendible_ui_publisher import SendibleUIPublisher
+        pub = SendibleUIPublisher()
         assert pub.platform == "sendible"
 
     def test_registry_includes_sendible_type(self):
@@ -440,7 +466,7 @@ class TestRegistryIntegration:
             assert platforms["sendible"] == "sendible_bridge"
 
     def test_registry_can_get_sendible(self):
-        """Registry.get('sendible') should return a publisher."""
+        """Registry.get('sendible') should return a UI publisher."""
         from integrations.platform_publisher import PublisherRegistry
         reg = PublisherRegistry()
         reg.register_all()
@@ -448,49 +474,51 @@ class TestRegistryIntegration:
         if pub:
             assert pub.platform == "sendible"
 
+    def test_registry_sendible_is_ui_publisher(self):
+        """Registry should use SendibleUIPublisher, not old REST one."""
+        from integrations.platform_publisher import PublisherRegistry
+        reg = PublisherRegistry()
+        reg.register_all()
+        pub = reg.get("sendible")
+        if pub:
+            from integrations.sendible_ui_publisher import SendibleUIPublisher
+            assert isinstance(pub, SendibleUIPublisher)
+
 
 # ═══════════════════════════════════════════════════════════════
 # 6. ENV EXAMPLE
 # ═══════════════════════════════════════════════════════════════
 
 class TestEnvExample:
-    """Test .env.example has Sendible variables."""
+    """Test .env.example has Sendible UI variables."""
 
     def _read_env_example(self):
         env_path = pathlib.Path(__file__).resolve().parent.parent / ".env.example"
         return env_path.read_text(encoding="utf-8")
 
-    def test_has_sendible_application_id(self):
+    def test_has_sendible_email(self):
         content = self._read_env_example()
-        assert "SENDIBLE_APPLICATION_ID" in content
+        assert "SENDIBLE_EMAIL" in content
 
-    def test_has_sendible_shared_key(self):
+    def test_has_sendible_password(self):
         content = self._read_env_example()
-        assert "SENDIBLE_SHARED_KEY" in content
+        assert "SENDIBLE_PASSWORD" in content
 
-    def test_has_sendible_shared_iv(self):
+    def test_has_sendible_proxy(self):
         content = self._read_env_example()
-        assert "SENDIBLE_SHARED_IV" in content
+        assert "SENDIBLE_PROXY" in content
 
-    def test_has_sendible_username(self):
+    def test_has_sendible_headless(self):
         content = self._read_env_example()
-        assert "SENDIBLE_USERNAME" in content
-
-    def test_has_sendible_api_key(self):
-        content = self._read_env_example()
-        assert "SENDIBLE_API_KEY" in content
-
-    def test_has_sendible_access_token(self):
-        content = self._read_env_example()
-        assert "SENDIBLE_ACCESS_TOKEN" in content
-
-    def test_has_setup_instructions(self):
-        content = self._read_env_example()
-        assert "Developer Application" in content or "developer" in content.lower()
+        assert "SENDIBLE_HEADLESS" in content
 
     def test_has_sendible_section_header(self):
         content = self._read_env_example()
         assert "Sendible" in content
+
+    def test_has_ui_automation_mention(self):
+        content = self._read_env_example()
+        assert "automation" in content.lower() or "playwright" in content.lower() or "browser" in content.lower()
 
 
 # ═══════════════════════════════════════════════════════════════

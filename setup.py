@@ -11,10 +11,16 @@ Usage:
 
 from __future__ import annotations
 
+import io
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+# Fix Windows terminal encoding (cp1252 can't handle Unicode)
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 PROJECT_DIR = Path(__file__).parent
 ENV_FILE = PROJECT_DIR / ".env"

@@ -20,10 +20,16 @@ from __future__ import annotations
 import os
 import re
 import sys
+import io
 import json
 import webbrowser
 from pathlib import Path
 from datetime import datetime
+
+# Fix Windows terminal encoding (cp1252 can't handle Unicode)
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # Load .env if exists
 ENV_FILE = Path(__file__).parent / ".env"

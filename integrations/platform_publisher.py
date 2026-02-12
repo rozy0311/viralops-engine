@@ -92,11 +92,11 @@ class PublisherRegistry:
         except Exception as e:
             logger.warning("registry.skip", platform="lemon8", error=str(e))
 
-        # ── Sendible bridge (REST API → TikTok/IG/FB/etc.) ──
+        # ── Sendible bridge (UI automation → TikTok/IG/FB/etc.) ──
         try:
-            from integrations.sendible_publisher import SendiblePublisher
-            self._publishers["sendible"] = SendiblePublisher()
-            logger.info("registry.loaded", platform="sendible")
+            from integrations.sendible_ui_publisher import SendibleUIPublisher
+            self._publishers["sendible"] = SendibleUIPublisher()
+            logger.info("registry.loaded", platform="sendible", method="ui_automation")
         except Exception as e:
             logger.warning("registry.skip", platform="sendible", error=str(e))
 
