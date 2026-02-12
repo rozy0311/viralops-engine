@@ -1,6 +1,6 @@
 """
 Platform Publisher Registry — EMADS-PR v1.0
-v2.1: Added social_connectors for 7 major platforms.
+v3.1: Added Sendible REST API bridge for TikTok/IG/FB.
 
 Real publishers (direct API):
 - Reddit (OAuth2) → reddit_publisher.py
@@ -8,6 +8,9 @@ Real publishers (direct API):
 - Tumblr (OAuth2 NPF) → tumblr_publisher.py
 - Shopify Blog (Admin REST) → shopify_blog_publisher.py
 - Lemon8 → lemon8_publisher.py
+
+Sendible bridge (REST API → any platform connected in Sendible):
+- Sendible → sendible_publisher.py  (TikTok, IG, FB, etc.)
 
 Social connectors (via social_connectors.py):
 - Twitter/X (v2 API)
@@ -89,6 +92,14 @@ class PublisherRegistry:
         except Exception as e:
             logger.warning("registry.skip", platform="lemon8", error=str(e))
 
+        # ── Sendible bridge (REST API → TikTok/IG/FB/etc.) ──
+        try:
+            from integrations.sendible_publisher import SendiblePublisher
+            self._publishers["sendible"] = SendiblePublisher()
+            logger.info("registry.loaded", platform="sendible")
+        except Exception as e:
+            logger.warning("registry.skip", platform="sendible", error=str(e))
+
         logger.info("registry.complete", total=len(self._publishers))
 
     def get(self, platform: str):
@@ -106,6 +117,8 @@ class PublisherRegistry:
             module = type(pub).__module__
             if "social_connectors" in module:
                 result[name] = "social_connector"
+            elif "sendible" in module:
+                result[name] = "sendible_bridge"
             else:
                 result[name] = "direct_api"
         return result

@@ -217,6 +217,10 @@ async def preview_page(request: Request):
 async def autopilot_page(request: Request):
     return templates.TemplateResponse("app.html", {"request": request, "page": "autopilot"})
 
+@app.get("/sendible", response_class=HTMLResponse)
+async def sendible_page(request: Request):
+    return templates.TemplateResponse("app.html", {"request": request, "page": "sendible"})
+
 
 # ════════════════════════════════════════════════════════════════
 # API — Posts
@@ -1272,6 +1276,105 @@ async def api_platforms_setup_status():
         "configured": configured_count,
         "not_configured": len(result) - configured_count,
     }
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Sendible Bridge (REST API → TikTok/IG/FB/etc.)
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/sendible/status")
+async def api_sendible_status():
+    """Check Sendible connection status and env var configuration."""
+    import os
+    env_vars = {
+        "SENDIBLE_APPLICATION_ID": bool(os.environ.get("SENDIBLE_APPLICATION_ID")),
+        "SENDIBLE_SHARED_KEY": bool(os.environ.get("SENDIBLE_SHARED_KEY")),
+        "SENDIBLE_SHARED_IV": bool(os.environ.get("SENDIBLE_SHARED_IV")),
+        "SENDIBLE_USERNAME": bool(os.environ.get("SENDIBLE_USERNAME")),
+        "SENDIBLE_API_KEY": bool(os.environ.get("SENDIBLE_API_KEY")),
+        "SENDIBLE_ACCESS_TOKEN": bool(os.environ.get("SENDIBLE_ACCESS_TOKEN")),
+    }
+    has_oauth = all(env_vars[k] for k in [
+        "SENDIBLE_APPLICATION_ID", "SENDIBLE_SHARED_KEY",
+        "SENDIBLE_SHARED_IV", "SENDIBLE_USERNAME", "SENDIBLE_API_KEY"
+    ])
+    has_direct = env_vars["SENDIBLE_ACCESS_TOKEN"]
+    return {
+        "configured": has_oauth or has_direct,
+        "auth_mode": "oauth" if has_oauth else ("direct_token" if has_direct else "none"),
+        "env_vars": env_vars,
+    }
+
+
+@app.post("/api/sendible/test")
+async def api_sendible_test():
+    """Test Sendible API connection."""
+    try:
+        from integrations.sendible_publisher import SendiblePublisher
+        pub = SendiblePublisher()
+        result = await pub.test_connection()
+        await pub.close()
+        return result
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
+
+
+@app.get("/api/sendible/services")
+async def api_sendible_services():
+    """List all connected services in Sendible account."""
+    try:
+        from integrations.sendible_publisher import SendiblePublisher
+        pub = SendiblePublisher()
+        connected = await pub.connect()
+        if not connected:
+            return {"services": [], "error": "Not connected"}
+        services = await pub.get_services(force=True)
+        await pub.close()
+        return {"services": services, "count": len(services)}
+    except Exception as e:
+        return {"services": [], "error": str(e)}
+
+
+@app.post("/api/sendible/publish")
+async def api_sendible_publish(request: Request):
+    """Publish content via Sendible to connected platforms."""
+    try:
+        body = await request.json()
+        from integrations.sendible_publisher import SendiblePublisher
+        pub = SendiblePublisher()
+        result = await pub.publish(body)
+        await pub.close()
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/sendible/messages")
+async def api_sendible_messages(status: str = "", per_page: int = 20, page: int = 1):
+    """List messages from Sendible."""
+    try:
+        from integrations.sendible_publisher import SendiblePublisher
+        pub = SendiblePublisher()
+        await pub.connect()
+        messages = await pub.get_messages(status=status, per_page=per_page, page=page)
+        await pub.close()
+        return {"messages": messages, "count": len(messages)}
+    except Exception as e:
+        return {"messages": [], "error": str(e)}
+
+
+@app.get("/api/sendible/account")
+async def api_sendible_account():
+    """Get Sendible account details."""
+    try:
+        from integrations.sendible_publisher import SendiblePublisher
+        pub = SendiblePublisher()
+        await pub.connect()
+        details = await pub.get_account_details()
+        await pub.close()
+        return details
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ════════════════════════════════════════════════════════════════
