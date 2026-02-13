@@ -1,5 +1,5 @@
-"""
-Tests for RSS Auto Poster — Sendible-style auto-publish engine.
+﻿"""
+Tests for RSS Auto Poster  auto-publish engine.
 
 Covers:
   - Config CRUD (create, update, delete, list, get, pause, activate)
@@ -17,7 +17,7 @@ import os
 import sys
 import tempfile
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -386,7 +386,7 @@ class TestTickEngine:
 
         # Set last_checked to 30min ago
         update_auto_poster(poster_id, {
-            "last_checked": (datetime.utcnow() - timedelta(minutes=30)).isoformat(),
+            "last_checked": (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(),
         })
 
         result = tick()
@@ -399,7 +399,7 @@ class TestTickEngine:
 
         # Set last_checked to 2h ago
         update_auto_poster(poster_id, {
-            "last_checked": (datetime.utcnow() - timedelta(hours=2)).isoformat(),
+            "last_checked": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
         })
 
         mock_feed = {
@@ -430,7 +430,7 @@ class TestTickEngine:
 
             # Reset last_checked for second tick
             update_auto_poster(poster_id, {
-                "last_checked": (datetime.utcnow() - timedelta(hours=2)).isoformat(),
+                "last_checked": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
             })
 
             # Second tick — same entry should be skipped
@@ -454,7 +454,7 @@ class TestTickEngine:
 
             # Reset last_checked
             update_auto_poster(poster_id, {
-                "last_checked": (datetime.utcnow() - timedelta(hours=2)).isoformat(),
+                "last_checked": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
             })
 
             # Second tick — should post again

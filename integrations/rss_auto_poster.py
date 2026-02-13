@@ -1,7 +1,7 @@
-"""
-RSS Auto Poster — Sendible-style auto-publish from RSS feeds.
+﻿"""
+RSS Auto Poster  Auto-publish from RSS feeds.
 
-Inspired by Sendible's RSS Auto Poster (app.sendible.com) but:
+Enhanced auto-publish with:
   ✅ Posts: title + description + hashtags + image/video ONLY (NO links)
   ✅ Image content → auto-overlay TikTok music → post as video
   ✅ Video content → post as-is (already has music)
@@ -9,7 +9,7 @@ Inspired by Sendible's RSS Auto Poster (app.sendible.com) but:
   ✅ Content rewrite via content factory (GenAI filler stripped)
   ✅ Per-platform adaptation (char limits, thread splits, etc.)
 
-Sendible settings we replicate:
+Configurable settings:
   - Selected feed → any RSS feed registered in rss_reader
   - Post to → target social accounts (multi-platform)
   - Update frequency → check interval (15min/30min/1h/2h/4h/12h/24h)
@@ -33,7 +33,7 @@ import json
 import hashlib
 import random
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 
@@ -63,15 +63,15 @@ FREQUENCY_PRESETS = {
 
 
 # ════════════════════════════════════════════════
-# Auto Poster Config (mirrors Sendible's RSS Auto Poster dialog)
+# Auto Poster Config (configurable per-feed rules)
 # ════════════════════════════════════════════════
 
 @dataclass
 class AutoPosterConfig:
     """
-    One RSS Auto Poster rule — equivalent to one Sendible RSS Auto Poster config.
+    One RSS Auto Poster rule — one auto-poster rule.
 
-    Maps 1:1 with Sendible's dialog fields:
+    Configuration fields:
       - selected_feed → feed_id (references rss_reader.py feeds)
       - post_to → target_platforms + target_accounts
       - update_frequency → frequency ("every_hour", etc.)
@@ -132,7 +132,7 @@ class AutoPosterConfig:
     last_checked: str = ""
     last_posted: str = ""
     total_posted: int = 0
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 # ════════════════════════════════════════════════
@@ -193,14 +193,14 @@ def create_auto_poster(config: dict) -> dict:
     configs = _load_configs()
 
     poster_id = hashlib.md5(
-        (config.get("feed_id", "") + str(config.get("target_platforms", [])) + datetime.utcnow().isoformat()).encode()
+        (config.get("feed_id", "") + str(config.get("target_platforms", [])) + datetime.now(timezone.utc).isoformat()).encode()
     ).hexdigest()[:12]
 
     new_config = asdict(AutoPosterConfig())
     new_config.update(config)
     new_config["id"] = poster_id
     new_config["include_links"] = False  # ALWAYS False per user spec
-    new_config["created_at"] = datetime.utcnow().isoformat()
+    new_config["created_at"] = datetime.now(timezone.utc).isoformat()
 
     if not new_config.get("name"):
         new_config["name"] = f"Auto Poster {poster_id[:6]}"
@@ -445,7 +445,7 @@ def _save_post_to_db(post_content: dict, adapted: dict, config: dict) -> Optiona
         # Schedule time: next optimal slot if scheduled
         scheduled_at = None
         if status == "scheduled":
-            scheduled_at = (datetime.utcnow() + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M")
+            scheduled_at = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M")
 
         extra = {
             "source": "rss_auto_poster",
@@ -521,7 +521,7 @@ def tick(poster_id: str = None) -> dict:
     """
     configs = _load_configs()
     history = _load_history()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     results = []
 
     posters_to_run = configs

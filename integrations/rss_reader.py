@@ -1,9 +1,9 @@
-"""
+﻿"""
 RSS Feed Reader — Import blog content for repurposing.
-Supports full content + excerpt modes (like SocialBee/Sendible).
+Supports full content + excerpt modes .
 Uses feedparser library.
 
-Features (v2.0 — Sendible-killer):
+Features (v2.0):
   - Bulk import up to 500 entries per fetch
   - Pre-configured Railway RSS server for TheRike
   - Batch import → SQLite drafts in one call
@@ -46,7 +46,7 @@ THERIKE_BLOG_HANDLES = [
 ]
 
 # ── Bulk import settings ──
-MAX_BULK_ENTRIES = 500  # Sendible does 200-500/day, we match 500
+MAX_BULK_ENTRIES = 500  # Match enterprise-grade 500/day bulk capacity
 
 
 @dataclass
@@ -306,7 +306,7 @@ def import_entry_as_draft(entry: dict, platforms: list = None) -> dict:
 
 
 # ════════════════════════════════════════════════════════════════
-# Bulk Import — Sendible-killer (200-500 posts/day)
+# Bulk Import (200-500 posts/day)
 # ════════════════════════════════════════════════════════════════
 
 def _load_imported_ids() -> set:
@@ -334,7 +334,7 @@ def bulk_fetch_feed(feed_id: str = None, feed_url: str = None,
     Bulk fetch up to 500 entries from an RSS feed.
     Skips already-imported entries (dedup).
 
-    Like Sendible's bulk import but with:
+    Enhanced bulk import with:
       - Smart dedup (won't re-import same articles)
       - Full-text content (not just excerpts)
       - 7-layer hashtag extraction from tags
@@ -376,7 +376,7 @@ def bulk_import_as_drafts(entries: list[dict],
     """
     Bulk import RSS entries as draft posts into SQLite.
 
-    This is the Sendible-killer feature:
+    High-volume bulk import feature:
       - Import 200-500 entries in one call
       - All saved as drafts (no auto-publish without review)
       - Dedup tracking prevents re-import
@@ -481,7 +481,7 @@ def setup_therike_feeds(target_platforms: list = None) -> dict:
     One-click setup: register ALL TheRike blogs as RSS feeds.
     Uses the Railway self-hosted full-text RSS server.
 
-    This is equivalent to Sendible → Content → RSS feeds → Add Railway RSS.
+    Add a Railway-hosted full-text RSS feed.
     """
     results = []
     for handle in THERIKE_BLOG_HANDLES:
@@ -516,7 +516,7 @@ def bulk_import_all_therike(platforms: list = None,
     Bulk import ALL TheRike blogs in one call.
     Fetches from Railway RSS server, imports as drafts.
 
-    Sendible does ~200-500/day. This can do 500 in one call.
+    Processes up to 500 entries in one call.
     """
     total_imported = 0
     total_skipped = 0

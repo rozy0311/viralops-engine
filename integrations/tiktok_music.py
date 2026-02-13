@@ -1,7 +1,6 @@
-"""
-TikTok Auto Music Selection — What Sendible CAN'T Do.
+﻿"""
+TikTok Auto Music Selection  Automated Music Matching.
 
-Sendible limitation: ❌ Manual TikTok music selection (user must pick songs one-by-one).
 ViralOps advantage: ✅ Auto-recommend trending music by niche, mood, and content analysis.
 
 How it works:
@@ -393,8 +392,7 @@ def recommend_music(
     """
     🎵 Auto-recommend TikTok music based on content + niche + mood + BPM.
 
-    This is what Sendible CAN'T do:
-      - Sendible: user manually picks music (tedious for 200-500 posts/day)
+    Automated music matching for high-volume posting:
       - ViralOps: AI auto-recommends music per post based on content analysis
 
     Args:
