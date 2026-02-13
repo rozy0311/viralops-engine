@@ -100,9 +100,8 @@ def step_validate_env():
             "SHOPIFY_ACCESS_TOKEN": ("optional", "Shopify API token"),
         },
         "Publer Bridge": {
-            "SENDIBLE_APPLICATION_ID": ("optional", "TikTok/IG/FB via Sendible"),
-            "SENDIBLE_USERNAME": ("optional", "Sendible login email"),
-            "SENDIBLE_API_KEY": ("optional", "Sendible API key"),
+            "PUBLER_API_KEY": ("optional", "TikTok/IG/FB via Publer REST API"),
+            "PUBLER_WORKSPACE_ID": ("optional", "Publer workspace ID"),
         },
         "Free Platforms": {
             "BLUESKY_MAIN_HANDLE": ("optional", "Bluesky posting"),
@@ -144,9 +143,9 @@ def step_validate_env():
     return all_ok
 
 
-def step_test_sendible():
-    """Test Sendible connection if configured."""
-    print("\n🔗 Step 3: Testing Sendible Bridge connection...")
+def step_test_publer():
+    """Test Publer connection if configured."""
+    print("\n🔗 Step 3: Testing Publer Bridge connection...")
     
     env = {}
     for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
@@ -155,16 +154,12 @@ def step_test_sendible():
             key, _, value = line.partition("=")
             env[key.strip()] = value.strip()
     
-    app_id = env.get("SENDIBLE_APPLICATION_ID", "")
-    username = env.get("SENDIBLE_USERNAME", "")
-    api_key = env.get("SENDIBLE_API_KEY", "")
-    shared_key = env.get("SENDIBLE_SHARED_KEY", "")
-    shared_iv = env.get("SENDIBLE_SHARED_IV", "")
-    direct_token = env.get("SENDIBLE_ACCESS_TOKEN", "")
+    api_key = env.get("PUBLER_API_KEY", "")
+    workspace_id = env.get("PUBLER_WORKSPACE_ID", "")
     
-    if not app_id and not direct_token:
-        print("   ⬜ Sendible not configured. Skipping.")
-        print("   💡 Run: python setup_sendible.py")
+    if not api_key:
+        print("   ⬜ Publer not configured. Skipping.")
+        print("   💡 Run: python setup_publer.py")
         return True  # Not a failure, just not configured
     
     try:
@@ -173,90 +168,42 @@ def step_test_sendible():
         print("   ❌ httpx not installed!")
         return False
     
-    if direct_token:
-        # Test with direct token
-        print("   📡 Testing with direct access token...")
-        try:
-            with httpx.Client(timeout=15.0) as client:
-                resp = client.get(
-                    f"https://api.sendible.com/api/v1/services.json",
-                    params={"application_id": app_id or "viralops", "access_token": direct_token}
+    print("   📡 Testing Publer API connection...")
+    try:
+        headers = {"Authorization": f"Bearer {api_key}"}
+        if workspace_id:
+            headers["Publer-Workspace-Id"] = workspace_id
+        
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get("https://app.publer.com/api/v1/me", headers=headers)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            name = data.get("name", data.get("email", "Unknown"))
+            print(f"   ✅ Publer connected! Account: {name}")
+            
+            # Get accounts count
+            if workspace_id:
+                resp2 = httpx.get(
+                    "https://app.publer.com/api/v1/accounts",
+                    headers=headers,
+                    timeout=15.0,
                 )
-            if resp.status_code == 200:
-                print(f"   ✅ Sendible connected! Status: {resp.status_code}")
-                return True
-            else:
-                print(f"   ❌ Sendible returned {resp.status_code}")
-                return False
-        except Exception as e:
-            print(f"   ❌ Sendible test failed: {e}")
-            return False
-    
-    if all([app_id, username, api_key, shared_key, shared_iv]):
-        try:
-            from Crypto.Cipher import AES
-            from Crypto.Util.Padding import pad
-            import base64
-            import json
-            import time
-            
-            # Build access_key
-            timestamp = int(time.time())
-            payload = json.dumps({
-                "user_login": username,
-                "user_api_key": api_key,
-                "timestamp": timestamp,
-            })
-            
-            key_bytes = base64.b64decode(shared_key)
-            iv_bytes = base64.b64decode(shared_iv)
-            
-            cipher = AES.new(key_bytes, AES.MODE_CBC, iv_bytes)
-            encrypted = cipher.encrypt(pad(payload.encode("utf-8"), AES.block_size))
-            access_key = base64.b64encode(encrypted).decode("utf-8")
-            
-            print("   🔐 Encrypted access_key, calling /v1/auth...")
-            
-            with httpx.Client(timeout=15.0) as client:
-                resp = client.get(
-                    f"https://api.sendible.com/api/v1/auth",
-                    params={"app_id": app_id, "access_key": access_key}
-                )
-            
-            token = resp.text.strip()
-            if token.startswith("<error") or not token or len(token) < 5:
-                print(f"   ❌ Auth failed: {token[:100]}")
-                return False
-            
-            print(f"   ✅ Sendible connected! Token: {token[:15]}...")
-            
-            # Get services count
-            with httpx.Client(timeout=15.0) as client:
-                resp = client.get(
-                    f"https://api.sendible.com/api/v1/services.json",
-                    params={"application_id": app_id, "access_token": token}
-                )
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                services = data if isinstance(data, list) else []
-                print(f"   📱 Connected social profiles: {len(services)}")
-                for svc in services[:5]:
-                    name = svc.get("service_name", svc.get("name", "Unknown"))
-                    print(f"      • {name}")
+                if resp2.status_code == 200:
+                    accounts = resp2.json()
+                    if isinstance(accounts, list):
+                        print(f"   📱 Connected social accounts: {len(accounts)}")
+                        for acc in accounts[:5]:
+                            name = acc.get("name", acc.get("type", "Unknown"))
+                            print(f"      • {name}")
             
             return True
-        
-        except ImportError:
-            print("   ⚠️ PyCryptodome not installed. Run: pip install pycryptodome")
+        else:
+            print(f"   ❌ Publer returned {resp.status_code}: {resp.text[:100]}")
             return False
-        except Exception as e:
-            print(f"   ❌ Sendible test failed: {e}")
-            return False
-    else:
-        print("   ⚠️ Sendible partially configured. Missing some credentials.")
-        print("   💡 Run: python setup_sendible.py")
-        return True
+    except Exception as e:
+        print(f"   ❌ Publer test failed: {e}")
+        return False
 
 
 def step_test_other_platforms():
@@ -312,7 +259,7 @@ def main():
     # Full setup
     step_install_deps()
     ok = step_validate_env()
-    step_test_sendible()
+    step_test_publer()
     step_test_other_platforms()
     
     if "--check" in args:
@@ -326,7 +273,7 @@ def main():
         print("⚠️  Some required config missing. Fix .env first.")
         print()
         print("   Quick setup commands:")
-        print("   • Sendible: python setup_sendible.py")
+        print("   • Publer: python setup_publer.py")
         print("   • Then: python setup.py")
     else:
         print("✅ All checks passed!")

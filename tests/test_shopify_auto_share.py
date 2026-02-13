@@ -665,7 +665,7 @@ class TestShopifyAutoShare:
 
     @pytest.mark.asyncio
     async def test_initialize(self):
-        """Initialize connects watcher, Sendible, and falls back to TikTok API."""
+        """Initialize connects watcher, Publer, and falls back to TikTok API."""
         with patch.dict(os.environ, {
             "SHOPIFY_SHOP": "test-shop",
             "SHOPIFY_ACCESS_TOKEN": "shpat_test",
@@ -682,16 +682,16 @@ class TestShopifyAutoShare:
             mock_watcher.connect = AsyncMock(return_value=True)
             mock_watcher._connected = True
 
-            # Patch Sendible to not be configured (test API fallback path)
-            mock_sendible_cls = MagicMock()
-            mock_sendible_inst = MagicMock()
-            mock_sendible_inst.is_configured = False
-            mock_sendible_cls.return_value = mock_sendible_inst
+            # Patch Publer to not be configured (test API fallback path)
+            mock_publer_cls = MagicMock()
+            mock_publer_inst = MagicMock()
+            mock_publer_inst.is_configured = False
+            mock_publer_cls.return_value = mock_publer_inst
 
             with patch("integrations.shopify_auto_share.ShopifyAutoShare._load_config", return_value={}), \
                  patch("integrations.shopify_auto_share.ShopifyAutoShare._load_history", return_value={}), \
                  patch("integrations.shopify_blog_watcher.ShopifyBlogWatcher", return_value=mock_watcher), \
-                 patch("integrations.sendible_ui_publisher.SendibleUIPublisher", mock_sendible_cls):
+                 patch("integrations.publer_publisher.PublerPublisher", mock_publer_cls):
                 result = await auto_share.initialize()
 
             assert result["watcher_connected"]
@@ -699,14 +699,14 @@ class TestShopifyAutoShare:
             assert result["tiktok_via"] in ("api", "none")
 
     @pytest.mark.asyncio
-    async def test_initialize_with_sendible(self):
-        """Initialize connects Sendible when configured."""
+    async def test_initialize_with_publer(self):
+        """Initialize connects Publer when configured."""
         with patch.dict(os.environ, {
             "SHOPIFY_SHOP": "test-shop",
             "SHOPIFY_ACCESS_TOKEN": "shpat_test",
-            "SENDIBLE_EMAIL": "test@test.com",
-            "SENDIBLE_PASSWORD": "pass123",
-            "SHOPIFY_AUTOSHARE_TIKTOK_VIA": "sendible",
+            "PUBLER_API_KEY": "test_api_key_123",
+            "PUBLER_WORKSPACE_ID": "ws_test_456",
+            "SHOPIFY_AUTOSHARE_TIKTOK_VIA": "publer",
         }):
             from integrations.shopify_auto_share import ShopifyAutoShare
 
@@ -716,19 +716,19 @@ class TestShopifyAutoShare:
             mock_watcher.connect = AsyncMock(return_value=True)
             mock_watcher._connected = True
 
-            mock_sendible = AsyncMock()
-            mock_sendible.is_configured = True
-            mock_sendible.connect = AsyncMock(return_value=True)
+            mock_publer = AsyncMock()
+            mock_publer.is_configured = True
+            mock_publer.connect = AsyncMock(return_value=True)
 
             with patch("integrations.shopify_auto_share.ShopifyAutoShare._load_config", return_value={}), \
                  patch("integrations.shopify_auto_share.ShopifyAutoShare._load_history", return_value={}), \
                  patch("integrations.shopify_blog_watcher.ShopifyBlogWatcher", return_value=mock_watcher), \
-                 patch("integrations.sendible_ui_publisher.SendibleUIPublisher", return_value=mock_sendible):
+                 patch("integrations.publer_publisher.PublerPublisher", return_value=mock_publer):
                 result = await auto_share.initialize()
 
             assert result["watcher_connected"]
-            assert result["sendible_connected"]
-            assert result["tiktok_via"] == "sendible"
+            assert result["publer_connected"]
+            assert result["tiktok_via"] == "publer"
 
     def test_get_history(self):
         """get_history returns sorted history."""
@@ -982,42 +982,42 @@ class TestShopifyAutoShare:
         os.unlink(path)
 
     @pytest.mark.asyncio
-    async def test_share_article_via_sendible(self):
-        """_share_article routes TikTok through Sendible when configured."""
+    async def test_share_article_via_publer(self):
+        """_share_article routes TikTok through Publer when configured."""
         from integrations.shopify_auto_share import ShopifyAutoShare
 
         auto_share = ShopifyAutoShare()
         auto_share._initialized = True
 
-        # Mock Sendible as connected
-        mock_sendible = AsyncMock()
-        mock_sendible.publish = AsyncMock(return_value={
-            "success": True, "post_id": "ui_123", "platform": "sendible",
+        # Mock Publer as connected
+        mock_publer = AsyncMock()
+        mock_publer.publish = AsyncMock(return_value={
+            "success": True, "post_id": "ui_123", "platform": "publer",
         })
-        auto_share._sendible = mock_sendible
+        auto_share._publer = mock_publer
         auto_share._tiktok = None
         auto_share._pinterest = None
 
         article = {
             "blog_handle": "sustainable-living",
             "article_id": 42,
-            "title": "Test Sendible Post",
+            "title": "Test Publer Post",
             "excerpt": "Excerpt here",
             "featured_image": "https://cdn.shopify.com/test.jpg",
             "url": "https://therike.com/blogs/sustainable-living/test",
             "tags": ["eco"],
         }
 
-        with patch.dict(os.environ, {"SHOPIFY_AUTOSHARE_TIKTOK_VIA": "sendible"}), \
+        with patch.dict(os.environ, {"SHOPIFY_AUTOSHARE_TIKTOK_VIA": "publer"}), \
              patch.object(ShopifyAutoShare, '_download_image', new_callable=AsyncMock, return_value="/tmp/test.jpg"), \
              patch("os.unlink"):
             result = await auto_share._share_article(article)
 
         assert len(result["tiktok"]) == 1
         assert result["tiktok"][0]["success"] is True
-        assert result["tiktok"][0]["account"] == "sendible"
-        # Verify Sendible was called with platforms=["tiktok"] (first call)
-        calls = mock_sendible.publish.call_args_list
+        assert result["tiktok"][0]["account"] == "publer"
+        # Verify Publer was called with platforms=["tiktok"] (first call)
+        calls = mock_publer.publish.call_args_list
         assert len(calls) >= 1
         tiktok_call = calls[0][0][0]  # first call, positional args, first arg
         assert "tiktok" in tiktok_call["platforms"]
@@ -1084,7 +1084,7 @@ class TestTelegramBlogAlert:
         """alert_blog_shared formats and sends message."""
         from integrations.telegram_bot import alert_blog_shared
         results = [
-            {"tiktok": [{"success": True, "account": "sendible"}], "pinterest": {"success": True}},
+            {"tiktok": [{"success": True, "account": "publer"}], "pinterest": {"success": True}},
         ]
         articles = [
             {"title": "Test Post", "blog_handle": "sustainable-living"},
@@ -1096,7 +1096,7 @@ class TestTelegramBlogAlert:
         assert "Shopify Blog Auto-Share" in msg
         assert "Test Post" in msg
         assert "sustainable-living" in msg
-        assert "sendible" in msg
+        assert "publer" in msg
 
     def test_send_telegram_alert_uses_alert_blog_shared(self):
         """ShopifyAutoShare._send_telegram_alert calls alert_blog_shared."""
