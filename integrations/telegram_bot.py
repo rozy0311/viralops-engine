@@ -15,7 +15,7 @@ Config via env vars:
 
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from collections import deque
 
@@ -126,7 +126,7 @@ def alert_post_created(
         f"{media_icon} *Media:* {media_type} {music_icon}\n"
         f"📱 *Platforms:* {platform_str}\n"
         f"📊 *Posts created:* {post_count}\n"
-        f"🕐 {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+        f"🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
     )
     return send_message(text)
 
@@ -154,7 +154,7 @@ def alert_tick_summary(
     )
     if details:
         text += f"\n📊 *Details:*\n{details}"
-    text += f"\n🕐 {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+    text += f"\n🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
 
     return send_message(text)
 
@@ -178,7 +178,7 @@ def alert_error(
     )
     if ctx_str:
         text += f"\n📋 *Context:*\n{ctx_str}"
-    text += f"\n🕐 {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+    text += f"\n🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
 
     return send_message(text)
 
@@ -195,7 +195,7 @@ def alert_poster_state_change(
         f"━━━━━━━━━━━━━━━\n"
         f"📋 *Poster:* {poster_name}\n"
         f"🆔 `{poster_id}`\n"
-        f"🕐 {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+        f"🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
     )
     return send_message(text)
 
@@ -219,7 +219,7 @@ def alert_daily_summary(
     if errors_today > 0:
         text += f"⚠️ Errors Today: {errors_today}\n"
     text += (
-        f"\n🕐 {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}\n"
+        f"\n🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"_Powered by ViralOps Engine v2.3.0_"
     )
@@ -253,7 +253,7 @@ def alert_blog_shared(
         lines.append(f"   🎵 TikTok: {tiktok_ok}/{tiktok_total} via {via}")
         lines.append(f"   📌 Pinterest: {pin_ok}")
 
-    lines.append(f"\n🕐 {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    lines.append(f"\n🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
     return send_message("\n".join(lines))
 
 def get_bot_info() -> dict:

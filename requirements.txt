@@ -38,10 +38,6 @@ tiktoken>=0.7.0
 # ── Trends (optional — for TrendResearcher) ──
 pytrends>=4.9.0
 
-# ── Legacy Sendible UI Automation (DEPRECATED — replaced by Publer) ──
-playwright>=1.40.0
-playwright-stealth>=1.0.6
-
 # ── Testing ──
 pytest>=8.0
 pytest-asyncio>=0.23

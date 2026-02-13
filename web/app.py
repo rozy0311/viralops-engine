@@ -18,7 +18,7 @@ import sys
 import json
 import sqlite3
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -452,7 +452,7 @@ async def api_publish_post(post_id: int):
     all_ok = all(r["success"] for r in results)
     conn.execute(
         "UPDATE posts SET status = ?, published_at = ? WHERE id = ?",
-        ("published" if all_ok else "failed", datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S"), post_id)
+        ("published" if all_ok else "failed", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"), post_id)
     )
     conn.commit()
     conn.close()
@@ -774,7 +774,7 @@ async def api_scheduler_run_now():
 
 
 # ════════════════════════════════════════════════════════════════
-# API — RSS Auto Poster (Sendible-style)
+# API — RSS Auto Poster
 # ════════════════════════════════════════════════════════════════
 
 @app.get("/api/rss-auto-poster")
@@ -801,7 +801,7 @@ async def api_get_auto_poster(poster_id: str):
 @app.post("/api/rss-auto-poster")
 async def api_create_auto_poster(request: Request):
     """
-    Create a new RSS Auto Poster (Sendible-style).
+    Create a new RSS Auto Poster.
 
     Body example:
     {
@@ -999,12 +999,12 @@ async def health():
             "Shopify Blog Auto-Share → TikTok Multi-Account + Pinterest (NEW v3.3)",
             "Docker + Railway deployment ready",
         ],
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
 # ════════════════════════════════════════════════════════════════
-# API — TikTok Auto Music (Sendible CAN'T do this)
+# API — TikTok Auto Music
 # ════════════════════════════════════════════════════════════════
 
 @app.post("/api/tiktok/music/recommend")
@@ -1012,9 +1012,7 @@ async def api_tiktok_music_recommend(request: Request):
     """
     🎵 Auto-recommend TikTok music based on content + niche + mood.
 
-    What Sendible CAN'T do:
-      - Sendible: user manually picks music (tedious for 200-500 posts/day)
-      - ViralOps: AI auto-recommends music per post based on content analysis
+    ViralOps: AI auto-recommends music per post based on content analysis.
     """
     data = await request.json()
     from integrations.tiktok_music import recommend_music
