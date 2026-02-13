@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """
-ViralOps Engine — Sendible Setup Wizard 🧙‍♂️
+╔══════════════════════════════════════════════════════════════╗
+║  ⚠️  DEPRECATED — Replaced by setup_publer.py (v4.0)       ║
+║  Sendible ($199/mo) → Publer (~$10/mo per account)          ║
+║  This file is kept for reference only. Do NOT use.          ║
+║  Run: python setup_publer.py                                ║
+╚══════════════════════════════════════════════════════════════╝
+
+ViralOps Engine — Sendible Setup Wizard 🧙‍♂️ [DEPRECATED]
 Tự động hướng dẫn + setup Sendible API credentials.
 
 Usage:
-    python setup_sendible.py
+    python setup_publer.py  # ← Use this instead
 
 Wizard sẽ:
 1. Mở trình duyệt → Sendible signup (14-day free trial, NO credit card)

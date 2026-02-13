@@ -117,15 +117,12 @@ class TestPublerConnection:
 
     @pytest.mark.asyncio
     async def test_connect_success(self, publisher):
+        """Test connect with PUBLER_WORKSPACE_ID already set (fixture provides it).
+        connect() calls: GET /me → GET /accounts (skips workspaces since ID is set).
+        """
         mock_response_me = MagicMock()
         mock_response_me.status_code = 200
         mock_response_me.json.return_value = {"data": {"email": "test@test.com"}}
-
-        mock_response_ws = MagicMock()
-        mock_response_ws.status_code = 200
-        mock_response_ws.json.return_value = {
-            "data": [{"id": "ws-123", "name": "My Workspace"}]
-        }
 
         mock_response_acc = MagicMock()
         mock_response_acc.status_code = 200
@@ -137,7 +134,7 @@ class TestPublerConnection:
         }
 
         with patch.object(publisher, "_request", new_callable=AsyncMock) as mock_req:
-            mock_req.side_effect = [mock_response_me, mock_response_ws, mock_response_acc]
+            mock_req.side_effect = [mock_response_me, mock_response_acc]
             result = await publisher.connect()
 
         assert result is True

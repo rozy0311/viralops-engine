@@ -282,7 +282,7 @@ class PublishScheduler:
                 if results:
                     logger.info("scheduler.cycle_done", published=len(results))
 
-                # 2. RSS Auto Poster tick (Sendible-style)
+                # 2. RSS Auto Poster tick
                 try:
                     from integrations.rss_auto_poster import tick as auto_poster_tick
                     ap_result = auto_poster_tick()

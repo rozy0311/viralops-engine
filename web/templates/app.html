@@ -72,8 +72,8 @@
     <a href="/autopilot" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'autopilot' %}bg-brand-600 text-white{% endif %}">
       <span>🤖</span> Auto-Pilot
     </a>
-    <a href="/sendible" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'sendible' %}bg-brand-600 text-white{% endif %}">
-      <span>🔗</span> Sendible Bridge
+    <a href="/publer" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'publer' %}bg-brand-600 text-white{% endif %}">
+      <span>🔗</span> Publer Bridge
     </a>
     <a href="/blog-share" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'blog-share' %}bg-brand-600 text-white{% endif %}">
       <span>🛍️</span> Blog Auto-Share
@@ -773,10 +773,10 @@
     </div>
   </div>
 
-  <!-- ═══ SENDIBLE BRIDGE PAGE ═══ -->
-  <div class="page {% if page == 'sendible' %}active{% endif %}" id="page-sendible">
-    <h2 class="text-2xl font-bold text-gray-800 mb-6">🔗 Sendible Bridge</h2>
-    <p class="text-gray-400 mb-6">Post to TikTok, Instagram, Facebook & more via Sendible's official REST API — zero bot detection risk.</p>
+  <!-- ═══ PUBLER BRIDGE PAGE ═══ -->
+  <div class="page {% if page == 'publer' %}active{% endif %}" id="page-publer">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">🔗 Publer Bridge</h2>
+    <p class="text-gray-400 mb-6">Post to TikTok, Instagram, Facebook & more via Publer REST API (~$10/mo per account) — zero bot detection risk.</p>
 
     <!-- Connection Status -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -786,45 +786,45 @@
           <span id="snd-status-badge" class="px-3 py-1 rounded-full text-xs font-medium bg-gray-700 text-gray-400">Checking...</span>
         </div>
         <div id="snd-status-info" class="text-sm text-gray-400">
-          <p>Checking Sendible API connection...</p>
+          <p>Checking Publer API connection...</p>
         </div>
-        <button onclick="testSendibleConnection()" class="mt-4 w-full bg-brand-600 hover:bg-brand-700 text-white py-2 px-4 rounded-lg text-sm transition">
+        <button onclick="testPublerConnection()" class="mt-4 w-full bg-brand-600 hover:bg-brand-700 text-white py-2 px-4 rounded-lg text-sm transition">
           🔌 Test Connection
         </button>
       </div>
 
       <div class="bg-dark-900 rounded-xl p-6 border border-dark-700">
-        <h3 class="font-semibold text-white mb-4">Auth Mode</h3>
+        <h3 class="font-semibold text-white mb-4">API Configuration</h3>
         <div id="snd-auth-mode" class="text-sm text-gray-400">
           <p>Loading...</p>
         </div>
       </div>
 
       <div class="bg-dark-900 rounded-xl p-6 border border-dark-700">
-        <h3 class="font-semibold text-white mb-4">Account Info</h3>
+        <h3 class="font-semibold text-white mb-4">Workspace Info</h3>
         <div id="snd-account-info" class="text-sm text-gray-400">
-          <p>Connect first to see account details</p>
+          <p>Connect first to see workspace details</p>
         </div>
       </div>
     </div>
 
-    <!-- Connected Services -->
+    <!-- Connected Accounts -->
     <div class="bg-dark-900 rounded-xl p-6 border border-dark-700 mb-8">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-semibold text-white">Connected Services</h3>
-        <button onclick="refreshSendibleServices()" class="bg-dark-700 hover:bg-dark-600 text-white py-1.5 px-4 rounded-lg text-sm transition">
+        <h3 class="font-semibold text-white">Connected Accounts</h3>
+        <button onclick="refreshPublerAccounts()" class="bg-dark-700 hover:bg-dark-600 text-white py-1.5 px-4 rounded-lg text-sm transition">
           🔄 Refresh
         </button>
       </div>
-      <p class="text-sm text-gray-500 mb-4">Platforms connected in your Sendible account. ViralOps auto-detects all services.</p>
+      <p class="text-sm text-gray-500 mb-4">Social accounts connected in your Publer workspace. ViralOps auto-detects all accounts.</p>
       <div id="snd-services-grid" class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <p class="text-gray-500 text-sm col-span-4">Connect to Sendible to see services...</p>
+        <p class="text-gray-500 text-sm col-span-4">Connect to Publer to see accounts...</p>
       </div>
     </div>
 
-    <!-- Quick Publish via Sendible -->
+    <!-- Quick Publish via Publer -->
     <div class="bg-dark-900 rounded-xl p-6 border border-dark-700 mb-8">
-      <h3 class="font-semibold text-white mb-4">📝 Quick Publish via Sendible</h3>
+      <h3 class="font-semibold text-white mb-4">📝 Quick Publish via Publer</h3>
       <div class="space-y-4">
         <div>
           <label class="block text-sm text-gray-400 mb-1">Message</label>
@@ -851,10 +851,10 @@
           </div>
         </div>
         <div class="flex gap-3">
-          <button onclick="sendiblePublish(false)" class="bg-brand-600 hover:bg-brand-700 text-white py-2.5 px-6 rounded-lg text-sm font-medium transition">
+          <button onclick="publerPublish(false)" class="bg-brand-600 hover:bg-brand-700 text-white py-2.5 px-6 rounded-lg text-sm font-medium transition">
             🚀 Publish Now
           </button>
-          <button onclick="sendiblePublish(true)" class="bg-purple-600 hover:bg-purple-700 text-white py-2.5 px-6 rounded-lg text-sm font-medium transition">
+          <button onclick="publerPublish(true)" class="bg-purple-600 hover:bg-purple-700 text-white py-2.5 px-6 rounded-lg text-sm font-medium transition">
             📅 Schedule
           </button>
         </div>
@@ -862,16 +862,16 @@
       </div>
     </div>
 
-    <!-- Recent Messages -->
+    <!-- Workspaces -->
     <div class="bg-dark-900 rounded-xl p-6 border border-dark-700">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-semibold text-white">Recent Messages</h3>
-        <button onclick="loadSendibleMessages()" class="bg-dark-700 hover:bg-dark-600 text-white py-1.5 px-4 rounded-lg text-sm transition">
+        <h3 class="font-semibold text-white">Workspaces</h3>
+        <button onclick="loadPublerWorkspaces()" class="bg-dark-700 hover:bg-dark-600 text-white py-1.5 px-4 rounded-lg text-sm transition">
           🔄 Refresh
         </button>
       </div>
       <div id="snd-messages-list" class="space-y-3">
-        <p class="text-gray-500 text-sm">No messages loaded yet.</p>
+        <p class="text-gray-500 text-sm">No workspaces loaded yet.</p>
       </div>
     </div>
 
@@ -881,27 +881,23 @@
       <div class="space-y-3 text-sm text-gray-400">
         <div class="flex items-start gap-3">
           <span class="bg-brand-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">1</span>
-          <p>Create a <strong class="text-white">Developer Application</strong> in Sendible → Settings → Developer Apps</p>
+          <p>Sign up at <a href="https://publer.io" target="_blank" class="text-brand-400 underline">publer.io</a> and connect your social accounts (TikTok, Instagram, Facebook, etc.)</p>
         </div>
         <div class="flex items-start gap-3">
           <span class="bg-brand-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">2</span>
-          <p>Copy <strong class="text-white">application_id</strong>, <strong class="text-white">shared_key</strong>, <strong class="text-white">shared_iv</strong></p>
+          <p>Go to <strong class="text-white">Settings → API Access</strong> and generate your <strong class="text-white">API Key</strong></p>
         </div>
         <div class="flex items-start gap-3">
           <span class="bg-brand-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">3</span>
-          <p>Get your <strong class="text-white">username</strong> (login email) and <strong class="text-white">api_key</strong> from Account Settings</p>
+          <p>Copy your <strong class="text-white">Workspace ID</strong> from the workspace URL or API response</p>
         </div>
         <div class="flex items-start gap-3">
           <span class="bg-brand-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">4</span>
-          <p>Add to <code class="bg-dark-800 px-2 py-0.5 rounded text-brand-400">.env</code> file — see <code>.env.example</code> for template</p>
+          <p>Add <code class="bg-dark-800 px-2 py-0.5 rounded text-brand-400">PUBLER_API_KEY</code> and <code class="bg-dark-800 px-2 py-0.5 rounded text-brand-400">PUBLER_WORKSPACE_ID</code> to your <code class="bg-dark-800 px-2 py-0.5 rounded text-brand-400">.env</code> file</p>
         </div>
         <div class="flex items-start gap-3">
           <span class="bg-brand-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">5</span>
-          <p>In Sendible, connect your social accounts (TikTok, Instagram, Facebook, etc.)</p>
-        </div>
-        <div class="flex items-start gap-3">
-          <span class="bg-brand-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">6</span>
-          <p>Click <strong class="text-white">Test Connection</strong> above — ViralOps will auto-detect all services!</p>
+          <p>Click <strong class="text-white">Test Connection</strong> above — ViralOps will auto-detect all accounts!</p>
         </div>
       </div>
     </div>
@@ -910,7 +906,7 @@
   <!-- ═══ BLOG AUTO-SHARE PAGE ═══ -->
   <div class="page {% if page == 'blog-share' %}active{% endif %}" id="page-blog-share">
     <h2 class="text-2xl font-bold text-gray-800 mb-6">🛍️ Shopify Blog Auto-Share</h2>
-    <p class="text-gray-500 mb-6">Automatically share new blog posts from <strong>therike.com</strong> to TikTok + Pinterest via Sendible.</p>
+    <p class="text-gray-500 mb-6">Automatically share new blog posts from <strong>therike.com</strong> to TikTok + Pinterest via Publer.</p>
 
     <!-- Status Cards -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -1288,7 +1284,7 @@ document.addEventListener('DOMContentLoaded', () => {
     else if(page.id==='page-timeslots') loadBestHours();
     else if(page.id==='page-preview') updatePreviews();
     else if(page.id==='page-autopilot') loadAutoPilotPlatforms();
-    else if(page.id==='page-sendible') loadSendibleStatus();
+    else if(page.id==='page-publer') loadPublerStatus();
     else if(page.id==='page-blog-share') loadBlogShareStatus();
   }
   // Always load sidebar channels
@@ -2342,12 +2338,12 @@ function renderTopPosts(logs) {
 }
 
 // ══════════════════════════════════════════════════
-// Sendible Bridge Functions
+// Publer Bridge Functions
 // ══════════════════════════════════════════════════
 
-async function loadSendibleStatus() {
+async function loadPublerStatus() {
   try {
-    const resp = await fetch('/api/sendible/status');
+    const resp = await fetch('/api/publer/status');
     const data = await resp.json();
     const badge = document.getElementById('snd-status-badge');
     const info = document.getElementById('snd-status-info');
@@ -2356,38 +2352,39 @@ async function loadSendibleStatus() {
     if (data.configured) {
       badge.textContent = 'Configured';
       badge.className = 'px-3 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300';
-      info.innerHTML = '<p class="text-green-400">✅ Sendible API credentials detected</p>';
+      info.innerHTML = '<p class="text-green-400">✅ Publer API credentials detected</p>';
     } else {
       badge.textContent = 'Not Configured';
       badge.className = 'px-3 py-1 rounded-full text-xs font-medium bg-red-900 text-red-300';
-      info.innerHTML = '<p class="text-red-400">❌ Set SENDIBLE_* env vars in .env file</p>';
+      info.innerHTML = '<p class="text-red-400">❌ Set PUBLER_API_KEY and PUBLER_WORKSPACE_ID in .env</p>';
     }
 
-    const modeLabel = { oauth: '🔐 Full OAuth (recommended)', direct_token: '🔑 Direct Token', none: '❌ Not set' };
     authMode.innerHTML = `
-      <p class="text-lg font-bold mb-2">${modeLabel[data.auth_mode] || data.auth_mode}</p>
+      <p class="text-lg font-bold mb-2">${data.api_key_set ? '🔑 API Key Set' : '❌ API Key Missing'}</p>
       <div class="space-y-1 mt-3">
-        ${Object.entries(data.env_vars || {}).map(([k, v]) =>
-          `<div class="flex items-center gap-2">
-            <span class="${v ? 'text-green-400' : 'text-red-400'}">${v ? '✅' : '❌'}</span>
-            <span class="text-xs font-mono">${k}</span>
-          </div>`
-        ).join('')}
+        <div class="flex items-center gap-2">
+          <span class="${data.api_key_set ? 'text-green-400' : 'text-red-400'}">${data.api_key_set ? '✅' : '❌'}</span>
+          <span class="text-xs font-mono">PUBLER_API_KEY ${data.api_key_preview || ''}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="${data.workspace_id_set ? 'text-green-400' : 'text-red-400'}">${data.workspace_id_set ? '✅' : '❌'}</span>
+          <span class="text-xs font-mono">PUBLER_WORKSPACE_ID</span>
+        </div>
       </div>`;
   } catch (e) {
-    console.error('Sendible status error:', e);
+    console.error('Publer status error:', e);
   }
 }
 
-async function testSendibleConnection() {
+async function testPublerConnection() {
   const badge = document.getElementById('snd-status-badge');
   const info = document.getElementById('snd-status-info');
   badge.textContent = 'Testing...';
   badge.className = 'px-3 py-1 rounded-full text-xs font-medium bg-yellow-900 text-yellow-300';
-  info.innerHTML = '<p class="text-yellow-400">⏳ Testing connection...</p>';
+  info.innerHTML = '<p class="text-yellow-400">⏳ Testing Publer connection...</p>';
 
   try {
-    const resp = await fetch('/api/sendible/test', { method: 'POST' });
+    const resp = await fetch('/api/publer/test', { method: 'POST' });
     const data = await resp.json();
 
     if (data.connected) {
@@ -2395,11 +2392,11 @@ async function testSendibleConnection() {
       badge.className = 'px-3 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300';
       info.innerHTML = `
         <p class="text-green-400">✅ Connected as <strong>${data.account || 'N/A'}</strong></p>
-        <p class="text-sm mt-1">${data.services_count || 0} services available</p>`;
+        <p class="text-sm mt-1">${data.accounts_count || 0} accounts available</p>`;
 
-      // Also refresh services
-      refreshSendibleServices();
-      loadSendibleAccount();
+      // Also refresh accounts
+      refreshPublerAccounts();
+      loadPublerWorkspaceInfo();
     } else {
       badge.textContent = 'Failed';
       badge.className = 'px-3 py-1 rounded-full text-xs font-medium bg-red-900 text-red-300';
@@ -2412,55 +2409,58 @@ async function testSendibleConnection() {
   }
 }
 
-async function refreshSendibleServices() {
+async function refreshPublerAccounts() {
   const grid = document.getElementById('snd-services-grid');
-  grid.innerHTML = '<p class="text-yellow-400 text-sm col-span-4">Loading services...</p>';
+  grid.innerHTML = '<p class="text-yellow-400 text-sm col-span-4">Loading accounts...</p>';
 
   try {
-    const resp = await fetch('/api/sendible/services');
+    const resp = await fetch('/api/publer/accounts');
     const data = await resp.json();
 
-    if (data.services && data.services.length > 0) {
+    if (data.accounts && data.accounts.length > 0) {
       const icons = {
         instagram: '📸', tiktok: '🎵', facebook: '📘', twitter: '🐦',
         linkedin: '💼', youtube: '📺', pinterest: '📌', tumblr: '🔮',
         wordpress: '📝', medium: '✍️', google: '🔍', default: '🌐'
       };
-      grid.innerHTML = data.services.map(s => {
-        const name = (s.name || s.service_type || 'Unknown').toLowerCase();
+      grid.innerHTML = data.accounts.map(a => {
+        const name = (a.name || a.type || 'Unknown').toLowerCase();
         const icon = Object.entries(icons).find(([k]) => name.includes(k))?.[1] || icons.default;
         return `<div class="bg-dark-800 border border-dark-600 rounded-lg p-3 flex items-center gap-3">
           <span class="text-xl">${icon}</span>
           <div>
-            <p class="text-sm font-medium text-white">${s.name || s.service_type || 'Unknown'}</p>
-            <p class="text-xs text-gray-500">ID: ${s.id || s.service_id || '?'}</p>
+            <p class="text-sm font-medium text-white">${a.name || a.type || 'Unknown'}</p>
+            <p class="text-xs text-gray-500">ID: ${a.id || '?'}</p>
           </div>
         </div>`;
       }).join('');
     } else {
-      grid.innerHTML = `<p class="text-gray-500 text-sm col-span-4">${data.error || 'No services found. Connect platforms in Sendible first.'}</p>`;
+      grid.innerHTML = `<p class="text-gray-500 text-sm col-span-4">${data.error || 'No accounts found. Connect platforms in Publer first.'}</p>`;
     }
   } catch (e) {
     grid.innerHTML = `<p class="text-red-400 text-sm col-span-4">Error: ${e.message}</p>`;
   }
 }
 
-async function loadSendibleAccount() {
+async function loadPublerWorkspaceInfo() {
   try {
-    const resp = await fetch('/api/sendible/account');
+    const resp = await fetch('/api/publer/workspaces');
     const data = await resp.json();
     const el = document.getElementById('snd-account-info');
     if (data.error) {
       el.innerHTML = `<p class="text-red-400">${data.error}</p>`;
     } else {
-      el.innerHTML = `<pre class="text-xs text-gray-400 overflow-auto max-h-32">${JSON.stringify(data, null, 2)}</pre>`;
+      const ws = data.workspaces || [];
+      el.innerHTML = ws.length > 0
+        ? ws.map(w => `<p class="text-sm text-gray-300">📁 ${w.name || w.id}</p>`).join('')
+        : `<pre class="text-xs text-gray-400 overflow-auto max-h-32">${JSON.stringify(data, null, 2)}</pre>`;
     }
   } catch (e) {
-    console.error('Sendible account error:', e);
+    console.error('Publer workspace error:', e);
   }
 }
 
-async function sendiblePublish(isSchedule) {
+async function publerPublish(isSchedule) {
   const message = document.getElementById('snd-message').value.trim();
   const platforms = document.getElementById('snd-platforms').value.trim();
   const schedule = document.getElementById('snd-schedule').value;
@@ -2472,7 +2472,7 @@ async function sendiblePublish(isSchedule) {
   if (isSchedule && !schedule) { alert('Schedule date is required for scheduling'); return; }
 
   resultEl.className = 'mt-4 p-4 rounded-lg text-sm bg-yellow-900/30 text-yellow-300';
-  resultEl.textContent = '⏳ Publishing via Sendible...';
+  resultEl.textContent = '⏳ Publishing via Publer...';
   resultEl.classList.remove('hidden');
 
   const body = { caption: message };
@@ -2482,7 +2482,7 @@ async function sendiblePublish(isSchedule) {
   if (hashtags) body.hashtags = hashtags.split(',').map(h => h.trim());
 
   try {
-    const resp = await fetch('/api/sendible/publish', {
+    const resp = await fetch('/api/publer/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -2491,7 +2491,7 @@ async function sendiblePublish(isSchedule) {
 
     if (data.success) {
       resultEl.className = 'mt-4 p-4 rounded-lg text-sm bg-green-900/30 text-green-300';
-      resultEl.innerHTML = `✅ ${data.scheduled ? 'Scheduled' : 'Published'} to ${data.services_count || '?'} services (ID: ${data.post_id || 'N/A'})`;
+      resultEl.innerHTML = `✅ ${data.scheduled ? 'Scheduled' : 'Published'} successfully (Job: ${data.job_id || 'N/A'})`;
       document.getElementById('snd-message').value = '';
     } else {
       resultEl.className = 'mt-4 p-4 rounded-lg text-sm bg-red-900/30 text-red-300';
@@ -2503,29 +2503,26 @@ async function sendiblePublish(isSchedule) {
   }
 }
 
-async function loadSendibleMessages() {
+async function loadPublerWorkspaces() {
   const el = document.getElementById('snd-messages-list');
-  el.innerHTML = '<p class="text-yellow-400 text-sm">Loading...</p>';
+  el.innerHTML = '<p class="text-yellow-400 text-sm">Loading workspaces...</p>';
 
   try {
-    const resp = await fetch('/api/sendible/messages?per_page=10');
+    const resp = await fetch('/api/publer/workspaces');
     const data = await resp.json();
 
-    if (data.messages && data.messages.length > 0) {
-      el.innerHTML = data.messages.map(m => {
-        const status = m.status === 'sent' ? '✅' : m.status === 'scheduled' ? '📅' : '📝';
-        const text = (m.message_text || m.text || '').slice(0, 120);
+    if (data.workspaces && data.workspaces.length > 0) {
+      el.innerHTML = data.workspaces.map(w => {
         return `<div class="bg-dark-800 border border-dark-600 rounded-lg p-3">
           <div class="flex items-center gap-2 mb-1">
-            <span>${status}</span>
-            <span class="text-xs text-gray-500">${m.send_date || m.created_at || 'N/A'}</span>
-            <span class="text-xs bg-dark-700 px-2 py-0.5 rounded">${m.status || 'unknown'}</span>
+            <span>📁</span>
+            <span class="text-sm font-medium text-white">${w.name || 'Workspace'}</span>
           </div>
-          <p class="text-sm text-gray-300">${text}${text.length >= 120 ? '...' : ''}</p>
+          <p class="text-xs text-gray-500">ID: ${w.id || '?'}</p>
         </div>`;
       }).join('');
     } else {
-      el.innerHTML = `<p class="text-gray-500 text-sm">${data.error || 'No messages found'}</p>`;
+      el.innerHTML = `<p class="text-gray-500 text-sm">${data.error || 'No workspaces found'}</p>`;
     }
   } catch (e) {
     el.innerHTML = `<p class="text-red-400 text-sm">Error: ${e.message}</p>`;
@@ -2547,8 +2544,8 @@ async function loadBlogShareStatus() {
       ? '<span class="text-amber-500">⏸️ Paused</span>'
       : '<span class="text-green-500">▶️ Active</span>';
     document.getElementById('bs-total-shared').textContent = (history.history || []).length;
-    document.getElementById('bs-tiktok-via').textContent = (config.tiktok_via || 'sendible').toUpperCase();
-    document.getElementById('bs-pinterest-via').textContent = (config.pinterest_via || 'sendible').toUpperCase();
+    document.getElementById('bs-tiktok-via').textContent = (config.tiktok_via || 'publer').toUpperCase();
+    document.getElementById('bs-pinterest-via').textContent = (config.pinterest_via || 'publer').toUpperCase();
 
     // Config inputs
     if(config.interval_min) document.getElementById('bs-interval').value = config.interval_min;
@@ -2565,7 +2562,7 @@ async function loadBlogShareStatus() {
         const tkOk = (h.tiktok||[]).filter(t=>t.success).length;
         const tkTotal = (h.tiktok||[]).length;
         const pinOk = h.pinterest?.success ? '✅' : (h.pinterest ? '❌' : '—');
-        const via = h.tiktok?.[0]?.account === 'sendible' ? '🔗Sendible' : '🔌API';
+        const via = h.tiktok?.[0]?.account === 'publer' ? '🔗Publer' : '🔌API';
         return `<div class="flex justify-between items-center p-3 bg-dark-800 rounded-lg border border-dark-600">
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-white truncate">${h.title||'Untitled'}</p>

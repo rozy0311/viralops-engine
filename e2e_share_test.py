@@ -1,5 +1,5 @@
 """
-E2E Test: Share one Shopify blog article via Sendible → TikTok + Pinterest
+E2E Test: Share one Shopify blog article via Publer → TikTok + Pinterest
 Non-interactive version — picks the first article and tries to share.
 """
 import asyncio
@@ -21,7 +21,7 @@ logging.basicConfig(
 
 async def run():
     print("=" * 60)
-    print("🔥 E2E Test: Shopify → Sendible (TikTok + Pinterest)")
+    print("🔥 E2E Test: Shopify → Publer (TikTok + Pinterest)")
     print("=" * 60)
 
     # ── 1) Fetch one article from Shopify ──
@@ -49,8 +49,8 @@ async def run():
     print(f"  🖼️  Image: {img[:80]}..." if img else "  🖼️  Image: none")
     print(f"  🏷️  Tags: {article.get('tags', [])}")
 
-    # ── 2) Initialize ShopifyAutoShare (connects Sendible) ──
-    print("\n[2/3] Initializing ShopifyAutoShare (connects Sendible)...")
+    # ── 2) Initialize ShopifyAutoShare (connects Publer) ──
+    print("\n[2/3] Initializing ShopifyAutoShare (connects Publer)...")
     from integrations.shopify_auto_share import ShopifyAutoShare
     auto = ShopifyAutoShare()
     init = await auto.initialize()
@@ -61,8 +61,8 @@ async def run():
         await auto.close()
         return
 
-    if not init.get("sendible_connected"):
-        print("⚠️  Sendible not connected — will try API fallback if available")
+    if not init.get("publer_connected"):
+        print("⚠️  Publer not connected — will try API fallback if available")
 
     # ── 3) Share the article ──
     print("\n[3/3] Sharing article...")

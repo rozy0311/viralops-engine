@@ -1,5 +1,11 @@
 """
-Tests for v3.2.0 — Sendible UI Automation (Playwright Stealth)
+╔══════════════════════════════════════════════════════════════╗
+║  ⚠️  DEPRECATED — Replaced by tests/test_publer.py (v4.0)  ║
+║  Sendible UI Automation tests are no longer maintained.     ║
+║  Run: pytest tests/test_publer.py                           ║
+╚══════════════════════════════════════════════════════════════╝
+
+Tests for v3.2.0 — Sendible UI Automation (Playwright Stealth) [DEPRECATED]
 
 Tests cover:
   1. Sendible page HTML route

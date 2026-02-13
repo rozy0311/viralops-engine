@@ -53,7 +53,7 @@ def step_install_deps():
         print(f"   ❌ pip install failed: {result.stderr[:200]}")
         return False
     
-    # Also install PyCryptodome for Sendible AES encryption
+    # Also install PyCryptodome for AES encryption (legacy)
     subprocess.run(
         [sys.executable, "-m", "pip", "install", "pycryptodome", "-q"],
         capture_output=True, text=True
@@ -99,7 +99,7 @@ def step_validate_env():
             "SHOPIFY_SHOP": ("optional", "Shopify blog auto-posting"),
             "SHOPIFY_ACCESS_TOKEN": ("optional", "Shopify API token"),
         },
-        "Sendible Bridge": {
+        "Publer Bridge": {
             "SENDIBLE_APPLICATION_ID": ("optional", "TikTok/IG/FB via Sendible"),
             "SENDIBLE_USERNAME": ("optional", "Sendible login email"),
             "SENDIBLE_API_KEY": ("optional", "Sendible API key"),

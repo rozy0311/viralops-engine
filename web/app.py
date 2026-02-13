@@ -259,9 +259,9 @@ async def preview_page(request: Request):
 async def autopilot_page(request: Request):
     return templates.TemplateResponse("app.html", {"request": request, "page": "autopilot"})
 
-@app.get("/sendible", response_class=HTMLResponse)
-async def sendible_page(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "sendible"})
+@app.get("/publer", response_class=HTMLResponse)
+async def publer_page(request: Request):
+    return templates.TemplateResponse("app.html", {"request": request, "page": "publer"})
 
 @app.get("/blog-share", response_class=HTMLResponse)
 async def blog_share_page(request: Request):
@@ -582,13 +582,13 @@ async def api_rss_import_entry(request: Request):
     return {"success": True, "post_id": post_id}
 
 
-# ── Bulk Import (Sendible-killer: 200-500 posts / call) ──
+# ── Bulk Import (200-500 posts / call) ──
 
 @app.post("/api/rss/bulk-import")
 async def api_rss_bulk_import(request: Request):
     """
     Bulk import from ALL configured RSS feeds into SQLite drafts.
-    Like Sendible's 200-500 posts/day but in ONE API call.
+    200-500 posts/day in ONE API call.
     Skips already-imported entries (dedup).
     """
     data = await request.json() if (await request.body()) else {}
@@ -992,10 +992,10 @@ async def health():
             "TikTok Auto Music Selection (AI-powered)",
             "Analytics + Hashtag Performance Tracking",
             "Background Scheduler (rate-limited, 11 platforms)",
-            "RSS Auto Poster — Sendible-style",
+            "RSS Auto Poster — auto-publish engine",
             "Media Processor — Image→Video + TikTok Music",
             "Telegram Alert Bot — publish notifications",
-            "Sendible UI Automation (Playwright Stealth)",
+            "Publer REST API Bridge (~$10/mo per account)",
             "Shopify Blog Auto-Share → TikTok Multi-Account + Pinterest (NEW v3.3)",
             "Docker + Railway deployment ready",
         ],
@@ -1440,34 +1440,30 @@ async def api_blog_share_watcher_reset(request: Request):
 
 
 # ════════════════════════════════════════════════════════════════
-# API — Sendible Bridge (UI Automation → TikTok/IG/FB/etc.)
+# API — Publer Bridge (REST API → TikTok/IG/FB/Pinterest/etc.)
+# Replaces Sendible UI Automation ($199/mo) with Publer REST API (~$10/mo)
 # ════════════════════════════════════════════════════════════════
 
-@app.get("/api/sendible/status")
-async def api_sendible_status():
-    """Check Sendible UI automation status (email/password configured)."""
+@app.get("/api/publer/status")
+async def api_publer_status():
+    """Check Publer REST API status (API key configured)."""
     import os
-    env_vars = {
-        "SENDIBLE_EMAIL": bool(os.environ.get("SENDIBLE_EMAIL")),
-        "SENDIBLE_PASSWORD": bool(os.environ.get("SENDIBLE_PASSWORD")),
-        "SENDIBLE_PROXY": bool(os.environ.get("SENDIBLE_PROXY")),
-        "SENDIBLE_HEADLESS": os.environ.get("SENDIBLE_HEADLESS", "false"),
-    }
-    configured = env_vars["SENDIBLE_EMAIL"] and env_vars["SENDIBLE_PASSWORD"]
+    api_key = bool(os.environ.get("PUBLER_API_KEY"))
+    workspace_id = bool(os.environ.get("PUBLER_WORKSPACE_ID"))
     return {
-        "configured": configured,
-        "auth_mode": "ui_automation" if configured else "none",
-        "env_vars": env_vars,
-        "method": "playwright_stealth",
+        "configured": api_key,
+        "auth_mode": "rest_api" if api_key else "none",
+        "workspace_id_set": workspace_id,
+        "method": "publer_rest_api",
     }
 
 
-@app.post("/api/sendible/test")
-async def api_sendible_test():
-    """Test Sendible UI automation connection (browser login)."""
+@app.post("/api/publer/test")
+async def api_publer_test():
+    """Test Publer REST API connection."""
     try:
-        from integrations.sendible_ui_publisher import SendibleUIPublisher
-        pub = SendibleUIPublisher()
+        from integrations.publer_publisher import PublerPublisher
+        pub = PublerPublisher()
         result = await pub.test_connection()
         await pub.close()
         return result
@@ -1475,29 +1471,29 @@ async def api_sendible_test():
         return {"connected": False, "error": str(e)}
 
 
-@app.get("/api/sendible/services")
-async def api_sendible_services():
-    """List connected services via Sendible UI scraping."""
+@app.get("/api/publer/accounts")
+async def api_publer_accounts():
+    """List connected social accounts via Publer API."""
     try:
-        from integrations.sendible_ui_publisher import SendibleUIPublisher
-        pub = SendibleUIPublisher()
+        from integrations.publer_publisher import PublerPublisher
+        pub = PublerPublisher()
         connected = await pub.connect()
         if not connected:
-            return {"services": [], "error": "Not connected — check SENDIBLE_EMAIL/PASSWORD"}
-        services = await pub.get_services(force=True)
+            return {"accounts": [], "error": "Not connected — check PUBLER_API_KEY"}
+        accounts = await pub.get_accounts(force=True)
         await pub.close()
-        return {"services": services, "count": len(services)}
+        return {"accounts": accounts, "count": len(accounts)}
     except Exception as e:
-        return {"services": [], "error": str(e)}
+        return {"accounts": [], "error": str(e)}
 
 
-@app.post("/api/sendible/publish")
-async def api_sendible_publish(request: Request):
-    """Publish content via Sendible UI automation (Playwright stealth)."""
+@app.post("/api/publer/publish")
+async def api_publer_publish(request: Request):
+    """Publish content via Publer REST API."""
     try:
         body = await request.json()
-        from integrations.sendible_ui_publisher import SendibleUIPublisher
-        pub = SendibleUIPublisher()
+        from integrations.publer_publisher import PublerPublisher
+        pub = PublerPublisher()
         result = await pub.publish(body)
         await pub.close()
         return result
@@ -1505,32 +1501,31 @@ async def api_sendible_publish(request: Request):
         return {"success": False, "error": str(e)}
 
 
-@app.get("/api/sendible/messages")
-async def api_sendible_messages(status: str = "", per_page: int = 20, page: int = 1):
-    """List messages from Sendible outbox via UI scraping."""
+@app.get("/api/publer/workspaces")
+async def api_publer_workspaces():
+    """List Publer workspaces."""
     try:
-        from integrations.sendible_ui_publisher import SendibleUIPublisher
-        pub = SendibleUIPublisher()
+        from integrations.publer_publisher import PublerPublisher
+        pub = PublerPublisher()
         await pub.connect()
-        messages = await pub.get_messages(status=status, per_page=per_page, page=page)
+        workspaces = await pub.get_workspaces(force=True)
         await pub.close()
-        return {"messages": messages, "count": len(messages)}
+        return {"workspaces": workspaces, "count": len(workspaces)}
     except Exception as e:
-        return {"messages": [], "error": str(e)}
+        return {"workspaces": [], "error": str(e)}
 
 
-@app.get("/api/sendible/account")
-async def api_sendible_account():
-    """Get Sendible account details via UI automation."""
-    try:
-        from integrations.sendible_ui_publisher import SendibleUIPublisher
-        pub = SendibleUIPublisher()
-        await pub.connect()
-        details = await pub.get_account_details()
-        await pub.close()
-        return details
-    except Exception as e:
-        return {"error": str(e)}
+# Legacy Sendible routes — redirect to Publer
+@app.get("/api/sendible/status")
+async def api_sendible_status_redirect():
+    """DEPRECATED: Use /api/publer/status instead."""
+    return {"deprecated": True, "redirect": "/api/publer/status", "message": "Sendible replaced by Publer. Use /api/publer/* endpoints."}
+
+@app.get("/sendible", response_class=HTMLResponse)
+async def sendible_redirect(request: Request):
+    """DEPRECATED: Redirect old Sendible page to Publer."""
+    from starlette.responses import RedirectResponse
+    return RedirectResponse(url="/publer")
 
 
 # ════════════════════════════════════════════════════════════════

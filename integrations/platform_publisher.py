@@ -101,16 +101,10 @@ class PublisherRegistry:
         except Exception as e:
             logger.warning("registry.skip", platform="publer", error=str(e))
 
-        # ── Legacy Sendible bridge (DEPRECATED — kept for backward compat) ──
-        try:
-            from integrations.sendible_publisher import SendiblePublisher
-            pub = SendiblePublisher()
-            if pub.auth.is_configured and "publer" not in self._publishers:
-                self._publishers["sendible"] = pub
-                logger.warning("registry.loaded_legacy", platform="sendible",
-                              note="DEPRECATED: migrate to Publer (setup_publer.py)")
-        except Exception:
-            pass  # Expected — Sendible is deprecated
+        # ── Legacy Sendible bridge (DEPRECATED — DO NOT LOAD) ──
+        # Sendible integration removed in v4.0. Use Publer instead.
+        # Kept as comment for reference only.
+        # from integrations.sendible_publisher import SendiblePublisher
 
         # ── Multi-TikTok publisher (N accounts) ──
         try:
@@ -142,8 +136,6 @@ class PublisherRegistry:
                 result[name] = "social_connector"
             elif "publer" in module:
                 result[name] = "publer_bridge"
-            elif "sendible" in module:
-                result[name] = "sendible_bridge_deprecated"
             else:
                 result[name] = "direct_api"
         return result
