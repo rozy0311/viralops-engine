@@ -13,7 +13,7 @@ Wizard sẽ:
 1. Mở trình duyệt → Publer signup (Free trial, no credit card)
 2. Hướng dẫn upgrade to Business plan → enable API
 3. Hướng dẫn tạo API Key → lấy key + workspace ID
-4. Test connection (GET /me → validate)
+4. Test connection (GET /users/me → validate)
 5. Tự động ghi vào .env
 6. List connected social accounts (TikTok, IG, FB, etc.)
 """
@@ -184,7 +184,7 @@ def step_5_test(api_key: str, workspace_id: str):
 
         # Test auth
         with httpx.Client(timeout=15) as client:
-            resp = client.get("https://app.publer.com/api/v1/me", headers=headers)
+            resp = client.get("https://app.publer.com/api/v1/users/me", headers=headers)
             if resp.status_code != 200:
                 print(f"  ❌ Auth failed: {resp.status_code} — {resp.text[:200]}")
                 return False, workspace_id, []

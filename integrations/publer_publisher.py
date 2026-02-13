@@ -249,7 +249,7 @@ class PublerPublisher:
 
         try:
             # Validate credentials
-            resp = await self._request("GET", "me")
+            resp = await self._request("GET", "users/me")
             if resp.status_code != 200:
                 logger.error("Publer [%s]: Auth failed: %s", self.account_id, resp.text)
                 return False
