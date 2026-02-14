@@ -735,7 +735,11 @@ def generate_content_pack(state: dict) -> dict:
             # Clean GenAI filler from RSS rewrite
             for field in ("body", "hook", "pain_point", "solution_steps", "cta"):
                 if field in result["content_pack"] and result["content_pack"][field]:
-                    result["content_pack"][field] = extract_relevant_answer(result["content_pack"][field])
+                    val = result["content_pack"][field]
+                    if isinstance(val, list):
+                        val = "\n".join(str(item) for item in val)
+                    if isinstance(val, str):
+                        result["content_pack"][field] = extract_relevant_answer(val)
         state.update(result)
         return state
 
@@ -764,7 +768,12 @@ def generate_content_pack(state: dict) -> dict:
                 # ── GenAI Answer Extraction — strip filler/irrelevant conclusions ──
                 for field in ("body", "hook", "pain_point", "solution_steps", "cta"):
                     if field in content_pack and content_pack[field]:
-                        content_pack[field] = extract_relevant_answer(content_pack[field])
+                        val = content_pack[field]
+                        # Gemini may return lists (e.g. solution_steps) — join first
+                        if isinstance(val, list):
+                            val = "\n".join(str(item) for item in val)
+                        if isinstance(val, str):
+                            content_pack[field] = extract_relevant_answer(val)
             else:
                 logger.warning("content_factory.all_providers_failed", msg="All LLM providers failed — using template")
                 content_pack = _fallback_generate(niche_config, topic)
