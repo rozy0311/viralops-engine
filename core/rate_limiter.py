@@ -10,7 +10,7 @@ import logging
 import random
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger("viralops.rate_limiter")
 
@@ -69,7 +69,7 @@ class RateLimiter:
         
         Returns (allowed, reason_if_blocked)
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # 1. Global hourly limit
         hour_ago = now - timedelta(hours=1)
@@ -105,7 +105,7 @@ class RateLimiter:
 
     def record_publish(self, platform: str, account_id: str | None = None) -> None:
         """Record a successful publish (platform + optional account)."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         self._timestamps[platform].append(now)
         self._global_timestamps.append(now)
         if account_id:
@@ -114,7 +114,7 @@ class RateLimiter:
 
     def get_account_usage(self, platform: str, account_id: str) -> int:
         """Get number of posts in last 24h for a specific account."""
-        day_ago = datetime.utcnow() - timedelta(hours=24)
+        day_ago = datetime.now(timezone.utc) - timedelta(hours=24)
         acct_key = f"{platform}:{account_id}"
         return sum(1 for t in self._account_timestamps.get(acct_key, []) if t > day_ago)
 
@@ -131,7 +131,7 @@ class RateLimiter:
 
     def get_stats(self) -> dict:
         """Get current rate limit stats."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         day_ago = now - timedelta(hours=24)
         hour_ago = now - timedelta(hours=1)
 
@@ -153,7 +153,7 @@ class RateLimiter:
 
     def cleanup(self) -> None:
         """Remove old timestamps (>48h)."""
-        cutoff = datetime.utcnow() - timedelta(hours=48)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
         self._global_timestamps = [t for t in self._global_timestamps if t > cutoff]
         for platform in self._timestamps:
             self._timestamps[platform] = [

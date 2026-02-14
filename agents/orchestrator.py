@@ -4,7 +4,7 @@ Routes tasks, manages state, enforces workflow rules.
 Training 01: "CEO → Orchestrator → Specialists PARALLEL"
 """
 import structlog
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = structlog.get_logger()
 
@@ -18,7 +18,7 @@ def orchestrate(state: dict) -> dict:
     state.setdefault("budget_remaining_pct", 100.0)
     state.setdefault("timestamps", {})
 
-    state["timestamps"]["orchestrator_start"] = datetime.utcnow().isoformat()
+    state["timestamps"]["orchestrator_start"] = datetime.now(timezone.utc).isoformat()
 
     # Kill switch check
     if state.get("kill_switch"):

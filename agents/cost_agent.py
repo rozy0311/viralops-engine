@@ -5,7 +5,7 @@ Training 07-Cost-Aware-Planning: Budget tracking, model selection, cost alerts.
 import os
 import json
 from typing import Any
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 import structlog
 
@@ -121,7 +121,7 @@ def record_spend(amount: float, model: str, operation: str):
     budget["spent_today"] += amount
     budget["spent_this_month"] += amount
     budget["history"].append({
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "amount": amount,
         "model": model,
         "operation": operation,

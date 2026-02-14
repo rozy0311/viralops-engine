@@ -16,7 +16,7 @@ Provides:
 import os
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from collections import Counter, defaultdict
 
@@ -87,7 +87,7 @@ def get_publish_stats(days: int = 30) -> dict:
     """Get publishing statistics for the last N days."""
     conn = _get_db()
     try:
-        since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
 
         # Total posts
         total = conn.execute(
@@ -149,7 +149,7 @@ def get_best_posting_times(platform: str = None, days: int = 30) -> dict:
     """Analyze which posting times produce best results."""
     conn = _get_db()
     try:
-        since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
 
         query = "SELECT published_at, platform FROM publish_log WHERE published_at >= ? AND success = 1"
         params = [since]
@@ -200,7 +200,7 @@ def track_hashtag_usage(hashtags: list[str], platform: str):
     """Record hashtag usage for performance tracking."""
     conn = _get_db()
     try:
-        now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         for tag in hashtags:
             conn.execute("""
                 INSERT INTO hashtag_performance (hashtag, platform, total_uses, last_used)
@@ -267,7 +267,7 @@ def get_hashtag_report(days: int = 30) -> dict:
     """Comprehensive hashtag performance report."""
     conn = _get_db()
     try:
-        since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
 
         # Most used
         most_used = conn.execute(
@@ -320,5 +320,5 @@ def get_analytics_dashboard(days: int = 30) -> dict:
         "best_times": get_best_posting_times(days=days),
         "top_hashtags": get_top_hashtags(limit=10),
         "hashtag_report": get_hashtag_report(days),
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     }

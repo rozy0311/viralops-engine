@@ -26,7 +26,7 @@ import os
 import random
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import yaml
@@ -249,11 +249,11 @@ class AccountRouter:
 
     def record_post(self, account_id: str) -> None:
         """Record a post for rate tracking."""
-        self._post_history[account_id].append(datetime.utcnow())
+        self._post_history[account_id].append(datetime.now(timezone.utc))
 
     def _get_posts_today(self, account_id: str) -> int:
         """Count posts in last 24h for account."""
-        cutoff = datetime.utcnow() - timedelta(hours=24)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         return sum(1 for t in self._post_history.get(account_id, []) if t > cutoff)
 
     def _get_effective_limit(self, acc: AccountConfig) -> int:
@@ -283,7 +283,7 @@ class AccountRouter:
             return True
 
         last_post = max(history)
-        elapsed = (datetime.utcnow() - last_post).total_seconds() / 60
+        elapsed = (datetime.now(timezone.utc) - last_post).total_seconds() / 60
         return elapsed >= min_spacing
 
     # ─── Account Management ────────────────────

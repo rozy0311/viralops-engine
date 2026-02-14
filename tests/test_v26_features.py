@@ -267,22 +267,26 @@ class TestDockerFiles:
         assert os.path.isfile(self._project_path("Dockerfile"))
 
     def test_dockerfile_has_python313(self):
-        content = open(self._project_path("Dockerfile")).read()
+        with open(self._project_path("Dockerfile")) as f:
+            content = f.read()
         assert "python:3.13" in content
 
     def test_dockerfile_has_ffmpeg(self):
-        content = open(self._project_path("Dockerfile")).read()
+        with open(self._project_path("Dockerfile")) as f:
+            content = f.read()
         assert "ffmpeg" in content
 
     def test_dockerfile_has_healthcheck(self):
-        content = open(self._project_path("Dockerfile")).read()
+        with open(self._project_path("Dockerfile")) as f:
+            content = f.read()
         assert "HEALTHCHECK" in content
 
     def test_docker_compose_exists(self):
         assert os.path.isfile(self._project_path("docker-compose.yml"))
 
     def test_docker_compose_has_services(self):
-        content = open(self._project_path("docker-compose.yml")).read()
+        with open(self._project_path("docker-compose.yml")) as f:
+            content = f.read()
         assert "web:" in content
         assert "scheduler:" in content
 
@@ -290,7 +294,8 @@ class TestDockerFiles:
         assert os.path.isfile(self._project_path(".env.template"))
 
     def test_env_template_has_all_platforms(self):
-        content = open(self._project_path(".env.template"), encoding="utf-8").read()
+        with open(self._project_path(".env.template"), encoding="utf-8") as f:
+            content = f.read()
         keys = [
             "OPENAI_API_KEY", "TWITTER_MAIN_API_KEY", "INSTAGRAM_MAIN_ACCESS_TOKEN",
             "BLUESKY_MAIN_HANDLE", "MASTODON_MAIN_ACCESS_TOKEN", "QUORA_MAIN_SESSION_COOKIE",
@@ -306,7 +311,8 @@ class TestDockerFiles:
         assert os.path.isfile(self._project_path("SETUP_GUIDE.md"))
 
     def test_setup_guide_has_all_platforms(self):
-        content = open(self._project_path("SETUP_GUIDE.md"), encoding="utf-8").read()
+        with open(self._project_path("SETUP_GUIDE.md"), encoding="utf-8") as f:
+            content = f.read()
         platforms = [
             "Bluesky", "Mastodon", "Medium", "Reddit", "Tumblr",
             "Twitter", "LinkedIn", "Pinterest", "YouTube", "Instagram",

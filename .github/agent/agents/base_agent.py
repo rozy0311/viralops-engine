@@ -5,7 +5,7 @@ All agents (both built-in and generated) inherit from this class.
 """
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 import json
 import os
@@ -17,7 +17,7 @@ class BaseAgent(ABC):
     def __init__(self, name: str, description: str = ""):
         self.name = name
         self.description = description
-        self.created_at = datetime.utcnow().isoformat()
+        self.created_at = datetime.now(timezone.utc).isoformat()
         self.run_count = 0
         self.last_run = None
         self.last_status = None
@@ -51,7 +51,7 @@ class BaseAgent(ABC):
     def post_run(self, result: Dict[str, Any]) -> None:
         """Post-run cleanup or logging. Override to customize."""
         self.run_count += 1
-        self.last_run = datetime.utcnow().isoformat()
+        self.last_run = datetime.now(timezone.utc).isoformat()
         self.last_status = result.get("status", "unknown")
 
     def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:

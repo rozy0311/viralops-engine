@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from core.models import EngagementMetrics
@@ -43,7 +43,7 @@ class EngagementTracker:
             saves=saves,
             views_per_hour=views / max(hours_since_post, 0.1),
             engagement_rate=(likes + comments + shares) / max(views, 1),
-            measured_at=datetime.utcnow(),
+            measured_at=datetime.now(timezone.utc),
         )
         self._metrics[platform].append(metrics)
         return metrics

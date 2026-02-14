@@ -6,7 +6,7 @@ Track account health across platforms to prevent bans/flags.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from core.models import AccountHealth
@@ -52,7 +52,7 @@ class AccountHealthMonitor:
             warning_count=warning_count,
             is_flagged=is_flagged,
             is_shadow_banned=is_shadow_banned,
-            last_checked=datetime.utcnow(),
+            last_checked=datetime.now(timezone.utc),
         )
         self._accounts[key] = health
 

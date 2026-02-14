@@ -6,7 +6,7 @@ Aggregates metrics, account health, and system status.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from core.kill_switch import KillSwitch
@@ -43,7 +43,7 @@ class Dashboard:
             "post_url": post_url,
             "success": success,
             "error": error,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         self._publish_history.append(entry)
         if not success and error:
@@ -57,7 +57,7 @@ class Dashboard:
         failed = total - success
 
         return {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "publish_stats": {
                 "total": total,
                 "success": success,

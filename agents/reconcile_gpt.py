@@ -6,7 +6,7 @@ Training 01: "ReconcileGPT = TOOL — Phân tích trade-offs, KHÔNG ra quyết 
 import os
 import json
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 
@@ -123,7 +123,7 @@ Output JSON: {analysis, trade_offs: [{factor, pro, con}], recommendation, risk_f
         "warnings": warnings,
         "gpt_analysis": gpt_analysis,
         "human_review_required": action != "AUTO_APPROVE",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "summary": f"Action={action} | Risk={risk_score}/10 | AutoScore={automation_score}/12 | Blockers={len(blockers)} | Warnings={len(warnings)}",
     }
 

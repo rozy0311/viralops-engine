@@ -6,7 +6,7 @@ Send alerts via Telegram, email, or webhook on critical events.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -58,7 +58,7 @@ class AlertManager:
             "message": message,
             "level": level.value,
             "channel": ch.value,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "metadata": metadata or {},
         }
         self._history.append(alert)

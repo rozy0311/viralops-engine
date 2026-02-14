@@ -1,7 +1,7 @@
 """Tests for Queue Adapter with retry and DLQ."""
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from core.queue_adapter import QueueAdapter, DeadLetterQueue
 from core.models import PublishResult, QueueItem
 
@@ -29,7 +29,7 @@ class TestQueueAdapter:
             return PublishResult(
                 queue_item_id=item.id, platform=item.platform,
                 success=True, post_url="https://example.com/post/1",
-                published_at=datetime.utcnow(),
+                published_at=datetime.now(timezone.utc),
             )
 
         result = self.queue.process_next(mock_publisher)
@@ -64,7 +64,7 @@ class TestDeadLetterQueue:
         dlq = DeadLetterQueue()
         item = QueueItem(
             id="q1", content_pack_id="p1", platform="tiktok",
-            scheduled_at=datetime.utcnow(), priority=5,
+            scheduled_at=datetime.now(timezone.utc), priority=5,
             retry_count=3, content_hash="hash1",
         )
         dlq.add(item, "Network timeout", 3)

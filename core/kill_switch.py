@@ -13,7 +13,7 @@ Emergency stop for the entire system when thresholds are breached.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -119,7 +119,7 @@ class KillSwitch:
         """Record a metric data point."""
         if metric_name not in self._metrics_buffer:
             self._metrics_buffer[metric_name] = []
-        self._metrics_buffer[metric_name].append((datetime.utcnow(), value))
+        self._metrics_buffer[metric_name].append((datetime.now(timezone.utc), value))
 
     def check_all(self) -> list[dict]:
         """
@@ -127,7 +127,7 @@ class KillSwitch:
         Returns list of triggered events (may be empty).
         """
         events = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         for trigger in self._triggers:
             buffer = self._metrics_buffer.get(trigger.name, [])

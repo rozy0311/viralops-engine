@@ -27,7 +27,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -355,7 +355,7 @@ class QuoraPublisher:
             "caption": content.get("caption", "")[:500],  # Preview only
             "question_url": content.get("question_url", ""),
             "mode": content.get("mode", "answer"),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "action_needed": "manual_post",
         }
 

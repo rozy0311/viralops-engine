@@ -8,7 +8,7 @@ Includes self-check and self-fix loop.
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 import yaml
@@ -215,7 +215,7 @@ Be specific about what needs to change."""
         """Log a failure to reports directory."""
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         log_file = REPORTS_DIR / f"failure-{job_name}-{timestamp}.log"
 
         with open(log_file, "w", encoding="utf-8") as f:
@@ -266,7 +266,7 @@ Be specific about what needs to change."""
 
     def generate_report(self) -> str:
         """Generate a markdown report of the run."""
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         report = f"""# Agent Run Report
 

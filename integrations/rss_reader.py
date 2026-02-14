@@ -14,7 +14,7 @@ import json
 import hashlib
 import re
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field, asdict
 
 import structlog
@@ -257,14 +257,14 @@ def fetch_feed(feed_id: str = None, feed_url: str = None, max_entries: int = 50)
                 "published": published,
                 "image_url": image_url,
                 "tags": tags,
-                "imported_at": datetime.utcnow().isoformat(),
+                "imported_at": datetime.now(timezone.utc).isoformat(),
             })
 
         # Update last fetched
         if feed_id and entries:
             for f in feeds:
                 if f.get("id") == feed_id:
-                    f["last_fetched"] = datetime.utcnow().isoformat()
+                    f["last_fetched"] = datetime.now(timezone.utc).isoformat()
                     f["last_entry_id"] = entries[0]["id"]
                     break
             _save_feeds(feeds)

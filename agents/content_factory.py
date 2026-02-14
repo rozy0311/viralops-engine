@@ -21,7 +21,7 @@ import os
 import json
 import asyncio
 from typing import Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 import yaml
@@ -745,7 +745,7 @@ def generate_content_pack(state: dict) -> dict:
 
             if content_pack is not None:
                 content_pack["_generated_by"] = provider_name
-                content_pack["_timestamp"] = datetime.utcnow().isoformat()
+                content_pack["_timestamp"] = datetime.now(timezone.utc).isoformat()
                 state["content_factory_status"] = "completed_llm"
                 logger.info("content_factory.success", provider=provider_name, title=content_pack.get("title", "")[:50])
 

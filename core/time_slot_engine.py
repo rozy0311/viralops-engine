@@ -89,7 +89,7 @@ def suggest_time(
             "confidence": float (0-1),
         }
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     current_hour = now.hour
     avoid = set(avoid_hours or [])
 
@@ -245,7 +245,7 @@ def _get_analytics_best_hours(
     """Get best posting hours from actual publish_log data."""
     try:
         conn = _get_db()
-        cutoff = (datetime.utcnow() - timedelta(days=days)).strftime(
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
             "%Y-%m-%dT%H:%M:%S"
         )
 

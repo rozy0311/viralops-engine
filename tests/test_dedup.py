@@ -1,7 +1,7 @@
 """Tests for Dedup Engine."""
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from core.dedup import DedupEngine
 
 
@@ -47,7 +47,7 @@ class TestDedupEngine:
         self.engine.register("old", "tiktok", "test")
         # Manually age the entry
         self.engine._entries[0] = self.engine._entries[0]._replace(
-            posted_at=datetime.utcnow() - timedelta(days=31)
+            posted_at=datetime.now(timezone.utc) - timedelta(days=31)
         )
         removed = self.engine.cleanup(older_than_days=30)
         assert removed == 1

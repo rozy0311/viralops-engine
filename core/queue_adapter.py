@@ -10,7 +10,7 @@ import hashlib
 import logging
 import time
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -32,7 +32,7 @@ class DeadLetterQueue:
             "platform": item.platform,
             "error": error,
             "attempt": attempt,
-            "failed_at": datetime.utcnow().isoformat(),
+            "failed_at": datetime.now(timezone.utc).isoformat(),
         })
         logger.warning(
             "DLQ: Item %s moved to DLQ after %d attempts. Error: %s",
@@ -93,7 +93,7 @@ class QueueAdapter:
             id=str(uuid4())[:8],
             content_pack_id=content_pack_id,
             platform=platform,
-            scheduled_at=scheduled_time or datetime.utcnow() + timedelta(minutes=5),
+            scheduled_at=scheduled_time or datetime.now(timezone.utc) + timedelta(minutes=5),
             priority=priority,
             retry_count=0,
             content_hash=content_hash,

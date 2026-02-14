@@ -12,7 +12,7 @@ Autonomous agent that:
 import os
 import sys
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Add parent dir to path for imports
@@ -81,7 +81,7 @@ def save_report(report: str) -> Path:
     reports_dir = AGENT_DIR / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
     report_file = reports_dir / f"run-{timestamp}.md"
 
     report_file.write_text(report, encoding="utf-8")
@@ -94,7 +94,7 @@ def main():
     """Main entry point for the autonomous agent."""
     print("=" * 60)
     print("META-AGENT - Autonomous GitHub Worker")
-    print(f"Started at: {datetime.utcnow().isoformat()}")
+    print(f"Started at: {datetime.now(timezone.utc).isoformat()}")
     print("=" * 60)
 
     # Check environment
@@ -130,7 +130,7 @@ def main():
     # Step 5: Commit and push (if not dry run)
     if not dry_run:
         print("\n[MAIN] Step 5: Committing changes...")
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         success_count = summary.get("success", 0)
         failure_count = summary.get("failure", 0)
 
@@ -146,7 +146,7 @@ def main():
     print(f"  Success: {summary.get('success', 0)}")
     print(f"  Failure: {summary.get('failure', 0)}")
     print(f"  Skipped: {summary.get('skipped', 0)}")
-    print(f"Finished at: {datetime.utcnow().isoformat()}")
+    print(f"Finished at: {datetime.now(timezone.utc).isoformat()}")
     print("=" * 60)
 
     # Exit with error if any failures

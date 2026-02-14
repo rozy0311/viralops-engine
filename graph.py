@@ -11,7 +11,7 @@ Training 12-LangGraph-Implementation applied.
 import os
 import json
 from typing import TypedDict, Annotated, Literal, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from operator import __or__
 
 from langgraph.graph import StateGraph, END
@@ -102,7 +102,7 @@ def orchestrator_node(state: ViralOpsState) -> ViralOpsState:
     """Route and initialize the pipeline."""
     replan = state.get("replan_count", 0)
     updates = {
-        "timestamps": {"orchestrator_start": datetime.utcnow().isoformat()},
+        "timestamps": {"orchestrator_start": datetime.now(timezone.utc).isoformat()},
     }
     # Only set defaults on first run (replan_count == 0)
     if replan == 0:
@@ -242,7 +242,7 @@ def publish_node(state: ViralOpsState) -> ViralOpsState:
         results.append(entry)
 
     state["publish_results"] = results
-    state["timestamps"]["publish_end"] = datetime.utcnow().isoformat()
+    state["timestamps"]["publish_end"] = datetime.now(timezone.utc).isoformat()
 
     published = sum(1 for r in results if r["status"] == "published")
     failed = sum(1 for r in results if r["status"] == "failed")
@@ -262,7 +262,7 @@ def monitor_node(state: ViralOpsState) -> ViralOpsState:
         "failed_count": len(failed),
         "failed_platforms": [r["platform"] for r in failed],
         "replan_count": state.get("replan_count", 0),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     logger.info("graph.monitor", published=len(published), failed=len(failed))
     return state

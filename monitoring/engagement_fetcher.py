@@ -22,7 +22,7 @@ import json
 import os
 import sqlite3
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import structlog
@@ -91,7 +91,7 @@ def _get_recent_published_posts(days: int = ENGAGEMENT_LOOKBACK_DAYS) -> list[di
     """Get recently published posts that have platform post IDs."""
     conn = _get_db()
     try:
-        cutoff = (datetime.utcnow() - timedelta(days=days)).strftime(
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
             "%Y-%m-%dT%H:%M:%S"
         )
         cursor = conn.execute(
@@ -265,7 +265,7 @@ def _store_engagement(
     """Store engagement data in database."""
     conn = _get_db()
     try:
-        now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
         # Standard metrics
         std = _normalize_metrics(platform, metrics)
@@ -461,7 +461,7 @@ def get_engagement_summary(
     ensure_engagement_table()
     conn = _get_db()
     try:
-        cutoff = (datetime.utcnow() - timedelta(days=days)).strftime(
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
             "%Y-%m-%dT%H:%M:%S"
         )
         query = """

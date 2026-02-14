@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -170,12 +170,12 @@ class Lemon8Publisher:
             )
 
         # --- Create draft ---
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         draft_id = f"lemon8_{timestamp}_{item.id[:8] if item.id else 'manual'}"
 
         draft_data = {
             "draft_id": draft_id,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "status": "pending_manual",
             "queue_item_id": item.id,
             "platform_note": "MOBILE-ONLY: Must post from Lemon8 app on phone",
@@ -232,7 +232,7 @@ class Lemon8Publisher:
             queue_item_id=item.id,
             platform=self.platform,
             success=True,
-            published_at=datetime.utcnow(),
+            published_at=datetime.now(timezone.utc),
             post_url=str(draft_path),
             post_id=draft_id,
             metadata={
@@ -404,7 +404,7 @@ class Lemon8Publisher:
         try:
             data = json.loads(draft_path.read_text(encoding="utf-8"))
             data["status"] = "posted"
-            data["posted_at"] = datetime.utcnow().isoformat()
+            data["posted_at"] = datetime.now(timezone.utc).isoformat()
             if lemon8_url:
                 data["lemon8_url"] = lemon8_url
             draft_path.write_text(

@@ -7,7 +7,7 @@ The meta-agent uses this to create child agents.
 
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -128,7 +128,7 @@ def spawn_agent_from_template(
     # Generate names
     class_name = sanitize_class_name(name)
     file_name = sanitize_file_name(name)
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
 
     # Fill template
     code = AGENT_TEMPLATE.format(

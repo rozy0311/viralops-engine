@@ -18,7 +18,7 @@ Features:
 import os
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 
@@ -95,7 +95,7 @@ class TikTokTrack:
     trending_score: float = 0.5         # 0.0 → 1.0 (decays over time)
     source: str = "curated"             # "curated" | "tiktok_api" | "user"
     tiktok_sound_url: str = ""
-    added_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    added_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     tags: list = field(default_factory=list)
 
 
@@ -485,7 +485,7 @@ def add_custom_track(
     trending_score: float = 0.7,
 ) -> dict:
     """Add a custom track to the music database."""
-    track_id = f"custom-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    track_id = f"custom-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
     track = {
         "track_id": track_id,
         "title": title,
@@ -497,7 +497,7 @@ def add_custom_track(
         "trending_score": trending_score,
         "source": "user",
         "tiktok_sound_url": tiktok_sound_url,
-        "added_at": datetime.utcnow().isoformat(),
+        "added_at": datetime.now(timezone.utc).isoformat(),
         "tags": tags or [],
     }
 
@@ -577,7 +577,7 @@ def decay_trending_scores(
         {"updated": int, "decayed_tracks": [...]}
     """
     decay_constant = _math.log(2) / half_life_days
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     updated = []
 
     # Decay custom tracks (can be saved back)

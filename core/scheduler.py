@@ -14,7 +14,7 @@ import os
 import json
 import sqlite3
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import structlog
@@ -77,7 +77,7 @@ class PublishScheduler:
 
     def _reset_daily_counts_if_needed(self):
         """Reset daily post counts at midnight."""
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if self._count_date != today:
             self._daily_counts = {}
             self._count_date = today
@@ -153,7 +153,7 @@ class PublishScheduler:
         Check for posts that are scheduled and due for publishing.
         v2.1: Rate limiting + all 11 platforms supported.
         """
-        now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
         results = []
 
         conn = self._get_db()
@@ -197,7 +197,7 @@ class PublishScheduler:
                     conn.execute(
                         "INSERT INTO publish_log (post_id, platform, success, post_url, error, published_at) VALUES (?, ?, ?, ?, ?, ?)",
                         (post_id, platform, result["success"], result.get("post_url", ""),
-                         result.get("error", ""), datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S"))
+                         result.get("error", ""), datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))
                     )
 
                 # Update post status
@@ -207,7 +207,7 @@ class PublishScheduler:
                 new_status = "published" if all_success else ("partial" if any_success else "failed")
                 conn.execute(
                     "UPDATE posts SET status = ?, published_at = ? WHERE id = ?",
-                    (new_status, datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S"), post_id)
+                    (new_status, datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"), post_id)
                 )
 
             conn.commit()

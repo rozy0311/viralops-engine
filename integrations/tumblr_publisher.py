@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -177,7 +177,7 @@ class TumblrPublisher:
                 queue_item_id=item.id,
                 platform=self.platform,
                 success=True,
-                published_at=datetime.utcnow(),
+                published_at=datetime.now(timezone.utc),
                 post_url=post_url,
                 post_id=post_id,
             )

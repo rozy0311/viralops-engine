@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
 logger = logging.getLogger("viralops.dedup")
@@ -65,7 +65,7 @@ class DedupEngine:
         Returns (is_allowed, reasons)
         """
         reasons: list[str] = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # 1. Exact hash match on same platform
         for entry in self._hash_index.get(content_hash, []):
@@ -130,7 +130,7 @@ class DedupEngine:
             content_hash=content_hash,
             platform=platform,
             niche_id=niche_id,
-            posted_at=datetime.utcnow(),
+            posted_at=datetime.now(timezone.utc),
             title_snippet=title_snippet[:50],
         )
         self._entries.append(entry)
@@ -140,7 +140,7 @@ class DedupEngine:
 
     def cleanup(self, older_than_days: int = 30) -> int:
         """Remove entries older than N days."""
-        cutoff = datetime.utcnow() - timedelta(days=older_than_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
         before = len(self._entries)
         self._entries = [e for e in self._entries if e.posted_at > cutoff]
         # Rebuild indices

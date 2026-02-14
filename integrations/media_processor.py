@@ -19,7 +19,7 @@ import os
 import hashlib
 import shutil
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 
@@ -56,7 +56,7 @@ class MediaJob:
     height: int = DEFAULT_VIDEO_HEIGHT
     status: str = "pending"           # pending / processing / done / error
     error: str = ""
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: str = ""
 
 
@@ -615,7 +615,7 @@ def cleanup_old_media(max_age_hours: int = 72) -> dict:
         return {"success": True, "removed": 0}
 
     removed = 0
-    now = datetime.utcnow().timestamp()
+    now = datetime.now(timezone.utc).timestamp()
     cutoff = now - (max_age_hours * 3600)
 
     for root, dirs, files in os.walk(MEDIA_OUTPUT_DIR):
@@ -687,7 +687,7 @@ def create_multi_image_slideshow(
         return {"success": False, "error": "No images provided"}
 
     if not output_path:
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         output_path = os.path.join(MEDIA_OUTPUT_DIR, f"slideshow_{ts}.mp4")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)

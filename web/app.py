@@ -206,66 +206,66 @@ templates.env.filters["fromjson"] = fromjson
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "dashboard"})
+    return templates.TemplateResponse(request, "app.html", {"page": "dashboard"})
 
 @app.get("/compose", response_class=HTMLResponse)
 async def compose(request: Request):
     conn = get_db()
     cats = conn.execute("SELECT * FROM categories").fetchall()
     conn.close()
-    return templates.TemplateResponse("app.html", {"request": request, "page": "compose", "categories": cats})
+    return templates.TemplateResponse(request, "app.html", {"page": "compose", "categories": cats})
 
 @app.get("/content", response_class=HTMLResponse)
 async def content_library(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "content"})
+    return templates.TemplateResponse(request, "app.html", {"page": "content"})
 
 @app.get("/calendar", response_class=HTMLResponse)
 async def calendar(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "calendar"})
+    return templates.TemplateResponse(request, "app.html", {"page": "calendar"})
 
 @app.get("/analytics", response_class=HTMLResponse)
 async def analytics(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "analytics"})
+    return templates.TemplateResponse(request, "app.html", {"page": "analytics"})
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "settings"})
+    return templates.TemplateResponse(request, "app.html", {"page": "settings"})
 
 @app.get("/rss", response_class=HTMLResponse)
 async def rss_page(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "rss"})
+    return templates.TemplateResponse(request, "app.html", {"page": "rss"})
 
 @app.get("/hashtags", response_class=HTMLResponse)
 async def hashtags_page(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "hashtags"})
+    return templates.TemplateResponse(request, "app.html", {"page": "hashtags"})
 
 @app.get("/platforms", response_class=HTMLResponse)
 async def platforms_page(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "platforms"})
+    return templates.TemplateResponse(request, "app.html", {"page": "platforms"})
 
 @app.get("/engagement", response_class=HTMLResponse)
 async def engagement_page(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "engagement"})
+    return templates.TemplateResponse(request, "app.html", {"page": "engagement"})
 
 @app.get("/time-slots", response_class=HTMLResponse)
 async def timeslots_page(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "timeslots"})
+    return templates.TemplateResponse(request, "app.html", {"page": "timeslots"})
 
 @app.get("/preview", response_class=HTMLResponse)
 async def preview_page(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "preview"})
+    return templates.TemplateResponse(request, "app.html", {"page": "preview"})
 
 @app.get("/autopilot", response_class=HTMLResponse)
 async def autopilot_page(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "autopilot"})
+    return templates.TemplateResponse(request, "app.html", {"page": "autopilot"})
 
 @app.get("/publer", response_class=HTMLResponse)
 async def publer_page(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "publer"})
+    return templates.TemplateResponse(request, "app.html", {"page": "publer"})
 
 @app.get("/blog-share", response_class=HTMLResponse)
 async def blog_share_page(request: Request):
-    return templates.TemplateResponse("app.html", {"request": request, "page": "blog-share"})
+    return templates.TemplateResponse(request, "app.html", {"page": "blog-share"})
 
 
 # ════════════════════════════════════════════════════════════════
