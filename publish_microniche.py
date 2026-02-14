@@ -706,16 +706,18 @@ def get_content_pack(mode: str = "auto") -> dict:
     """
     Get a content pack.
     mode='prewritten' → pick from pre-written packs
-    mode='gemini' → generate new with Gemini
+    mode='gemini' → generate new with Gemini (legacy, may fail if key blocked)
+    mode='ai_generate' → ★ NEW: Smart LLM cascade (GitHub Models → Perplexity → fallback) + self-review
+    mode='ai_niche' → ★ NEW: AI-generate from niche_hunter.db top scores
     mode='niche_hunter' → use Micro-Niche Hunter scored questions (needs Gemini)
     mode='pain_point' → use pain-point questions (needs Gemini)
     mode='hunter_prewritten' → use pre-written packs from niche_hunter scores (NO Gemini needed)
-    mode='auto' → weighted random (30% prewritten, 25% hunter_prewritten, 25% gemini, 15% niche_hunter, 5% pain_point)
+    mode='auto' → weighted random (35% ai_generate, 25% hunter_prewritten, 20% ai_niche, 15% prewritten, 5% gemini)
     """
     if mode == "auto":
         mode = random.choices(
-            ["prewritten", "hunter_prewritten", "gemini", "niche_hunter", "pain_point"],
-            weights=[30, 25, 25, 15, 5],
+            ["ai_generate", "hunter_prewritten", "ai_niche", "prewritten", "gemini"],
+            weights=[35, 25, 20, 15, 5],
             k=1,
         )[0]
 
@@ -764,6 +766,55 @@ def get_content_pack(mode: str = "auto") -> dict:
         print(f"  Mode: Pre-written pack")
         print(f"  Title: {pack['title']}")
         return pack
+
+    # ── AI Generate mode (Smart LLM Cascade + Self-Review) ──
+    if mode == "ai_generate":
+        print(f"  Mode: AI Generate (LLM Cascade + ReconcileGPT Review)")
+        try:
+            from llm_content import generate_content_pack
+            # Pick a topic from micro-niches or niche_hunter DB
+            topic_sources = MICRO_NICHES + NANO_NICHES + REAL_LIFE_NICHES
+            topic = random.choice(topic_sources)
+            pack = generate_content_pack(topic, score=7.5)
+            if pack:
+                pack["_location"] = location
+                pack["_season"] = season
+                # Add niche-specific hashtags from matrix
+                niche_key = topic.split()[0].lower() if " " in topic else topic.lower()
+                if niche_key in HASHTAG_MATRIX:
+                    matrix = HASHTAG_MATRIX[niche_key]
+                    extra_tags = matrix["micro"][:2] + matrix["nano"][:1] + matrix["trend"][:1]
+                    existing = set(t.lower() for t in pack.get("hashtags", []))
+                    for tag in extra_tags:
+                        if tag.lower() not in existing:
+                            pack["hashtags"].append(tag)
+                            existing.add(tag.lower())
+                print(f"  Review Score: {pack.get('_review_score', 'N/A')}/10")
+                return pack
+            else:
+                print(f"  ⚠️ AI generation failed — falling back to hunter_prewritten")
+                return get_content_pack("hunter_prewritten")
+        except Exception as e:
+            print(f"  ⚠️ AI Generate error: {e} — falling back to hunter_prewritten")
+            return get_content_pack("hunter_prewritten")
+
+    # ── AI Niche mode (Best niche_hunter topic + LLM cascade) ──
+    if mode == "ai_niche":
+        print(f"  Mode: AI Niche (niche_hunter.db top scores + LLM Cascade)")
+        try:
+            from llm_content import generate_from_niche_hunter
+            pack = generate_from_niche_hunter(top_n=10)
+            if pack:
+                pack["_location"] = location
+                pack["_season"] = season
+                print(f"  Review Score: {pack.get('_review_score', 'N/A')}/10")
+                return pack
+            else:
+                print(f"  ⚠️ AI Niche generation failed — falling back to hunter_prewritten")
+                return get_content_pack("hunter_prewritten")
+        except Exception as e:
+            print(f"  ⚠️ AI Niche error: {e} — falling back to hunter_prewritten")
+            return get_content_pack("hunter_prewritten")
 
     # ── Niche Hunter mode ──
     if mode in ("niche_hunter", "pain_point"):
