@@ -102,7 +102,7 @@ class ShopifyAutoShare:
         except Exception as e:
             errors.append(f"ShopifyBlogWatcher: {e}")
 
-        # 2. Publer REST API Bridge (replaces Sendible — $10/mo vs $199/mo)
+        # 2. Publer REST API Bridge (~$10/mo per account)
         try:
             from integrations.publer_publisher import PublerPublisher
             self._publer = PublerPublisher()

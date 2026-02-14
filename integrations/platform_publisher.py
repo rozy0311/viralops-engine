@@ -1,6 +1,6 @@
 """
 Platform Publisher Registry — EMADS-PR v1.0
-v3.1: Added Sendible REST API bridge for TikTok/IG/FB.
+v4.0: Publer REST API bridge for TikTok/IG/FB/Pinterest/LinkedIn/etc.
 
 Real publishers (direct API):
 - Reddit (OAuth2) → reddit_publisher.py
@@ -9,8 +9,8 @@ Real publishers (direct API):
 - Shopify Blog (Admin REST) → shopify_blog_publisher.py
 - Lemon8 → lemon8_publisher.py
 
-Sendible bridge (REST API → any platform connected in Sendible):
-- Sendible → sendible_publisher.py  (TikTok, IG, FB, etc.)
+Publer bridge (REST API → any platform connected in Publer):
+- Publer → publer_publisher.py  (TikTok, IG, FB, etc.)
 
 Social connectors (via social_connectors.py):
 - Twitter/X (v2 API)
@@ -93,18 +93,13 @@ class PublisherRegistry:
             logger.warning("registry.skip", platform="lemon8", error=str(e))
 
         # ── Publer bridge (REST API → TikTok/IG/FB/Pinterest/LinkedIn/etc.) ──
-        # Replaces Sendible ($199/mo) with Publer ($10/mo per account)
+        # ~$10/mo per account (Business plan)
         try:
             from integrations.publer_publisher import PublerPublisher
             self._publishers["publer"] = PublerPublisher()
             logger.info("registry.loaded", platform="publer", method="rest_api")
         except Exception as e:
             logger.warning("registry.skip", platform="publer", error=str(e))
-
-        # ── Legacy Sendible bridge (DEPRECATED — DO NOT LOAD) ──
-        # Sendible integration removed in v4.0. Use Publer instead.
-        # Kept as comment for reference only.
-        # from integrations.sendible_publisher import SendiblePublisher
 
         # ── Multi-TikTok publisher (N accounts) ──
         try:

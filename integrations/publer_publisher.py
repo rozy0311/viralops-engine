@@ -2,7 +2,7 @@
 ViralOps Engine — Publer API Publisher (REST API)
 
 Official Publer REST API — posts, schedules, media upload, analytics.
-Replaces Sendible as the bridge publisher for ViralOps Engine.
+Bridge publisher for ViralOps Engine.
 
 API Base: https://app.publer.com/api/v1/
 Auth: Bearer-API token + Workspace ID header
@@ -26,7 +26,6 @@ Capabilities:
 - Async workflow: Submit → job_id → poll status
 
 Pricing: ~$10/mo per social account (Business plan)
-vs Sendible ~$199/mo — saves ~$160/mo for same coverage
 """
 
 from __future__ import annotations

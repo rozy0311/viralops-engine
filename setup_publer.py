@@ -3,8 +3,8 @@
 ViralOps Engine — Publer Setup Wizard 🧙‍♂️
 Tự động hướng dẫn + setup Publer API credentials.
 
-Replaces setup_sendible.py — Publer is the new bridge publisher.
-Publer: $10/mo per account (Business plan) vs Sendible $199/mo.
+Publer is the bridge publisher for ViralOps Engine.
+Publer: $10/mo per account (Business plan).
 
 Usage:
     python setup_publer.py
@@ -82,7 +82,7 @@ def banner():
     print("\n" + "=" * 60)
     print("  🚀 ViralOps Engine — Publer Setup Wizard")
     print("  📦 Bridge Publisher: Publer REST API")
-    print("  💰 ~$10/mo per account (vs Sendible $199/mo)")
+    print("  💰 ~$10/mo per account (Business plan)")
     print("=" * 60)
 
 
@@ -267,7 +267,6 @@ def step_6_save(api_key: str, workspace_id: str, accounts: list):
         print(f"     {len(accounts)} accounts × $10/mo = ~${est}/mo")
     else:
         print("     $10/mo per social account (Business plan)")
-    print(f"     vs Sendible: ~$199/mo (saved ~${199 - len(accounts) * 10}/mo)")
     print()
 
 

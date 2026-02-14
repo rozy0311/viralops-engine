@@ -1439,7 +1439,7 @@ async def api_blog_share_watcher_reset(request: Request):
 
 # ════════════════════════════════════════════════════════════════
 # API — Publer Bridge (REST API → TikTok/IG/FB/Pinterest/etc.)
-# Replaces Sendible UI Automation ($199/mo) with Publer REST API (~$10/mo)
+# ~$10/mo per social account (Business plan)
 # ════════════════════════════════════════════════════════════════
 
 @app.get("/api/publer/status")
@@ -1511,19 +1511,6 @@ async def api_publer_workspaces():
         return {"workspaces": workspaces, "count": len(workspaces)}
     except Exception as e:
         return {"workspaces": [], "error": str(e)}
-
-
-# Legacy Sendible routes — redirect to Publer
-@app.get("/api/sendible/status")
-async def api_sendible_status_redirect():
-    """DEPRECATED: Use /api/publer/status instead."""
-    return {"deprecated": True, "redirect": "/api/publer/status", "message": "Sendible replaced by Publer. Use /api/publer/* endpoints."}
-
-@app.get("/sendible", response_class=HTMLResponse)
-async def sendible_redirect(request: Request):
-    """DEPRECATED: Redirect old Sendible page to Publer."""
-    from starlette.responses import RedirectResponse
-    return RedirectResponse(url="/publer")
 
 
 # ════════════════════════════════════════════════════════════════

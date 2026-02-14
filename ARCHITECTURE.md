@@ -208,7 +208,7 @@ Publer provides a REST API bridge at `https://app.publer.com/api/v1/`.
 |---------|--------|
 | Auth | `Bearer-API {key}` + `Publer-Workspace-Id` header |
 | Workflow | Async: submit → job_id → poll `/job_status/{id}` |
-| Cost | ~$10/mo per social account (vs Sendible $199/mo) |
+| Cost | ~$10/mo per social account (Business plan) |
 | Module | `integrations.publer_publisher.PublerPublisher` |
 | Setup | `python setup_publer.py` |
 

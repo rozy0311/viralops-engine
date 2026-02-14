@@ -294,7 +294,7 @@ def generate_micro_niche_5(
     """
     Generate exactly 5 micro-niche hashtags — NOT broad generic tags.
 
-    Strategy (from Gumloop/Sendible training docs):
+    Strategy (from Gumloop training docs):
       - YouTube chuẩn algo: 3-5 hashtags (first 3 show on title)
       - Instagram hướng cap 5 per post
       - TikTok: 3-5 micro-niche + #fyp optional

@@ -460,14 +460,14 @@ class TestPublerLifecycle:
         assert "disconnected" in r
 
 
-# ── Migration from Sendible ──
+# ── API Contract Compliance ──
 
 
-class TestSendibleMigration:
-    """Verify Publer replaces Sendible correctly."""
+class TestPublerApiContract:
+    """Verify Publer publisher implements required interface."""
 
-    def test_publer_has_same_interface_as_sendible(self, publisher):
-        """Publer publisher must have the same key methods as Sendible."""
+    def test_publer_has_required_interface(self, publisher):
+        """Publer publisher must have all required methods."""
         required_methods = [
             "connect", "publish", "schedule",
             "test_connection", "close",
@@ -477,7 +477,7 @@ class TestSendibleMigration:
             assert callable(getattr(publisher, method)), f"{method} not callable"
 
     def test_publer_returns_same_result_format(self):
-        """publish() return dict must match Sendible format."""
+        """publish() return dict must include required keys."""
         required_keys = ["success", "platform"]
         from integrations.publer_publisher import PublerPublisher
 
