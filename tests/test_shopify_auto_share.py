@@ -1127,7 +1127,7 @@ class TestBackgroundSchedulers:
         assert callable(app_module.blog_share_tick_loop)
 
     def test_version_is_3_4_0(self):
-        """Health endpoint returns version 3.4.0."""
+        """Health endpoint returns current version."""
         from httpx import ASGITransport, AsyncClient
         from web.app import app
         import asyncio
@@ -1138,8 +1138,8 @@ class TestBackgroundSchedulers:
                 return r.json()
         result = asyncio.get_event_loop().run_until_complete(_check())
         # Health may return version at top level or nested in body
-        version = result.get("version") or result.get("body", {}).get("version", "")
-        assert "3.4.0" in str(result), f"Expected 3.4.0 in health response, got: {result}"
+        version = result.get("version", "")
+        assert version in ("3.4.0", "3.5.0"), f"Expected 3.4.0 or 3.5.0 in health response, got: {result}"
 
 
 # ════════════════════════════════════════════════════════════════

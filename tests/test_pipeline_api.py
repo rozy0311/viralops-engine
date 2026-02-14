@@ -284,3 +284,103 @@ class TestAutopilotSchedulerConfig:
         assert "running" in data
         assert "last_run" in data
         assert "posts_today" in data
+
+
+# ════════════════════════════════════════════════════════════════
+# 5. HEALTH CHECK (real liveness probe)
+# ════════════════════════════════════════════════════════════════
+
+class TestHealthCheck:
+    """Test GET /api/health — real liveness/readiness probe."""
+
+    def test_health_endpoint_exists(self):
+        r = client.get("/api/health")
+        assert r.status_code in (200, 503)
+
+    def test_health_has_checks(self):
+        r = client.get("/api/health")
+        data = r.json()
+        assert "checks" in data
+        assert "status" in data
+        assert "version" in data
+        assert "timestamp" in data
+
+    def test_health_checks_all_tasks(self):
+        """Health should report on all 4 background tasks."""
+        r = client.get("/api/health")
+        data = r.json()
+        checks = data["checks"]
+        for task_name in ("scheduler", "rss_tick", "blog_share", "autopilot"):
+            assert task_name in checks, f"Missing check for {task_name}"
+
+    def test_health_checks_database(self):
+        r = client.get("/api/health")
+        data = r.json()
+        assert "database" in data["checks"]
+        assert data["checks"]["database"] == "ok"
+
+    def test_health_returns_version(self):
+        r = client.get("/api/health")
+        data = r.json()
+        assert data["version"] == "3.5.0"
+
+
+# ════════════════════════════════════════════════════════════════
+# 6. GLOBAL EXCEPTION HANDLER
+# ════════════════════════════════════════════════════════════════
+
+class TestGlobalExceptionHandler:
+    """Test that unhandled exceptions return structured JSON, not raw tracebacks."""
+
+    def test_missing_niche_still_works(self):
+        """Posting empty body should work (defaults to 'general' niche)."""
+        with patch("graph.get_compiled_graph") as mock_graph:
+            mock_app = MagicMock()
+            mock_app.invoke.return_value = {
+                "content_pack": {"title": "Default Niche"},
+                "reconcile_result": {},
+                "risk_result": {},
+                "cost_result": {},
+                "publish_results": [],
+                "errors": [],
+            }
+            mock_graph.return_value = mock_app
+            r = client.post("/api/pipeline/run", json={})
+            assert r.status_code == 200
+            assert r.json()["success"] is True
+
+    def test_404_does_not_leak_internals(self):
+        """Non-existent endpoint should return clean 404."""
+        r = client.get("/api/nonexistent/endpoint")
+        assert r.status_code == 404
+
+
+# ════════════════════════════════════════════════════════════════
+# 7. SCHEDULER PUBLISH FIX
+# ════════════════════════════════════════════════════════════════
+
+class TestSchedulerPublishFix:
+    """Test that scheduler._publish_to_platform no longer uses nested asyncio.run()."""
+
+    def test_no_event_loop_detection_code(self):
+        """The old asyncio.get_event_loop().is_running() pattern should be gone."""
+        import inspect
+        from core.scheduler import PublishScheduler
+        source = inspect.getsource(PublishScheduler._publish_to_platform)
+        assert "is_running()" not in source, \
+            "_publish_to_platform still uses asyncio event loop detection"
+
+    def test_uses_thread_pool_executor(self):
+        """Should use ThreadPoolExecutor to run async publish in a clean loop."""
+        import inspect
+        from core.scheduler import PublishScheduler
+        source = inspect.getsource(PublishScheduler._publish_to_platform)
+        assert "ThreadPoolExecutor" in source
+
+    def test_no_nested_lambda_asyncio_run(self):
+        """The old lambda: asyncio.run(...) pattern should be gone."""
+        import inspect
+        from core.scheduler import PublishScheduler
+        source = inspect.getsource(PublishScheduler._publish_to_platform)
+        assert "lambda" not in source, \
+            "_publish_to_platform still uses lambda: asyncio.run() anti-pattern"

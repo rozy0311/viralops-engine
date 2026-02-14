@@ -215,9 +215,11 @@ class TestAPIsIntact:
 
     def test_health_endpoint(self):
         r = client.get("/api/health")
-        assert r.status_code == 200
+        # May return 200 (healthy) or 503 (degraded, e.g. tasks not running in test)
+        assert r.status_code in (200, 503)
         data = r.json()
-        assert data.get("status") == "ok"
+        assert data.get("status") in ("ok", "degraded")
+        assert "checks" in data
 
     def test_stats_endpoint(self):
         r = client.get("/api/stats")

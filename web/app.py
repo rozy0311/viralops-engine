@@ -328,24 +328,70 @@ async def autopilot_loop():
         await asyncio.sleep(interval_sec)
 
 
+async def _watchdog():
+    """Monitor background tasks and restart any that crash unexpectedly."""
+    global _scheduler_task, _rss_tick_task, _blog_share_tick_task, _autopilot_task
+    _task_factories = {
+        "_scheduler_task": scheduler_loop,
+        "_rss_tick_task": rss_tick_loop,
+        "_blog_share_tick_task": blog_share_tick_loop,
+        "_autopilot_task": autopilot_loop,
+    }
+    while True:
+        for ref_name, factory in _task_factories.items():
+            task = globals().get(ref_name)
+            if task and task.done():
+                exc = None
+                if not task.cancelled():
+                    try:
+                        exc = task.exception()
+                    except Exception:
+                        pass
+                logger.error("watchdog.restarting", task=ref_name, error=str(exc))
+                globals()[ref_name] = asyncio.create_task(factory())
+        await asyncio.sleep(30)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """App lifespan — init DB and start scheduler + auto-tick loops."""
+    """App lifespan — init DB and start scheduler + auto-tick loops + watchdog."""
     init_db()
     global _scheduler_task, _rss_tick_task, _blog_share_tick_task, _autopilot_task
     _scheduler_task = asyncio.create_task(scheduler_loop())
     _rss_tick_task = asyncio.create_task(rss_tick_loop())
     _blog_share_tick_task = asyncio.create_task(blog_share_tick_loop())
     _autopilot_task = asyncio.create_task(autopilot_loop())
+    _watchdog_task = asyncio.create_task(_watchdog())
     logger.info("app.started", msg="Dashboard ready at http://localhost:8000")
     yield
-    for task in (_scheduler_task, _rss_tick_task, _blog_share_tick_task, _autopilot_task):
+    for task in (_scheduler_task, _rss_tick_task, _blog_share_tick_task, _autopilot_task, _watchdog_task):
         if task:
             task.cancel()
 
 
 # ── FastAPI App ──
 app = FastAPI(title="ViralOps Engine", lifespan=lifespan)
+
+
+# ── Global Exception Handler ──
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all: prevents raw tracebacks from leaking to clients."""
+    logger.error("unhandled_error",
+                 path=str(request.url.path),
+                 method=request.method,
+                 error=str(exc),
+                 error_type=type(exc).__name__)
+    is_dev = os.environ.get("VIRALOPS_ENV", "development") != "production"
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": "Internal server error",
+            "detail": str(exc) if is_dev else None,
+        },
+    )
+
 
 # Static files
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -1310,28 +1356,53 @@ async def api_telegram_send(request: Request):
 
 @app.get("/api/health")
 async def health():
-    return {
-        "status": "ok",
-        "version": "3.4.0",
-        "engine": "ViralOps Engine — EMADS-PR v1.0",
-        "features": [
-            "5 Micro-Niche Hashtags (smart, no generic)",
-            "Smart Content Split (sentence-boundary, never mid-word)",
-            "GenAI Answer Extraction (strips filler/preamble)",
-            "7 Social Connectors (TW/IG/FB/YT/LI/TT/PIN)",
-            "Bulk RSS Import (500/call) + Railway RSS",
-            "TikTok Auto Music Selection (AI-powered)",
-            "Analytics + Hashtag Performance Tracking",
-            "Background Scheduler (rate-limited, 11 platforms)",
-            "RSS Auto Poster — auto-publish engine",
-            "Media Processor — Image→Video + TikTok Music",
-            "Telegram Alert Bot — publish notifications",
-            "Publer REST API Bridge (~$10/mo per account)",
-            "Shopify Blog Auto-Share → TikTok Multi-Account + Pinterest (NEW v3.3)",
-            "Docker + Railway deployment ready",
-        ],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    """Real liveness/readiness probe — checks background tasks + DB."""
+    checks = {}
+
+    # Check each background task
+    for name, task in [
+        ("scheduler", _scheduler_task),
+        ("rss_tick", _rss_tick_task),
+        ("blog_share", _blog_share_tick_task),
+        ("autopilot", _autopilot_task),
+    ]:
+        if task is None:
+            checks[name] = "not_started"
+        elif task.done():
+            exc = None
+            if not task.cancelled():
+                try:
+                    exc = task.exception()
+                except Exception:
+                    pass
+            checks[name] = f"DEAD: {exc}" if exc else "cancelled"
+        else:
+            checks[name] = "running"
+
+    # DB connectivity
+    try:
+        conn = get_db()
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+        checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = f"FAIL: {e}"
+
+    all_healthy = all(
+        v in ("running", "ok") for v in checks.values()
+    )
+    status_code = 200 if all_healthy else 503
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ok" if all_healthy else "degraded",
+            "checks": checks,
+            "version": "3.5.0",
+            "engine": "ViralOps Engine — EMADS-PR v1.0",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
 
 # ════════════════════════════════════════════════════════════════

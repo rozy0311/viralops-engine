@@ -264,16 +264,12 @@ class PublishScheduler:
                 },
             )
 
-            # Publish
-            if asyncio.get_event_loop().is_running():
-                # We're in an async context
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    result = pool.submit(
-                        lambda: asyncio.run(publisher.publish(item))
-                    ).result(timeout=30)
-            else:
-                result = asyncio.run(publisher.publish(item))
+            # Publish — use a fresh event loop in a thread to avoid
+            # nesting asyncio.run() inside an already-running loop.
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, publisher.publish(item))
+                result = future.result(timeout=30)
 
             return {
                 "post_id": post_id,
