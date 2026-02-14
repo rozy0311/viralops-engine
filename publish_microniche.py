@@ -368,6 +368,135 @@ NICHE_HUNTER_PACKS = [
         "colors": ((50, 80, 30), (100, 160, 60)),
         "_niche_score": 8.15,
     },
+    # ── Pain Point Packs (score 8.25) ──
+    {
+        "title": "Allergic to Nuts? 5 Plant-Based Fat Sources That Won't Kill You",
+        "pain_point": "Allergic to nuts — what plant-based fat source can I use?",
+        "audiences": ["Nut-allergy sufferers", "Plant-based beginners", "Parents of allergic kids"],
+        "steps": [
+            "Top 5 nut-free fats: sunflower seed butter, tahini, avocado, coconut cream, hemp seed oil",
+            "Swap 1:1 in any recipe — seed butter in smoothies, tahini in dressings, coconut cream in curries",
+        ],
+        "result": "Full healthy fats without ANY nut exposure — allergy-safe daily diet",
+        "hashtags": ["#nutfree", "#plantbased", "#foodallergy", "#seedbutter", "#healthyfats"],
+        "image_title": "Nut-Free Fats",
+        "image_subtitle": "5 Safe Alternatives",
+        "image_steps": "Seeds • Tahini • Avocado • Coconut • Hemp",
+        "colors": ((80, 100, 40), (160, 190, 80)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Always Tired on Plant-Based Diet? You're Missing THIS Mineral",
+        "pain_point": "How to get enough iron on plant-based diet? Always tired.",
+        "audiences": ["Tired vegans", "Plant-based athletes", "Women 20-40"],
+        "steps": [
+            "Iron-rich combos: lentils + vitamin C (lemon), spinach + bell pepper, pumpkin seeds + orange",
+            "Cook in cast iron pan (adds 2-3mg iron per meal) — avoid tea/coffee 1hr before iron meals",
+        ],
+        "result": "Double your iron absorption — energy back in 7-14 days",
+        "hashtags": ["#irondeficiency", "#plantbased", "#veganhealth", "#tiredvegan", "#nutrition"],
+        "image_title": "Plant Iron Hack",
+        "image_subtitle": "Stop Being Tired",
+        "image_steps": "Lentils + Lemon • Cast Iron • No Coffee",
+        "colors": ((100, 30, 30), (180, 60, 60)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Kids Allergic to Everything — 5 Nut-Free School Lunch Ideas Under $3",
+        "pain_point": "Kids allergic to everything — nut-free school lunch ideas?",
+        "audiences": ["Parents of allergic kids", "Budget families", "School lunch prep"],
+        "steps": [
+            "Monday: sunflower butter + jam wrap, Tuesday: hummus + veggie sticks, Wednesday: seed crackers + guac",
+            "Thursday: coconut yogurt + granola (nut-free), Friday: rice balls + edamame — all under $3",
+        ],
+        "result": "5-day rotation every kid will actually eat — zero nuts, zero complaints",
+        "hashtags": ["#nutfreelunch", "#schoollunch", "#foodallergy", "#kidsmeals", "#budgetfamily"],
+        "image_title": "Nut-Free Lunches",
+        "image_subtitle": "5 Days Under $3",
+        "image_steps": "Mon-Fri Rotation",
+        "colors": ((30, 80, 120), (60, 160, 220)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Zero Budget Garden — How to Grow Food With Literally $0",
+        "pain_point": "No budget for garden supplies — 100% free setup possible?",
+        "audiences": ["Broke gardeners", "Zero-waste", "Survival preppers"],
+        "steps": [
+            "Containers: milk jugs, egg cartons, toilet rolls. Soil: compost from food scraps (2-4 weeks)",
+            "Free seeds: save from tomato/pepper/avocado. Regrow: green onion, celery, lettuce in water",
+        ],
+        "result": "Full kitchen garden from literal trash — $0 spent, food in 2-4 weeks",
+        "hashtags": ["#freegarden", "#zerocost", "#regrowing", "#foodsecurity", "#upcyclegarden"],
+        "image_title": "$0 Garden Setup",
+        "image_subtitle": "Grow Food for FREE",
+        "image_steps": "Trash → Containers → Food",
+        "colors": ((40, 90, 40), (80, 180, 80)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Food Prices Insane? Grow Your Own Protein for Almost Nothing",
+        "pain_point": "Food prices keep rising — how to grow my own protein?",
+        "audiences": ["Budget families", "Plant-based eaters", "Self-sufficiency seekers"],
+        "steps": [
+            "Top 3 home-grown proteins: lentil sprouts (ready in 3 days), edamame (60 days), chickpea microgreens",
+            "Invested: $2 bag of dried lentils = 30+ servings of sprouts. No garden needed, just a jar + water",
+        ],
+        "result": "Homegrown protein for pennies — sprouting jar on your counter beats $8/lb meat",
+        "hashtags": ["#growprotein", "#sprouts", "#lentils", "#foodprices", "#selfsufficient"],
+        "image_title": "Grow Your Protein",
+        "image_subtitle": "$2 → 30 Servings",
+        "image_steps": "Soak • Rinse • Sprout • Eat",
+        "colors": ((60, 80, 30), (120, 160, 60)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Laid Off? How Homesteading Can Cut Your Food Bill by 60%",
+        "pain_point": "Laid off — can homesteading actually save money?",
+        "audiences": ["Recently laid off", "Career changers", "Budget survival"],
+        "steps": [
+            "Month 1: sprouts + microgreens ($5 startup) = save $40/month on greens",
+            "Month 2: add fermentation (sauerkraut, kimchi) + bread baking → save another $30/month on groceries",
+        ],
+        "result": "Cut 60% of food bill within 2 months — homesteading IS a financial strategy",
+        "hashtags": ["#laidoff", "#homesteading", "#savemoney", "#budgetliving", "#foodsecurity"],
+        "image_title": "Homestead to Save $$$",
+        "image_subtitle": "Cut 60% Food Bill",
+        "image_steps": "Sprouts → Ferment → Bake → Save",
+        "colors": ((80, 60, 20), (160, 120, 40)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Lost Everything — How to Restart a Garden From Absolute Zero",
+        "pain_point": "Evicted or moved — how to restart my garden from nothing?",
+        "audiences": ["People starting over", "New renters", "Urban displaced"],
+        "steps": [
+            "Day 1: save kitchen scraps (green onion, garlic, potato eyes). Day 3: regrow in water cups",
+            "Week 2: find free containers (craigslist, neighborhood buy-nothing groups). Week 3: swap seeds locally",
+        ],
+        "result": "Functioning garden rebuilt from ZERO in 30 days — no money, just resourcefulness",
+        "hashtags": ["#startingover", "#zerogarden", "#regrowing", "#resilience", "#urbangarden"],
+        "image_title": "Garden From Zero",
+        "image_subtitle": "Rebuild in 30 Days",
+        "image_steps": "Save → Regrow → Find → Swap",
+        "colors": ((50, 50, 80), (100, 100, 170)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Make CBD-Free Sleep Tea From Your Garden — 3 Herbs That Actually Work",
+        "pain_point": "Can't sleep but don't want supplements or CBD?",
+        "audiences": ["Insomniacs", "Natural remedy seekers", "Herb growers"],
+        "steps": [
+            "Grow these 3: chamomile (easy from seed), lemon balm (grows like weed), valerian root (perennial)",
+            "Steep 1 tsp each in hot water 10 min before bed — drink 30 min before sleep",
+        ],
+        "result": "Homegrown sleep tea for free — works in 20 min without any supplements",
+        "hashtags": ["#sleeptea", "#herbgarden", "#naturalremedy", "#insomnia", "#growherbs"],
+        "image_title": "Garden Sleep Tea",
+        "image_subtitle": "3 Herbs That Work",
+        "image_steps": "Chamomile • Lemon Balm • Valerian",
+        "colors": ((40, 30, 70), (80, 60, 150)),
+        "_niche_score": 8.15,
+    },
 ]
 
 # Combine all packs
@@ -829,6 +958,9 @@ def main():
     job_id = result.get("job_id", "") if isinstance(result, dict) else ""
     post_link = ""
 
+    publish_success = False
+    publish_error = ""
+
     if job_id:
         print(f"\n  Job ID: {job_id}")
         print("  Polling...")
@@ -850,14 +982,20 @@ def main():
                         failure = first.get("failure", {})
                         post_info = first.get("post", {})
                         if failure:
-                            print(f"\n  FAILED: {failure.get('message', str(failure))}")
+                            publish_error = failure.get("message", str(failure))
+                            print(f"\n  FAILED: {publish_error}")
                         elif post_info.get("state") in ("live", "published"):
                             post_link = post_info.get("post_link", "")
+                            publish_success = True
                             print(f"\n  SUCCESS! Post is LIVE!")
                             print(f"  Link: {post_link}")
                         else:
                             post_link = post_info.get("post_link", "")
-                            print(f"\n  State: {post_info.get('state', 'unknown')}")
+                            state = post_info.get("state", "unknown")
+                            # scheduled/queued states are also success
+                            if state in ("scheduled", "queued", "sending"):
+                                publish_success = True
+                            print(f"\n  State: {state}")
                             print(f"  Link: {post_link}")
                     break
             else:
@@ -865,6 +1003,7 @@ def main():
 
     # ── Step 5: Save to DB ──
     print("\n[5/5] Saving to database...")
+    db_status = "published" if publish_success else "failed"
     try:
         from web.app import get_db_safe, init_db
         init_db()
@@ -877,7 +1016,7 @@ def main():
                     pack["title"],
                     caption,
                     json.dumps(["tiktok"]),
-                    "published",
+                    db_status,
                     json.dumps({
                         "hashtags": pack["hashtags"],
                         "source": f"microniche_{pack.get('_source', 'unknown')}",
@@ -888,26 +1027,72 @@ def main():
                         "post_link": post_link,
                         "pain_point": pack.get("pain_point", ""),
                         "audiences": pack.get("audiences", []),
+                        "error": publish_error,
                     }),
                 ),
             )
             post_id = cur.lastrowid
             conn.execute(
                 "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
-                (post_id, "tiktok", 1, post_link, ""),
+                (post_id, "tiktok", 1 if publish_success else 0, post_link, publish_error),
             )
             conn.commit()
-            print(f"  Saved as post #{post_id}")
+            print(f"  Saved as post #{post_id} (status={db_status})")
     except Exception as e:
         print(f"  DB save failed (non-critical): {e}")
 
     print("\n" + "=" * 60)
-    print("DONE! Micro-niche content published to TikTok.")
+    if publish_success:
+        print("DONE! Micro-niche content published to TikTok.")
+    else:
+        print(f"PUBLISH FAILED: {publish_error or 'unknown error'}")
     print(f"Title: {pack['title']}")
     print(f"Source: {pack.get('_source', 'unknown')}")
     print(f"Niche: {pack.get('_niche', 'prewritten')}")
     print("=" * 60)
 
 
+def batch_publish(count=3, gap_minutes=2):
+    """Publish multiple posts with proper gaps. Waits between each post."""
+    import httpx  # noqa: F811
+
+    modes = ["hunter_prewritten", "prewritten"]
+    print("=" * 60)
+    print(f"VIRALOPS BATCH PUBLISHER — {count} posts, {gap_minutes}min gap")
+    print("=" * 60)
+
+    results = []
+    for i in range(count):
+        mode = modes[i % len(modes)]
+        print(f"\n{'─' * 40}")
+        print(f"Post {i + 1}/{count} (mode={mode})")
+        print(f"{'─' * 40}")
+
+        try:
+            # Run a single publish
+            sys.argv = ["publish_microniche.py", mode]
+            main()
+            results.append(("OK", mode))
+        except SystemExit:
+            results.append(("FAIL", mode))
+        except Exception as e:
+            results.append(("ERROR", str(e)))
+
+        if i < count - 1:
+            wait_secs = gap_minutes * 60 + 15  # extra 15s safety margin
+            print(f"\n  Waiting {wait_secs}s before next post...")
+            time.sleep(wait_secs)
+
+    print("\n" + "=" * 60)
+    print("BATCH COMPLETE")
+    for idx, (status, mode) in enumerate(results, 1):
+        print(f"  Post {idx}: {status} ({mode})")
+    print("=" * 60)
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "batch":
+        count = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+        batch_publish(count=count)
+    else:
+        main()
