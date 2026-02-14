@@ -23,7 +23,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # ═══════════════════════════════════════════════════════════════
 # PROVIDER REGISTRY
