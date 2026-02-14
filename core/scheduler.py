@@ -99,6 +99,23 @@ class PublishScheduler:
             return self._publishers[platform]
 
         try:
+            # Priority 0: Publer — unified publisher for 12+ social platforms
+            publer_platforms = {
+                "tiktok", "instagram", "facebook", "twitter", "linkedin",
+                "youtube", "pinterest", "threads", "bluesky", "mastodon",
+                "telegram", "google_business",
+            }
+            if platform in publer_platforms:
+                try:
+                    from integrations.publer_publisher import PublerPublisher
+                    pub = PublerPublisher()
+                    if pub.is_configured:
+                        self._publishers[platform] = pub
+                        logger.info("scheduler.loaded_publer", platform=platform)
+                        return pub
+                except Exception:
+                    pass  # Fall through to other publishers
+
             # Priority 1: Social connectors (Twitter, Instagram, Facebook, YouTube, LinkedIn, TikTok, Pinterest)
             from integrations.social_connectors import get_social_publisher
             social_pub = get_social_publisher(platform)

@@ -131,7 +131,7 @@ async def rss_tick_loop():
     while True:
         try:
             from integrations.rss_auto_poster import tick
-            result = await tick()
+            result = await asyncio.to_thread(tick)  # tick() is sync — run in thread
             posted = sum(r.get("posted", 0) for r in result.get("results", []))
             if posted > 0:
                 logger.info("rss_tick.auto_posted", count=posted)
@@ -379,11 +379,128 @@ async def api_autopilot_generate(request: Request):
 
 
 # ════════════════════════════════════════════════════════════════
+# API — Full LangGraph Pipeline (EMADS-PR)
+# ════════════════════════════════════════════════════════════════
+
+@app.post("/api/pipeline/run")
+async def api_pipeline_run(request: Request):
+    """
+    Run the full EMADS-PR LangGraph pipeline:
+    Orchestrator → ContentFactory → [Compliance+Risk+Rights+Cost] PARALLEL
+    → ReconcileGPT → Human Review → Publish → Monitor
+
+    Body: {niche, topic?, platforms?, publish_mode?}
+    publish_mode: "draft" | "scheduled" | "immediate"
+    """
+    data = await request.json()
+    niche = data.get("niche", "general")
+    topic = data.get("topic")
+    platforms = data.get("platforms", ["tiktok", "pinterest"])
+    publish_mode = data.get("publish_mode", "draft")
+
+    try:
+        from graph import get_compiled_graph
+        import uuid
+
+        graph = get_compiled_graph()
+        thread_id = f"web-{uuid.uuid4().hex[:8]}"
+
+        initial_state = {
+            "niche_config": {"niche": niche, "sub_niche": niche},
+            "topic": topic,
+            "platforms": platforms,
+            "publish_mode": publish_mode,
+        }
+
+        # Run the full pipeline in a thread (LangGraph is sync)
+        result = await asyncio.to_thread(
+            graph.invoke,
+            initial_state,
+            {"configurable": {"thread_id": thread_id}},
+        )
+
+        # Extract key results
+        content_pack = result.get("content_pack", {})
+        reconcile = result.get("reconcile_result", {})
+        risk = result.get("risk_result", {})
+        cost = result.get("cost_result", {})
+        publish_results = result.get("publish_results", [])
+
+        # Save to SQLite if content was generated
+        if content_pack.get("title"):
+            conn = get_db()
+            conn.execute(
+                "INSERT INTO posts (title, body, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?)",
+                (
+                    content_pack.get("title", ""),
+                    content_pack.get("body", ""),
+                    json.dumps(platforms),
+                    "published" if publish_results else publish_mode,
+                    json.dumps({
+                        "pipeline_thread": thread_id,
+                        "reconcile_summary": reconcile.get("summary", ""),
+                        "risk_score": risk.get("risk_score", 0),
+                        "hashtags": content_pack.get("hashtags", []),
+                        "hook": content_pack.get("hook", ""),
+                        "cta": content_pack.get("cta", ""),
+                    }),
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+        return {
+            "success": True,
+            "thread_id": thread_id,
+            "content_pack": {
+                "title": content_pack.get("title", ""),
+                "body": content_pack.get("body", ""),
+                "hook": content_pack.get("hook", ""),
+                "cta": content_pack.get("cta", ""),
+                "hashtags": content_pack.get("hashtags", []),
+            },
+            "reconcile": {
+                "summary": reconcile.get("summary", ""),
+                "risk_level": reconcile.get("risk_level", "low"),
+            },
+            "risk_score": risk.get("risk_score", 0),
+            "cost": cost.get("estimated_cost_usd", 0),
+            "publish_mode": publish_mode,
+            "publish_results": publish_results,
+            "errors": result.get("errors", []),
+        }
+
+    except Exception as e:
+        logger.error("pipeline.run_error", error=str(e))
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)},
+        )
+
+
+# ════════════════════════════════════════════════════════════════
 # API — Publish
 # ════════════════════════════════════════════════════════════════
 
+# Platforms that Publer can publish to (use Publer as unified publisher)
+_PUBLER_PLATFORMS = {
+    "tiktok", "instagram", "facebook", "twitter", "linkedin",
+    "youtube", "pinterest", "threads", "bluesky", "mastodon",
+    "telegram", "google_business",
+}
+
+
 def _get_publisher(platform: str):
-    """Lazy-load publisher for a platform."""
+    """Lazy-load publisher for a platform. Publer handles 12+ social platforms."""
+    # Priority 1: Use Publer for all supported social platforms
+    if platform in _PUBLER_PLATFORMS:
+        from integrations.publer_publisher import PublerPublisher
+        pub = PublerPublisher()
+        if pub.is_configured:
+            return pub
+        # Fall through to direct publishers if Publer not configured
+
+    # Priority 2: Direct API publishers
     if platform == "reddit":
         from integrations.reddit_publisher import RealRedditPublisher
         return RealRedditPublisher()
@@ -396,6 +513,12 @@ def _get_publisher(platform: str):
     elif platform == "shopify_blog":
         from integrations.shopify_blog_publisher import ShopifyBlogPublisher
         return ShopifyBlogPublisher()
+    elif platform == "lemon8":
+        from integrations.lemon8_publisher import Lemon8Publisher
+        return Lemon8Publisher()
+    elif platform == "quora":
+        from integrations.quora_publisher import QuoraPublisher
+        return QuoraPublisher()
     else:
         raise ValueError(f"Unknown platform: {platform}")
 
