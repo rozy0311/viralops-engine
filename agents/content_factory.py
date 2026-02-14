@@ -148,7 +148,7 @@ def _call_gemini(system_prompt: str, user_prompt: str, temperature: float) -> tu
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=temperature,
-                max_output_tokens=2000,
+                max_output_tokens=4000,
                 response_mime_type="application/json",
             ),
         )
