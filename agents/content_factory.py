@@ -931,43 +931,55 @@ def adapt_for_platform(content_pack: dict, platform: str) -> dict:
             raw += "\n\nWhat do you think?"
         caption = smart_truncate(raw, max_caption)
 
+    elif platform in ("tiktok", "instagram", "facebook", "threads"):
+        # TikTok/Instagram/Facebook/Threads: hook → pain → steps → CTA → hashtags
+        # Use LLM-generated fields directly — no rigid template with hardcoded placeholders
+        pain = content_pack.get("pain_point", "")
+        steps = content_pack.get("solution_steps", "")
+        # Ensure steps is a string
+        if isinstance(steps, list):
+            steps = "\n".join(f"• {s}" for s in steps)
+        parts = [p for p in [hook, pain, steps, cta] if p and str(p).strip()]
+        raw = "\n\n".join(str(p) for p in parts)
+        if hashtag_str:
+            raw += f"\n\n{hashtag_str}"
+        caption = smart_truncate(raw, max_caption)
+
     elif platform == "pinterest":
-        # Pinterest: short + searchable
-        raw = f"{hook}\n\n{content_pack.get('step_1', '')}. {content_pack.get('step_2', '')}.\n\n{hashtag_str}"
+        # Pinterest: short + searchable — hook + steps + hashtags
+        steps = content_pack.get("solution_steps", "")
+        if isinstance(steps, list):
+            steps = ". ".join(str(s) for s in steps[:3])
+        # Fallback to step_1/step_2 if solution_steps is empty
+        if not steps:
+            s1 = content_pack.get("step_1", "")
+            s2 = content_pack.get("step_2", "")
+            steps = f"{s1}. {s2}".strip(". ")
+        parts = [p for p in [hook, steps] if p and str(p).strip()]
+        raw = "\n\n".join(str(p) for p in parts)
+        if hashtag_str:
+            raw += f"\n\n{hashtag_str}"
         caption = smart_truncate(raw, max_caption)
 
     elif platform == "youtube":
         # YouTube: description + 5 hashtags at end (first 3 show on title)
-        raw = f"{content_pack.get('pain_point', '')}\n\n{content_pack.get('solution_steps', '')}\n\n{cta}\n\n{hashtag_str}"
+        steps = content_pack.get("solution_steps", "")
+        if isinstance(steps, list):
+            steps = "\n".join(str(s) for s in steps)
+        raw = f"{content_pack.get('pain_point', '')}\n\n{steps}\n\n{cta}\n\n{hashtag_str}"
         caption = smart_truncate(raw, max_caption)
 
     else:
-        # Default: Universal Caption Template from spec
-        try:
-            caption = UNIVERSAL_CAPTION_TEMPLATE.format(
-                location=content_pack.get("location", "Chicago"),
-                season=content_pack.get("season", _get_current_season()),
-                pain_point=content_pack.get("pain_point", ""),
-                season_emoji=_season_emoji(),
-                audience_1=content_pack.get("audience_1", "Busy people"),
-                audience_2=content_pack.get("audience_2", "Beginners"),
-                audience_3=content_pack.get("audience_3", "Health seekers"),
-                product_solution=content_pack.get("title", "This"),
-                step_1=content_pack.get("step_1", "Start here"),
-                step_2=content_pack.get("step_2", "Follow through"),
-                result=content_pack.get("result", "Amazing results"),
-                micro_keywords=content_pack.get("micro_keywords", ""),
-                hashtags=hashtag_str,
-            )
-        except (KeyError, IndexError):
-            caption = SIMPLE_CAPTION_TEMPLATE.format(
-                hook=hook,
-                pain_point=content_pack.get("pain_point", ""),
-                solution_steps=content_pack.get("solution_steps", ""),
-                cta=cta,
-                hashtags=hashtag_str,
-            )
-        caption = smart_truncate(caption, max_caption)
+        # Default: Compose from LLM-generated fields (clean, no hardcoded placeholders)
+        pain = content_pack.get("pain_point", "")
+        steps = content_pack.get("solution_steps", "")
+        if isinstance(steps, list):
+            steps = "\n".join(str(s) for s in steps)
+        parts = [p for p in [hook, pain, steps, cta] if p and str(p).strip()]
+        raw = "\n\n".join(str(p) for p in parts)
+        if hashtag_str:
+            raw += f"\n\n{hashtag_str}"
+        caption = smart_truncate(raw, max_caption)
 
     # ── Title truncation (if channel has title limit) ──
     if max_title > 0:

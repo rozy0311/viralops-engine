@@ -5,6 +5,7 @@ from agents.content_factory import (
     generate_content_pack,
     smart_truncate,
     adapt_for_platform,
+    extract_relevant_answer,
 )
 
 
@@ -70,3 +71,139 @@ class TestContentFactory:
         result = adapt_for_platform(pack, "twitter")
         assert result["hashtag_count"] <= 3
         assert result["char_count"] <= 280
+
+
+class TestExtractRelevantAnswer:
+    """Test extract_relevant_answer handles both str and list inputs gracefully."""
+
+    def test_string_passthrough(self):
+        assert extract_relevant_answer("Hello world") == "Hello world"
+
+    def test_empty_string(self):
+        assert extract_relevant_answer("") == ""
+
+    def test_none_passthrough(self):
+        assert extract_relevant_answer(None) is None
+
+    def test_strips_preamble(self):
+        result = extract_relevant_answer("Sure! Here's the answer.\n\nActual content here.")
+        assert "Sure" not in result
+        assert "Actual content here" in result
+
+
+class TestAdaptForPlatformLLMContent:
+    """Test that adapt_for_platform uses LLM-generated fields cleanly (no template garbage)."""
+
+    @pytest.fixture
+    def llm_content_pack(self):
+        """Simulates a real Gemini-generated content_pack."""
+        return {
+            "title": "Eco-Home Transformation: Your Ultimate Sustainable Guide",
+            "body": "Full article body with many paragraphs...",
+            "hook": "Your home is silently draining your wallet AND the planet.",
+            "pain_point": "Many feel overwhelmed by sustainable living, thinking it's expensive.",
+            "solution_steps": [
+                "Conduct a home eco-audit",
+                "Implement energy-saving hacks",
+                "Master waste reduction",
+            ],
+            "step_1": "Conduct a home eco-audit",
+            "step_2": "Implement energy-saving hacks",
+            "result": "30% reduction in utility bills",
+            "cta": "Save this guide and start your eco-journey today!",
+            "micro_keywords": "sustainable living • eco-friendly home • green tips",
+            "hashtags": ["#EcoHome", "#SustainableLiving", "#GreenLiving", "#ZeroWaste", "#EcoFriendly"],
+            "_generated_by": "gemini/gemini-2.5-flash",
+        }
+
+    def test_tiktok_no_hardcoded_location(self, llm_content_pack):
+        """TikTok caption must NOT contain [Chicago], [Winter], or other hardcoded template text."""
+        result = adapt_for_platform(llm_content_pack, "tiktok")
+        caption = result["caption"]
+        assert "[Chicago]" not in caption
+        assert "[Winter]" not in caption
+        assert "Busy people?" not in caption
+        assert "Beginners?" not in caption
+        assert "Health seekers?" not in caption
+
+    def test_tiktok_uses_hook(self, llm_content_pack):
+        """TikTok caption should start with the LLM-generated hook."""
+        result = adapt_for_platform(llm_content_pack, "tiktok")
+        assert result["caption"].startswith("Your home is silently")
+
+    def test_tiktok_includes_pain_and_cta(self, llm_content_pack):
+        """TikTok caption should include pain_point and CTA."""
+        result = adapt_for_platform(llm_content_pack, "tiktok")
+        caption = result["caption"]
+        assert "overwhelmed" in caption
+        assert "eco-journey" in caption or "Save" in caption
+
+    def test_tiktok_includes_hashtags(self, llm_content_pack):
+        """TikTok caption should include hashtags."""
+        result = adapt_for_platform(llm_content_pack, "tiktok")
+        assert "#EcoHome" in result["caption"]
+
+    def test_tiktok_handles_list_solution_steps(self, llm_content_pack):
+        """TikTok should handle solution_steps as a list (Gemini returns arrays)."""
+        result = adapt_for_platform(llm_content_pack, "tiktok")
+        caption = result["caption"]
+        assert "eco-audit" in caption or "energy-saving" in caption
+
+    def test_instagram_same_as_tiktok(self, llm_content_pack):
+        """Instagram should use the same branch as TikTok (explicit, not fallback)."""
+        result = adapt_for_platform(llm_content_pack, "instagram")
+        caption = result["caption"]
+        assert "[Chicago]" not in caption
+        assert "Your home is silently" in caption
+
+    def test_pinterest_uses_solution_steps(self, llm_content_pack):
+        """Pinterest should use solution_steps, not empty step_1/step_2."""
+        result = adapt_for_platform(llm_content_pack, "pinterest")
+        caption = result["caption"]
+        assert "eco-audit" in caption
+        assert result["char_count"] > 50
+
+    def test_pinterest_within_limit(self, llm_content_pack):
+        """Pinterest caption must stay within 500 char limit."""
+        result = adapt_for_platform(llm_content_pack, "pinterest")
+        assert result["within_limit"]
+
+    def test_pinterest_fallback_to_step_fields(self):
+        """Pinterest should use step_1/step_2 when solution_steps is missing."""
+        pack = {
+            "title": "Test",
+            "hook": "Test hook",
+            "step_1": "Do thing one",
+            "step_2": "Do thing two",
+            "hashtags": ["#test"],
+        }
+        result = adapt_for_platform(pack, "pinterest")
+        caption = result["caption"]
+        assert "thing one" in caption or "thing two" in caption
+
+    def test_facebook_no_template_garbage(self, llm_content_pack):
+        """Facebook should use same clean branch as TikTok."""
+        result = adapt_for_platform(llm_content_pack, "facebook")
+        assert "[Chicago]" not in result["caption"]
+        assert "Your home is silently" in result["caption"]
+
+    def test_threads_no_template_garbage(self, llm_content_pack):
+        """Threads should use same clean branch as TikTok."""
+        result = adapt_for_platform(llm_content_pack, "threads")
+        assert "[Chicago]" not in result["caption"]
+
+    def test_default_fallback_no_template(self):
+        """Unknown platforms should also use clean composition, not UNIVERSAL_CAPTION_TEMPLATE."""
+        pack = {
+            "title": "Test",
+            "hook": "Attention grabbing hook",
+            "pain_point": "The problem is real",
+            "solution_steps": "Step 1, step 2, step 3",
+            "cta": "Follow for more",
+            "hashtags": ["#test"],
+        }
+        result = adapt_for_platform(pack, "unknown_platform")
+        caption = result["caption"]
+        assert "[Chicago]" not in caption
+        assert "Busy people?" not in caption
+        assert "Attention grabbing hook" in caption
