@@ -49,8 +49,11 @@ def temp_media_dir(tmp_path, monkeypatch):
 
 @pytest.fixture
 def sample_image(tmp_path):
-    """Create a minimal test image file."""
-    from PIL import Image
+    """Create a minimal test image file (skips if Pillow not installed)."""
+    try:
+        from PIL import Image
+    except ImportError:
+        pytest.skip("Pillow (PIL) not installed")
     img = Image.new("RGB", (200, 200), color="blue")
     path = str(tmp_path / "test_image.jpg")
     img.save(path, "JPEG")

@@ -902,5 +902,515 @@
       "#zerowaste",
       "#sustainableliving"
     ]
+  },
+  "sustainable_living": {
+    "broad": [
+      "#SustainableLiving",
+      "#EcoFriendly"
+    ],
+    "local": [
+      "#EcoUSA",
+      "#GreenCityLife"
+    ],
+    "micro1": [
+      "#ZeroWasteBeginner"
+    ],
+    "micro2": [
+      "#EcoMinimalist"
+    ],
+    "micro3": [
+      "#GreenHomeOwner"
+    ],
+    "creator": [
+      "#EcoCreator",
+      "#SustainableUGC"
+    ],
+    "trend": [
+      "#EcoLiving2026",
+      "#GreenLife2026"
+    ],
+    "highest_search": [
+      "#sustainableliving",
+      "#zerowaste",
+      "#ecofriendly",
+      "#greenlifestyle",
+      "#sustainability"
+    ]
+  },
+  "fitness": {
+    "broad": [
+      "#Fitness",
+      "#Workout"
+    ],
+    "local": [
+      "#GymLife",
+      "#HomeFitness"
+    ],
+    "micro1": [
+      "#BeginnerFitness"
+    ],
+    "micro2": [
+      "#BusyMomWorkout"
+    ],
+    "micro3": [
+      "#Over40Fitness"
+    ],
+    "creator": [
+      "#FitnessCreator",
+      "#WorkoutUGC"
+    ],
+    "trend": [
+      "#FitLife2026",
+      "#HomeGym2026"
+    ],
+    "highest_search": [
+      "#fitness",
+      "#workout",
+      "#fitnessmotivation",
+      "#homeworkout",
+      "#gymlife"
+    ]
+  },
+  "personal_finance": {
+    "broad": [
+      "#PersonalFinance",
+      "#MoneyTips"
+    ],
+    "local": [
+      "#BudgetUSA",
+      "#FinancialFreedom"
+    ],
+    "micro1": [
+      "#DebtFreeJourney"
+    ],
+    "micro2": [
+      "#SavingsChallenge"
+    ],
+    "micro3": [
+      "#SideHustleTips"
+    ],
+    "creator": [
+      "#FinanceCreator",
+      "#MoneyUGC"
+    ],
+    "trend": [
+      "#MoneyMoves2026",
+      "#FinTips2026"
+    ],
+    "highest_search": [
+      "#personalfinance",
+      "#moneytips",
+      "#budgeting",
+      "#investing",
+      "#financialfreedom"
+    ]
+  },
+  "skincare": {
+    "broad": [
+      "#Skincare",
+      "#SkincareTips"
+    ],
+    "local": [
+      "#KBeauty",
+      "#CleanBeauty"
+    ],
+    "micro1": [
+      "#AcneSkincare"
+    ],
+    "micro2": [
+      "#SensitiveSkin"
+    ],
+    "micro3": [
+      "#AntiAgingSkincare"
+    ],
+    "creator": [
+      "#SkincareCreator",
+      "#BeautyUGC"
+    ],
+    "trend": [
+      "#GlassSkin2026",
+      "#SkincareRoutine2026"
+    ],
+    "highest_search": [
+      "#skincare",
+      "#skincareroutine",
+      "#glowingskin",
+      "#cleanbeauty",
+      "#skincaretips"
+    ]
+  },
+  "home_decor": {
+    "broad": [
+      "#HomeDecor",
+      "#InteriorDesign"
+    ],
+    "local": [
+      "#SmallSpaceLiving",
+      "#ApartmentDecor"
+    ],
+    "micro1": [
+      "#BudgetDecor"
+    ],
+    "micro2": [
+      "#MinimalistHome"
+    ],
+    "micro3": [
+      "#RenterFriendly"
+    ],
+    "creator": [
+      "#DecorCreator",
+      "#HomeUGC"
+    ],
+    "trend": [
+      "#HomeTrends2026",
+      "#CozyHome2026"
+    ],
+    "highest_search": [
+      "#homedecor",
+      "#interiordesign",
+      "#homedesign",
+      "#minimalistdecor",
+      "#cozyhome"
+    ]
+  },
+  "cooking": {
+    "broad": [
+      "#Cooking",
+      "#HomeCooking"
+    ],
+    "local": [
+      "#MealPrep",
+      "#QuickRecipes"
+    ],
+    "micro1": [
+      "#WeekdayMeals"
+    ],
+    "micro2": [
+      "#HealthyCooking"
+    ],
+    "micro3": [
+      "#CollegeFoodHacks"
+    ],
+    "creator": [
+      "#FoodCreator",
+      "#RecipeUGC"
+    ],
+    "trend": [
+      "#FoodTok2026",
+      "#QuickMeals2026"
+    ],
+    "highest_search": [
+      "#cooking",
+      "#recipe",
+      "#homecooking",
+      "#mealprep",
+      "#easyrecipes"
+    ]
+  },
+  "productivity": {
+    "broad": [
+      "#Productivity",
+      "#TimeManagement"
+    ],
+    "local": [
+      "#RemoteWork",
+      "#WFHLife"
+    ],
+    "micro1": [
+      "#StudyTips"
+    ],
+    "micro2": [
+      "#WorkLifeBalance"
+    ],
+    "micro3": [
+      "#MorningRoutine"
+    ],
+    "creator": [
+      "#ProductivityCreator",
+      "#LifeHackUGC"
+    ],
+    "trend": [
+      "#ProductiveLife2026",
+      "#DeepWork2026"
+    ],
+    "highest_search": [
+      "#productivity",
+      "#timemanagement",
+      "#motivation",
+      "#habits",
+      "#selfimprovement"
+    ]
+  },
+  "tech_gadgets": {
+    "broad": [
+      "#Tech",
+      "#Gadgets"
+    ],
+    "local": [
+      "#TechReview",
+      "#TechDeals"
+    ],
+    "micro1": [
+      "#BudgetTech"
+    ],
+    "micro2": [
+      "#SmartHome"
+    ],
+    "micro3": [
+      "#TechForCreators"
+    ],
+    "creator": [
+      "#TechCreator",
+      "#GadgetUGC"
+    ],
+    "trend": [
+      "#TechTrends2026",
+      "#AIGadgets2026"
+    ],
+    "highest_search": [
+      "#tech",
+      "#gadgets",
+      "#techreview",
+      "#smarthome",
+      "#technology"
+    ]
+  },
+  "mental_health": {
+    "broad": [
+      "#MentalHealth",
+      "#SelfCare"
+    ],
+    "local": [
+      "#TherapyTalk",
+      "#MindfulLiving"
+    ],
+    "micro1": [
+      "#AnxietyRelief"
+    ],
+    "micro2": [
+      "#Mindfulness"
+    ],
+    "micro3": [
+      "#BurnoutRecovery"
+    ],
+    "creator": [
+      "#MentalHealthCreator",
+      "#WellnessUGC"
+    ],
+    "trend": [
+      "#MentalHealth2026",
+      "#Healing2026"
+    ],
+    "highest_search": [
+      "#mentalhealth",
+      "#selfcare",
+      "#mindfulness",
+      "#anxiety",
+      "#wellness"
+    ]
+  },
+  "parenting": {
+    "broad": [
+      "#Parenting",
+      "#MomLife"
+    ],
+    "local": [
+      "#NewMom",
+      "#DadLife"
+    ],
+    "micro1": [
+      "#ToddlerMom"
+    ],
+    "micro2": [
+      "#WorkingMom"
+    ],
+    "micro3": [
+      "#FirstTimeMom"
+    ],
+    "creator": [
+      "#ParentingCreator",
+      "#MomUGC"
+    ],
+    "trend": [
+      "#MomTok2026",
+      "#ParentHacks2026"
+    ],
+    "highest_search": [
+      "#parenting",
+      "#momlife",
+      "#motherhood",
+      "#dadlife",
+      "#parentingtips"
+    ]
+  },
+  "travel": {
+    "broad": [
+      "#Travel",
+      "#Wanderlust"
+    ],
+    "local": [
+      "#BudgetTravel",
+      "#SoloTravel"
+    ],
+    "micro1": [
+      "#TravelHacks"
+    ],
+    "micro2": [
+      "#DigitalNomad"
+    ],
+    "micro3": [
+      "#WeekendGetaway"
+    ],
+    "creator": [
+      "#TravelCreator",
+      "#TravelUGC"
+    ],
+    "trend": [
+      "#TravelTrends2026",
+      "#HiddenGems2026"
+    ],
+    "highest_search": [
+      "#travel",
+      "#wanderlust",
+      "#travelgram",
+      "#explore",
+      "#vacation"
+    ]
+  },
+  "pet_care": {
+    "broad": [
+      "#Pets",
+      "#DogMom"
+    ],
+    "local": [
+      "#PetParent",
+      "#CatLife"
+    ],
+    "micro1": [
+      "#PetHealth"
+    ],
+    "micro2": [
+      "#DogTraining"
+    ],
+    "micro3": [
+      "#PetAdoption"
+    ],
+    "creator": [
+      "#PetCreator",
+      "#PetUGC"
+    ],
+    "trend": [
+      "#PetTok2026",
+      "#PetWellness2026"
+    ],
+    "highest_search": [
+      "#pets",
+      "#dogmom",
+      "#catmom",
+      "#petcare",
+      "#doglovers"
+    ]
+  },
+  "fashion": {
+    "broad": [
+      "#Fashion",
+      "#OOTD"
+    ],
+    "local": [
+      "#StreetStyle",
+      "#ThriftFinds"
+    ],
+    "micro1": [
+      "#BudgetFashion"
+    ],
+    "micro2": [
+      "#SustainableFashion"
+    ],
+    "micro3": [
+      "#PlusSizeFashion"
+    ],
+    "creator": [
+      "#FashionCreator",
+      "#StyleUGC"
+    ],
+    "trend": [
+      "#FashionTrends2026",
+      "#StyleInspo2026"
+    ],
+    "highest_search": [
+      "#fashion",
+      "#ootd",
+      "#style",
+      "#fashioninspo",
+      "#outfitideas"
+    ]
+  },
+  "diy_crafts": {
+    "broad": [
+      "#DIY",
+      "#Crafts"
+    ],
+    "local": [
+      "#HandmadeWithLove",
+      "#UpcycleIt"
+    ],
+    "micro1": [
+      "#BudgetDIY"
+    ],
+    "micro2": [
+      "#HomeImprovement"
+    ],
+    "micro3": [
+      "#BeginnerDIY"
+    ],
+    "creator": [
+      "#DIYCreator",
+      "#CraftUGC"
+    ],
+    "trend": [
+      "#DIYTrends2026",
+      "#MakerLife2026"
+    ],
+    "highest_search": [
+      "#diy",
+      "#crafts",
+      "#handmade",
+      "#diyprojects",
+      "#homediy"
+    ]
+  },
+  "small_business": {
+    "broad": [
+      "#SmallBusiness",
+      "#Entrepreneur"
+    ],
+    "local": [
+      "#ShopSmall",
+      "#SupportLocal"
+    ],
+    "micro1": [
+      "#EtsySeller"
+    ],
+    "micro2": [
+      "#SideHustle"
+    ],
+    "micro3": [
+      "#FreelancerLife"
+    ],
+    "creator": [
+      "#BusinessCreator",
+      "#EntrepreneurUGC"
+    ],
+    "trend": [
+      "#SmallBiz2026",
+      "#StartupLife2026"
+    ],
+    "highest_search": [
+      "#smallbusiness",
+      "#entrepreneur",
+      "#shopsmall",
+      "#businessowner",
+      "#startup"
+    ]
   }
 }
