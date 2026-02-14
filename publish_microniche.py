@@ -237,6 +237,142 @@ PRE_WRITTEN_PACKS = [
     },
 ]
 
+# ── Niche Hunter Top-Scored Packs (score 8.0+) ──
+# Generated from niche_hunter.py 4-axis scoring system
+NICHE_HUNTER_PACKS = [
+    {
+        "title": "How to Grow Mushrooms in a Dark Apartment — Zero Sunlight Needed",
+        "pain_point": "No sunlight apartment — can you still grow food?",
+        "audiences": ["Apartment dwellers", "Budget growers", "Beginners"],
+        "steps": [
+            "Get a mushroom grow kit (oyster or shiitake) — $15-20",
+            "Place in closet or under sink — mist 2x/day, harvest in 10-14 days",
+        ],
+        "result": "Fresh mushrooms every 2 weeks from a dark closet",
+        "hashtags": ["#mushroomgrowing", "#apartmentgarden", "#noSunlight", "#urbanfarming", "#growyourown"],
+        "image_title": "Grow Mushrooms — No Sun",
+        "image_subtitle": "Apartment Closet Farm",
+        "image_steps": "Kit • Mist • Harvest",
+        "colors": ((60, 40, 30), (140, 100, 70)),
+        "_niche_score": 8.50,
+    },
+    {
+        "title": "AI Content Flooding TikTok — 3 Free Tools to Detect Fake Posts",
+        "pain_point": "Can't tell if what you're watching is AI-generated?",
+        "audiences": ["Content creators", "Digital literacy", "Skeptical viewers"],
+        "steps": [
+            "Use Pangram (pangram.com) — paste text or upload image for AI detection",
+            "Cross-check with GPTZero + Originality.ai free tiers",
+        ],
+        "result": "Spot AI-generated content in seconds — protect your feed",
+        "hashtags": ["#AIdetection", "#fakenews", "#medialiteracy", "#TikTokTips", "#AIfact"],
+        "image_title": "Detect AI Content",
+        "image_subtitle": "3 Free Tools",
+        "image_steps": "Paste • Scan • Verify",
+        "colors": ((30, 40, 80), (60, 90, 180)),
+        "_niche_score": 8.40,
+    },
+    {
+        "title": "Grow Microgreens on Your Windowsill — Just a Tray and 5 Days",
+        "pain_point": "Want to grow food but no garden, no space?",
+        "audiences": ["Apartment renters", "Health-conscious", "Beginners"],
+        "steps": [
+            "Fill a shallow tray with 1 inch of soil, scatter seeds (broccoli/radish/sunflower)",
+            "Mist daily, cover 2 days → uncover at window → harvest day 7-10",
+        ],
+        "result": "Nutrient-dense microgreens (40x more nutrients than mature plants)",
+        "hashtags": ["#microgreens", "#windowgarden", "#growyourown", "#healthyfood", "#urbangarden"],
+        "image_title": "Windowsill Microgreens",
+        "image_subtitle": "5-Day Harvest",
+        "image_steps": "Sow • Mist • Harvest",
+        "colors": ((20, 70, 30), (50, 160, 70)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Grow Potatoes in a 5-Gallon Bucket — 25 lbs From Your Patio",
+        "pain_point": "Food prices insane but zero garden space?",
+        "audiences": ["Budget families", "Patio gardeners", "Survival skills"],
+        "steps": [
+            "Drill holes in bottom of 5-gallon bucket, fill 4 inches soil + 1 seed potato",
+            "As sprouts grow, keep adding soil/straw to cover stems — harvest when plant dies back",
+        ],
+        "result": "Up to 25 lbs of potatoes from one bucket — $3 investment",
+        "hashtags": ["#bucketgarden", "#growpotatoes", "#urbanfarming", "#foodsecurity", "#DIYgarden"],
+        "image_title": "Potatoes in a Bucket",
+        "image_subtitle": "25 lbs for $3",
+        "image_steps": "Drill • Plant • Hill • Harvest",
+        "colors": ((80, 60, 30), (170, 130, 60)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Homesteading in a 500sqft Apartment — The Starter Kit You Already Own",
+        "pain_point": "Want to homestead but live in a tiny apartment?",
+        "audiences": ["Urban beginners", "Small-space livers", "Budget homesteaders"],
+        "steps": [
+            "Start 3 things TODAY: windowsill herbs (basil, mint), countertop composting (bokashi), sprout jar",
+            "Week 2: add mushroom kit under sink + fermentation jar (sauerkraut)",
+        ],
+        "result": "5 homesteading skills running in 500sqft — zero yard needed",
+        "hashtags": ["#urbanhomesteading", "#apartmentgarden", "#smallspace", "#composting", "#sprouts"],
+        "image_title": "500sqft Homestead",
+        "image_subtitle": "Apartment Starter Kit",
+        "image_steps": "Herbs • Compost • Sprout • Ferment",
+        "colors": ((40, 70, 40), (80, 150, 80)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Nut Butter Too Expensive? Make Seed Butter for $2 in 3 Minutes",
+        "pain_point": "Nut butter costs $8-12 per jar and you eat it daily?",
+        "audiences": ["Budget vegans", "Nut-free families", "Meal preppers"],
+        "steps": [
+            "Roast 2 cups sunflower or pumpkin seeds (10 min at 350°F)",
+            "Blend in food processor 3-5 min until creamy — add salt + honey optional",
+        ],
+        "result": "$2 homemade seed butter that tastes better than store-bought",
+        "hashtags": ["#seedbutter", "#nutfree", "#budgetvegan", "#plantbased", "#mealprep"],
+        "image_title": "Seed Butter for $2",
+        "image_subtitle": "3-Minute Recipe",
+        "image_steps": "Roast • Blend • Spread",
+        "colors": ((100, 70, 20), (190, 140, 50)),
+        "_niche_score": 8.25,
+    },
+    {
+        "title": "Best AI App to Diagnose Sick Plants From a Photo — Free & Instant",
+        "pain_point": "Plants keep dying and you don't know why?",
+        "audiences": ["Plant parents", "Beginner gardeners", "Tech-curious"],
+        "steps": [
+            "Download PictureThis or Google Lens — snap a photo of the sick leaf",
+            "AI identifies disease + gives treatment steps in 5 seconds",
+        ],
+        "result": "Save your plants with AI diagnosis — no gardening degree needed",
+        "hashtags": ["#AIgardening", "#plantcare", "#plantdisease", "#techgarden", "#houseplants"],
+        "image_title": "AI Plant Doctor",
+        "image_subtitle": "Free Photo Diagnosis",
+        "image_steps": "Snap • Scan • Treat",
+        "colors": ((20, 80, 60), (40, 170, 130)),
+        "_niche_score": 8.15,
+    },
+    {
+        "title": "Compost on a Tiny Balcony Without Smell — Bokashi Method Explained",
+        "pain_point": "Neighbors already complaining about your compost smell?",
+        "audiences": ["Apartment composters", "Balcony gardeners", "Zero-waste beginners"],
+        "steps": [
+            "Get a bokashi bin ($20-30) — add food scraps + sprinkle bokashi bran after each layer",
+            "Seal tight, drain liquid every 2 days (use as plant fertilizer), bury soil after 2 weeks",
+        ],
+        "result": "Zero-smell composting on ANY balcony — fermentation not rotting",
+        "hashtags": ["#bokashi", "#composting", "#balconygarden", "#zerowaste", "#urbanfarming"],
+        "image_title": "Balcony Composting",
+        "image_subtitle": "Zero Smell — Bokashi",
+        "image_steps": "Layer • Seal • Drain • Bury",
+        "colors": ((50, 80, 30), (100, 160, 60)),
+        "_niche_score": 8.15,
+    },
+]
+
+# Combine all packs
+ALL_PACKS = PRE_WRITTEN_PACKS + NICHE_HUNTER_PACKS
+
 
 # ═══════════════════════════════════════════════════════════════
 # Gemini prompt template for generating NEW micro-niche content
@@ -442,22 +578,34 @@ def get_content_pack(mode: str = "auto") -> dict:
     Get a content pack.
     mode='prewritten' → pick from pre-written packs
     mode='gemini' → generate new with Gemini
-    mode='niche_hunter' → use Micro-Niche Hunter scored questions
-    mode='pain_point' → use pain-point questions (urgent answers)
-    mode='auto' → weighted random (40% prewritten, 30% gemini, 20% niche_hunter, 10% pain_point)
+    mode='niche_hunter' → use Micro-Niche Hunter scored questions (needs Gemini)
+    mode='pain_point' → use pain-point questions (needs Gemini)
+    mode='hunter_prewritten' → use pre-written packs from niche_hunter scores (NO Gemini needed)
+    mode='auto' → weighted random (30% prewritten, 25% hunter_prewritten, 25% gemini, 15% niche_hunter, 5% pain_point)
     """
     if mode == "auto":
         mode = random.choices(
-            ["prewritten", "gemini", "niche_hunter", "pain_point"],
-            weights=[40, 30, 20, 10],
+            ["prewritten", "hunter_prewritten", "gemini", "niche_hunter", "pain_point"],
+            weights=[30, 25, 25, 15, 5],
             k=1,
         )[0]
 
     location = random.choice(LOCATIONS)
     season = random.choice(SEASONS)
 
+    if mode == "hunter_prewritten":
+        # Pick from niche_hunter scored packs — sorted by score descending
+        sorted_packs = sorted(NICHE_HUNTER_PACKS, key=lambda p: p.get("_niche_score", 0), reverse=True)
+        pack = random.choice(sorted_packs[:5])  # Top 5 scored
+        pack["_location"] = location
+        pack["_season"] = season
+        pack["_source"] = "hunter_prewritten"
+        print(f"  Mode: Niche Hunter Pre-written (score={pack.get('_niche_score', 'N/A')})")
+        print(f"  Title: {pack['title']}")
+        return pack
+
     if mode == "prewritten":
-        pack = random.choice(PRE_WRITTEN_PACKS)
+        pack = random.choice(ALL_PACKS)  # Now includes niche_hunter packs too
         pack["_location"] = location
         pack["_season"] = season
         pack["_source"] = "prewritten"
