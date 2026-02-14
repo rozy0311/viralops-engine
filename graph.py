@@ -205,8 +205,8 @@ def publish_node(state: ViralOpsState) -> ViralOpsState:
                 entry["detail"] = "Draft mode — saved locally"
             elif publish_mode == "scheduled":
                 # Use the scheduler to queue for later
-                from core.scheduler import Scheduler
-                scheduler = Scheduler()
+                from core.scheduler import PublishScheduler
+                scheduler = PublishScheduler()
                 adapted = content_pack.get("adapted", {}).get(platform, {})
                 scheduler.schedule(
                     platform=platform,
@@ -217,8 +217,8 @@ def publish_node(state: ViralOpsState) -> ViralOpsState:
                 entry["detail"] = "Scheduled via Scheduler"
             else:
                 # Immediate — attempt real publishing
-                from core.scheduler import Scheduler
-                scheduler = Scheduler()
+                from core.scheduler import PublishScheduler
+                scheduler = PublishScheduler()
                 adapted = content_pack.get("adapted", {}).get(platform, {})
                 result = scheduler.publish_now(
                     platform=platform,

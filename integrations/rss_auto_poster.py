@@ -320,7 +320,7 @@ def _build_post_content(entry: dict, config: dict) -> dict:
     hashtags = []
     if config.get("include_hashtags", True):
         try:
-            from agents.matrix_5layer import generate_micro_niche_5
+            from hashtags.matrix_5layer import generate_micro_niche_5
             niche = config.get("niche", "sustainable-living")
             topic_keywords = [w for w in title.lower().replace("-", " ").split() if len(w) > 3]
             hashtag_result = generate_micro_niche_5(

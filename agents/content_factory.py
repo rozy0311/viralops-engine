@@ -284,48 +284,6 @@ def get_token_usage() -> dict:
     return dict(_token_usage)
 
 
-# ── Platform specs ──
-PLATFORM_SPECS = {
-    "tiktok":    {"max_caption": 2200, "max_hashtags": 8,  "style": "casual, viral, hook-first"},
-    "instagram": {"max_caption": 2200, "max_hashtags": 30, "style": "visual, lifestyle, aspirational"},
-    "facebook":  {"max_caption": 5000, "max_hashtags": 10, "style": "conversational, community"},
-    "youtube":   {"max_caption": 5000, "max_hashtags": 15, "style": "informative, SEO-optimized"},
-    "pinterest": {"max_caption": 500,  "max_hashtags": 20, "style": "inspirational, how-to, searchable"},
-    "linkedin":  {"max_caption": 3000, "max_hashtags": 5,  "style": "professional, thought-leadership"},
-    "twitter":   {"max_caption": 280,  "max_hashtags": 3,  "style": "punchy, news-like, threaded"},
-    "reddit":    {"max_caption": 40000,"max_hashtags": 0,  "style": "authentic, community-first, no-promotion"},
-    "medium":    {"max_caption": 50000,"max_hashtags": 5,  "style": "long-form, editorial, structured"},
-    "tumblr":    {"max_caption": 50000,"max_hashtags": 30, "style": "creative, personal, aesthetic"},
-    "shopify_blog": {"max_caption": 50000, "max_hashtags": 0, "style": "SEO, product-focused, educational"},
-}
-
-# ── Universal Caption Template (from Micro Niche Blogs spec) ──
-# Formula: [LOCATION] [SEASON] [PAIN POINT] → [AUDIENCE 1-3]? → [PRODUCT/SOLUTION] 3 steps → CTA → Micro keywords → Hashtags
-UNIVERSAL_CAPTION_TEMPLATE = """[{location}] [{season}] {pain_point} {season_emoji}
-{audience_1}? {audience_2}? {audience_3}?
-
-{product_solution} in 3 minutes:
-• Step 1: {step_1}
-• Step 2: {step_2}
-• Result: {result}
-
-Full tutorial pinned on my profile! 👇
-
-Micro keywords: {micro_keywords}
-
-{hashtags}""".strip()
-
-# Simpler fallback template when not all fields available
-SIMPLE_CAPTION_TEMPLATE = """{hook}
-
-{pain_point}
-
-{solution_steps}
-
-{cta}
-
-{hashtags}""".strip()
-
 
 def _load_caption_templates() -> dict:
     """Load caption_templates.json for template-based generation."""
@@ -1043,27 +1001,4 @@ def adapt_for_platform(content_pack: dict, platform: str) -> dict:
     return result
 
 
-def _get_current_season() -> str:
-    """Get current season name."""
-    month = datetime.now().month
-    if month in (3, 4, 5):
-        return "Spring"
-    elif month in (6, 7, 8):
-        return "Summer"
-    elif month in (9, 10, 11):
-        return "Fall"
-    else:
-        return "Winter"
 
-
-def _season_emoji() -> str:
-    """Get emoji for current season."""
-    month = datetime.now().month
-    if month in (3, 4, 5):
-        return "🌱"
-    elif month in (6, 7, 8):
-        return "☀️"
-    elif month in (9, 10, 11):
-        return "🍂"
-    else:
-        return "❄️"
