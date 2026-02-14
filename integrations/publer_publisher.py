@@ -557,8 +557,13 @@ class PublerPublisher:
                     "id": media_result["id"],
                     "path": media_result.get("path", ""),
                 }]
+                # Detect actual media type (photo vs video) from upload result
+                actual_media_type = media_result.get("type", "")  # "photo" or "video"
                 for net_key in networks_content:
                     networks_content[net_key]["media"] = media_ref
+                    # Update content type if media is photo but default was video
+                    if actual_media_type == "photo" and networks_content[net_key].get("type") == "video":
+                        networks_content[net_key]["type"] = "photo"
 
         # ── Build request body ──
         schedule_at = content.get("schedule_at", "")

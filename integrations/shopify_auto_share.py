@@ -35,6 +35,26 @@ from typing import Any, Optional
 
 logger = logging.getLogger("viralops.shopify_auto_share")
 
+# ── Content Factory + Hashtag Matrix (smart content generation) ──────
+try:
+    from agents.content_factory import (
+        generate_content_pack,
+        adapt_for_platform,
+        smart_truncate,
+        extract_relevant_answer,
+    )
+    _HAS_CONTENT_FACTORY = True
+except ImportError:
+    _HAS_CONTENT_FACTORY = False
+    logger.info("ShopifyAutoShare: content_factory not available — using template fallback")
+
+try:
+    from hashtags.matrix_5layer import generate_micro_niche_5
+    _HAS_HASHTAG_MATRIX = True
+except ImportError:
+    _HAS_HASHTAG_MATRIX = False
+    logger.info("ShopifyAutoShare: hashtag matrix not available — using basic hashtags")
+
 # ── Persistence ──────────────────────────────────────────────
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 SHARE_HISTORY_FILE = os.path.join(DATA_DIR, "shopify_auto_share_history.json")
@@ -305,8 +325,16 @@ class ShopifyAutoShare:
         tags = article.get("tags", [])
         blog = article.get("blog_handle", "")
 
-        # Build hashtags from tags + blog handle
-        hashtags = self._build_hashtags(tags, blog)
+        # ══════ Smart Content Generation (Content Factory + Micro-Niche Hashtags) ══════
+        smart = await self._generate_smart_content(article)
+        hashtags = smart["hashtags"]
+        tiktok_caption = smart["tiktok_caption"]
+        pinterest_caption = smart["pinterest_caption"]
+        logger.info(
+            "ShopifyAutoShare: Smart content for '%s': %d hashtags, caption %d chars (by: %s)",
+            title[:50], len(hashtags), len(tiktok_caption),
+            smart.get("content_pack", {}).get("_generated_by", "template"),
+        )
 
         result = {
             "article_id": article.get("article_id"),
@@ -314,15 +342,13 @@ class ShopifyAutoShare:
             "blog": blog,
             "tiktok": [],
             "pinterest": None,
+            "content_factory_used": smart.get("content_pack", {}).get("_generated_by", "none"),
         }
 
         # Download image to temp file (needed for Publer media upload)
         local_image = ""
         if image:
             local_image = await self._download_image(image)
-
-        # ── TikTok ──
-        tiktok_caption = self._build_tiktok_caption(title, excerpt, url)
 
         if self._publer and self._tiktok_via == "publer" and (image or local_image):
             # ── Route via Publer REST API bridge ──
@@ -403,7 +429,7 @@ class ShopifyAutoShare:
         if pinterest_enabled and self._publer and self._pinterest_via == "publer" and (image or local_image):
             # ── Route via Publer REST API ──
             pin_content = {
-                "caption": self._build_pinterest_description(title, excerpt, tags),
+                "caption": pinterest_caption,
                 "hashtags": hashtags,
                 "platforms": ["pinterest"],
             }
@@ -432,7 +458,7 @@ class ShopifyAutoShare:
             # ── Fallback: direct Pinterest API ──
             pinterest_content = {
                 "title": title[:100],
-                "caption": self._build_pinterest_description(title, excerpt, tags),
+                "caption": pinterest_caption,
                 "image_url": image,
                 "link": url,
             }
@@ -605,24 +631,300 @@ class ShopifyAutoShare:
             return ""
 
     # ════════════════════════════════════════════
-    # Content Transformation
+    # Smart Content Generation (Content Factory + Micro-Niche Hashtags)
+    # ════════════════════════════════════════════
+
+    async def _generate_smart_content(self, article: dict) -> dict:
+        """
+        Transform blog article into platform-optimized social content.
+
+        Pipeline (from Micro Niche Blogs spec + EMADS-PR v1.0):
+          1. If OpenAI available → LLM rewrite via Content Factory (Universal Caption Formula)
+          2. Else → Template-based generation (still way better than raw dump)
+          3. Generate 5 micro-niche hashtags via 7-layer matrix (NOT generic #viral #fyp)
+          4. Adapt per platform: TikTok (2200 chars), Pinterest (500 chars)
+          5. TikTok posts as "draft" — add music in TikTok app before publishing
+
+        Returns:
+            dict with: content_pack, hashtags, tiktok_caption, pinterest_caption
+        """
+        title = article.get("title", "")
+        excerpt = article.get("excerpt", "")
+        body = article.get("body_html", article.get("body", excerpt))
+        url = article.get("url", "")
+        tags = article.get("tags", [])
+        blog = article.get("blog_handle", "")
+
+        topic_keywords = self._extract_topic_keywords(title, tags)
+        niche_key = blog.replace("-", "_") if blog else "sustainable_living"
+
+        content_pack = None
+
+        # ── Step 1: Generate content pack via Content Factory ──
+        if _HAS_CONTENT_FACTORY:
+            try:
+                state = {
+                    "niche_config": {
+                        "display_name": blog.replace("-", " ").title() if blog else "Sustainable Living",
+                        "id": niche_key,
+                    },
+                    "rss_content": {
+                        "title": title,
+                        "body": (body or excerpt or "")[:3000],
+                        "url": url,
+                    },
+                    "niche_key": niche_key,
+                    "target_platform": "tiktok",
+                    "location": os.environ.get("CONTENT_LOCATION", ""),
+                    "budget_remaining_pct": float(
+                        os.environ.get("CONTENT_BUDGET_PCT", "100")
+                    ),
+                }
+                result_state = generate_content_pack(state)
+                content_pack = result_state.get("content_pack")
+                if content_pack:
+                    logger.info(
+                        "ShopifyAutoShare: Content Factory ✅ '%s' (by: %s)",
+                        title[:50],
+                        content_pack.get("_generated_by", "unknown"),
+                    )
+            except Exception as e:
+                logger.warning("ShopifyAutoShare: Content Factory error: %s", e)
+
+        # ── Fallback: template-based content pack (still much better than raw dump) ──
+        if not content_pack:
+            content_pack = self._build_template_content_pack(article)
+
+        # ── Step 2: Generate 5 micro-niche hashtags (NOT broad generic) ──
+        hashtags = []
+        if _HAS_HASHTAG_MATRIX:
+            try:
+                hashtag_result = generate_micro_niche_5(
+                    niche=niche_key,
+                    platform="tiktok",
+                    topic_keywords=topic_keywords,
+                )
+                hashtags = hashtag_result.get("hashtags", [])
+                content_pack["hashtags"] = hashtags
+                logger.info(
+                    "ShopifyAutoShare: Micro-niche hashtags ✅ %s",
+                    hashtags,
+                )
+            except Exception as e:
+                logger.warning("ShopifyAutoShare: Hashtag matrix error: %s", e)
+
+        if not hashtags:
+            hashtags = self._build_hashtags_basic(tags, blog)
+            content_pack["hashtags"] = hashtags
+
+        # ── Step 3: Adapt for each platform ──
+        tiktok_caption = ""
+        pinterest_caption = ""
+
+        if _HAS_CONTENT_FACTORY:
+            try:
+                tiktok_adapted = adapt_for_platform(content_pack, "tiktok")
+                tiktok_caption = tiktok_adapted.get("caption", "")
+            except Exception as e:
+                logger.warning("ShopifyAutoShare: TikTok adaptation error: %s", e)
+
+            try:
+                pinterest_adapted = adapt_for_platform(content_pack, "pinterest")
+                pinterest_caption = pinterest_adapted.get("caption", "")
+            except Exception as e:
+                logger.warning("ShopifyAutoShare: Pinterest adaptation error: %s", e)
+
+        # Fallback captions if adaptation failed
+        if not tiktok_caption:
+            tiktok_caption = self._build_tiktok_caption_from_pack(content_pack)
+        if not pinterest_caption:
+            pinterest_caption = self._build_pinterest_description(
+                title, excerpt, tags
+            )
+
+        return {
+            "content_pack": content_pack,
+            "hashtags": hashtags,
+            "tiktok_caption": tiktok_caption,
+            "pinterest_caption": pinterest_caption,
+        }
+
+    @staticmethod
+    def _extract_topic_keywords(title: str, tags: list[str]) -> list[str]:
+        """Extract topic keywords from article title + tags for hashtag matching."""
+        keywords = []
+        # From tags
+        for tag in tags[:5]:
+            clean = tag.strip().replace("-", " ")
+            if len(clean) > 3:
+                keywords.append(clean)
+        # From title words (skip short/common words)
+        stop_words = {
+            "the", "and", "for", "with", "from", "your", "how", "why",
+            "what", "this", "that", "are", "can", "will", "best", "top",
+            "ways", "tips", "guide", "easy", "simple", "quick",
+        }
+        for word in title.split():
+            clean = word.strip(".,!?:;\"'()-").lower()
+            if len(clean) > 3 and clean not in stop_words:
+                keywords.append(clean)
+        return keywords[:10]
+
+    @staticmethod
+    def _build_template_content_pack(article: dict) -> dict:
+        """
+        Build content pack from templates when LLM not available.
+        Uses Universal Caption Formula structure (from Micro Niche Blogs spec).
+        Still WAY better than raw text dump.
+        """
+        title = article.get("title", "")
+        excerpt = article.get("excerpt", "")
+        tags = article.get("tags", [])
+        url = article.get("url", "")
+
+        # Build hook from title
+        hook = f"🌿 {title}" if title else "Check this out 👇"
+
+        # Extract sentences for structured content
+        text = excerpt or title
+        sentences = [s.strip() for s in text.split(".") if s.strip() and len(s.strip()) > 10]
+
+        # Pain point
+        pain = sentences[0] + "." if sentences else f"Want to learn about {title}?"
+
+        # Solution steps
+        steps = ""
+        step_1 = ""
+        step_2 = ""
+        result_text = ""
+        if len(sentences) >= 3:
+            step_1 = sentences[0] + "."
+            step_2 = sentences[1] + "."
+            result_text = sentences[2] + "."
+            steps = f"• {step_1}\n• {step_2}\n• Result: {result_text}"
+        elif len(sentences) >= 1:
+            step_1 = sentences[0] + "."
+            steps = f"• {step_1}"
+
+        # Micro keywords from tags
+        micro_keywords = " • ".join(
+            t.strip() for t in tags[:3]
+        ) if tags else title.lower().replace("-", " ")[:50]
+
+        cta = "💾 Save this! Follow @therike for more tips 👇"
+
+        return {
+            "title": title,
+            "hook": hook,
+            "pain_point": pain,
+            "solution_steps": steps,
+            "step_1": step_1,
+            "step_2": step_2,
+            "result": result_text or "Amazing results 🌱",
+            "micro_keywords": micro_keywords,
+            "cta": cta,
+            "body": excerpt,
+            "seo_description": excerpt[:155] if excerpt else title[:155],
+            "image_prompt": f"Professional photo of {title}, 9:16 format",
+            "content_type": "how-to",
+            "hashtags": [],
+            "_generated_by": "template_fallback",
+        }
+
+    @staticmethod
+    def _build_tiktok_caption_from_pack(content_pack: dict) -> str:
+        """
+        Build TikTok caption from content pack using Universal Caption Formula.
+
+        Format (from Micro Niche Blogs spec):
+          🌿 [Hook — scroll-stopping first line]
+
+          [Pain point — why this matters]
+
+          [Solution in steps]
+          • Step 1: ...
+          • Step 2: ...
+          • Result: ...
+
+          [CTA] 👇
+
+          🔑 [Micro keywords]
+          [5 micro-niche hashtags]
+
+        NOTE: TikTok photo posts don't support music via API.
+        Post as draft → open TikTok app → add music → publish.
+        """
+        parts = []
+
+        # Hook (scroll-stopping first line)
+        hook = content_pack.get("hook", content_pack.get("title", ""))
+        if hook:
+            parts.append(hook)
+
+        # Pain point
+        pain = content_pack.get("pain_point", "")
+        if pain:
+            parts.append(pain)
+
+        # Solution steps
+        steps = content_pack.get("solution_steps", "")
+        if steps:
+            parts.append(steps)
+        elif content_pack.get("step_1"):
+            step_block = []
+            if content_pack.get("step_1"):
+                step_block.append(f"• {content_pack['step_1']}")
+            if content_pack.get("step_2"):
+                step_block.append(f"• {content_pack['step_2']}")
+            if content_pack.get("result"):
+                step_block.append(f"• Result: {content_pack['result']}")
+            if step_block:
+                parts.append("\n".join(step_block))
+
+        # CTA
+        cta = content_pack.get("cta", "💾 Save this! Follow for more tips 👇")
+        parts.append(cta)
+
+        # Micro keywords
+        micro = content_pack.get("micro_keywords", "")
+        if micro:
+            parts.append(f"🔑 {micro}")
+
+        # Hashtags
+        hashtags = content_pack.get("hashtags", [])
+        if hashtags:
+            parts.append(" ".join(hashtags[:5]))
+
+        caption = "\n\n".join(parts)
+
+        # Smart truncate to TikTok's 2200 char limit
+        if len(caption) > 2200:
+            if _HAS_CONTENT_FACTORY:
+                caption = smart_truncate(caption, 2200)
+            else:
+                # Cut at last paragraph break within limit
+                caption = caption[:2200].rsplit("\n\n", 1)[0]
+
+        return caption
+
+    # ════════════════════════════════════════════
+    # Content Transformation (legacy fallbacks)
     # ════════════════════════════════════════════
 
     @staticmethod
     def _build_tiktok_caption(
         title: str, excerpt: str, url: str
     ) -> str:
-        """Build TikTok caption from blog article. No links (TikTok doesn't support clickable links)."""
+        """Legacy fallback: Build TikTok caption from raw article data."""
         caption_parts = []
         if title:
-            caption_parts.append(f"📖 {title}")
+            caption_parts.append(f"🌿 {title}")
         if excerpt:
-            # Truncate excerpt to fit TikTok's 2200 char limit
-            max_excerpt = 800
+            max_excerpt = 1200
             if len(excerpt) > max_excerpt:
                 excerpt = excerpt[:max_excerpt].rsplit(" ", 1)[0] + "..."
             caption_parts.append(excerpt)
-        caption_parts.append("🔗 Link in bio")
+        caption_parts.append("💾 Save this for later! Follow for more tips 👇")
         return "\n\n".join(caption_parts)
 
     @staticmethod
@@ -641,7 +943,28 @@ class ShopifyAutoShare:
 
     @staticmethod
     def _build_hashtags(tags: list[str], blog_handle: str) -> list[str]:
-        """Build hashtags from article tags + blog handle."""
+        """
+        Build hashtags — prefers micro-niche matrix, falls back to basic tags.
+        """
+        if _HAS_HASHTAG_MATRIX:
+            try:
+                niche_key = blog_handle.replace("-", "_") if blog_handle else "sustainable_living"
+                topic_keywords = [t.strip() for t in tags[:5] if t.strip()]
+                result = generate_micro_niche_5(
+                    niche=niche_key,
+                    platform="tiktok",
+                    topic_keywords=topic_keywords,
+                )
+                hashtags = result.get("hashtags", [])
+                if hashtags:
+                    return hashtags
+            except Exception:
+                pass
+        return ShopifyAutoShare._build_hashtags_basic(tags, blog_handle)
+
+    @staticmethod
+    def _build_hashtags_basic(tags: list[str], blog_handle: str) -> list[str]:
+        """Basic fallback: Build hashtags from article tags + blog handle."""
         hashtags = []
 
         # From article tags

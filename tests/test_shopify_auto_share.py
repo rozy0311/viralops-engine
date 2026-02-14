@@ -612,9 +612,10 @@ class TestShopifyAutoShare:
         caption = ShopifyAutoShare._build_tiktok_caption(
             "My Title", "This is an excerpt about sustainable living.", "https://therike.com/test"
         )
-        assert "📖 My Title" in caption
+        assert "My Title" in caption
         assert "sustainable living" in caption
-        assert "Link in bio" in caption
+        # Enhanced: uses save CTA instead of link-in-bio
+        assert "Save this" in caption or "tips" in caption
         # No raw URL in TikTok caption
         assert "https://therike.com" not in caption
 
@@ -630,9 +631,9 @@ class TestShopifyAutoShare:
         assert len(desc) <= 500
 
     def test_build_hashtags(self):
-        """Hashtags built from tags + blog handle."""
+        """Hashtags built from tags + blog handle (basic fallback)."""
         from integrations.shopify_auto_share import ShopifyAutoShare
-        tags = ShopifyAutoShare._build_hashtags(
+        tags = ShopifyAutoShare._build_hashtags_basic(
             ["eco living", "green-tech", "nature"], "sustainable-living"
         )
         assert any("ecoliving" in t for t in tags)
