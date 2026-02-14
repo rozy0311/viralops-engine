@@ -18,6 +18,8 @@ logger = logging.getLogger("viralops.engagement")
 class EngagementTracker:
     """Track and analyze engagement across platforms."""
 
+    MAX_PER_PLATFORM = 5_000  # Cap per-platform metrics to prevent OOM
+
     def __init__(self):
         self._metrics: dict[str, list[EngagementMetrics]] = defaultdict(list)
 
@@ -40,12 +42,13 @@ class EngagementTracker:
             likes=likes,
             comments=comments,
             shares=shares,
-            saves=saves,
             views_per_hour=views / max(hours_since_post, 0.1),
-            engagement_rate=(likes + comments + shares) / max(views, 1),
             measured_at=datetime.now(timezone.utc),
         )
         self._metrics[platform].append(metrics)
+        # Trim old entries to prevent OOM
+        if len(self._metrics[platform]) > self.MAX_PER_PLATFORM:
+            self._metrics[platform] = self._metrics[platform][-self.MAX_PER_PLATFORM:]
         return metrics
 
     def get_platform_avg(self, platform: str) -> dict[str, float]:

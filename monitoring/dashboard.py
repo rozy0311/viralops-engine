@@ -6,6 +6,7 @@ Aggregates metrics, account health, and system status.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -28,8 +29,8 @@ class Dashboard:
     ):
         self._kill_switch = kill_switch or KillSwitch()
         self._rate_limiter = rate_limiter or RateLimiter()
-        self._publish_history: list[dict] = []
-        self._error_history: list[dict] = []
+        self._publish_history: deque[dict] = deque(maxlen=10_000)
+        self._error_history: deque[dict] = deque(maxlen=5_000)
 
     def record_publish(
         self,

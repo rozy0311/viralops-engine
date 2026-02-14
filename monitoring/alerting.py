@@ -6,6 +6,7 @@ Send alerts via Telegram, email, or webhook on critical events.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
@@ -42,7 +43,7 @@ class AlertManager:
         self._telegram_token_env = telegram_bot_token_env
         self._telegram_chat_id_env = telegram_chat_id_env
         self._default_channel = default_channel
-        self._history: list[dict] = []
+        self._history: deque[dict] = deque(maxlen=10_000)
 
     async def send(
         self,

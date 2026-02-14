@@ -22,10 +22,14 @@ from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 from typing import Optional
 
+import secrets as _secrets
+from contextlib import contextmanager
+
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 import structlog
 
 # ── Add project root to path ──
@@ -51,77 +55,87 @@ def get_db():
     return conn
 
 
+@contextmanager
+def get_db_safe():
+    """Context-managed DB connection — guarantees close even on exceptions."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def init_db():
     """Initialize database tables (with schema migration for old TEXT-id tables)."""
-    conn = get_db()
+    with get_db_safe() as conn:
 
-    # ── Schema migration: fix legacy TEXT PRIMARY KEY → INTEGER AUTOINCREMENT ──
-    try:
-        info = conn.execute("PRAGMA table_info(posts)").fetchall()
-        if info:
-            id_col = next((c for c in info if c["name"] == "id"), None)
-            if id_col and id_col["type"].upper() == "TEXT":
-                logger.info("init_db.migrating", msg="Fixing posts table: TEXT id → INTEGER AUTOINCREMENT")
-                conn.executescript("""
-                    DROP TABLE IF EXISTS posts;
-                    DROP TABLE IF EXISTS publish_log;
-                """)
-    except Exception:
-        pass  # Table may not exist yet
+        # ── Schema migration: fix legacy TEXT PRIMARY KEY → INTEGER AUTOINCREMENT ──
+        try:
+            info = conn.execute("PRAGMA table_info(posts)").fetchall()
+            if info:
+                id_col = next((c for c in info if c["name"] == "id"), None)
+                if id_col and id_col["type"].upper() == "TEXT":
+                    logger.info("init_db.migrating", msg="Fixing posts table: TEXT id → INTEGER AUTOINCREMENT")
+                    conn.executescript("""
+                        DROP TABLE IF EXISTS posts;
+                        DROP TABLE IF EXISTS publish_log;
+                    """)
+        except Exception:
+            pass  # Table may not exist yet
 
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS posts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL DEFAULT '',
-            body TEXT NOT NULL DEFAULT '',
-            category TEXT DEFAULT 'general',
-            platforms TEXT DEFAULT '[]',
-            status TEXT DEFAULT 'draft',
-            scheduled_at TEXT,
-            published_at TEXT,
-            extra_fields TEXT DEFAULT '{}'
-        );
-        CREATE TABLE IF NOT EXISTS publish_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            post_id INTEGER,
-            platform TEXT,
-            success INTEGER,
-            post_url TEXT DEFAULT '',
-            error TEXT DEFAULT '',
-            published_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS categories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            color TEXT DEFAULT '#6366f1',
-            icon TEXT DEFAULT '📁'
-        );
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
-        CREATE TABLE IF NOT EXISTS hashtag_collections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            hashtags TEXT DEFAULT '[]',
-            platforms TEXT DEFAULT '[]',
-            niche TEXT DEFAULT 'general',
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
-        );
-    """)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL DEFAULT '',
+                category TEXT DEFAULT 'general',
+                platforms TEXT DEFAULT '[]',
+                status TEXT DEFAULT 'draft',
+                scheduled_at TEXT,
+                published_at TEXT,
+                extra_fields TEXT DEFAULT '{}'
+            );
+            CREATE TABLE IF NOT EXISTS publish_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id INTEGER,
+                platform TEXT,
+                success INTEGER,
+                post_url TEXT DEFAULT '',
+                error TEXT DEFAULT '',
+                published_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                color TEXT DEFAULT '#6366f1',
+                icon TEXT DEFAULT '📁'
+            );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+            CREATE TABLE IF NOT EXISTS hashtag_collections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                hashtags TEXT DEFAULT '[]',
+                platforms TEXT DEFAULT '[]',
+                niche TEXT DEFAULT 'general',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+        """)
 
-    # Seed categories
-    for name, color, icon in [
-        ("general", "#6366f1", "📝"), ("blog", "#3b82f6", "📰"),
-        ("promotion", "#ef4444", "🔥"), ("evergreen", "#22c55e", "🌲"),
-        ("curated", "#f59e0b", "⭐"), ("rss", "#8b5cf6", "📡"),
-    ]:
-        conn.execute("INSERT OR IGNORE INTO categories (name, color, icon) VALUES (?, ?, ?)", (name, color, icon))
+        # Seed categories
+        for name, color, icon in [
+            ("general", "#6366f1", "📝"), ("blog", "#3b82f6", "📰"),
+            ("promotion", "#ef4444", "🔥"), ("evergreen", "#22c55e", "🌲"),
+            ("curated", "#f59e0b", "⭐"), ("rss", "#8b5cf6", "📡"),
+        ]:
+            conn.execute("INSERT OR IGNORE INTO categories (name, color, icon) VALUES (?, ?, ?)", (name, color, icon))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
 
 
 # ── Scheduler background task ──
@@ -197,11 +211,10 @@ _AUTOPILOT_DEFAULTS = {
 
 def _get_autopilot_config() -> dict:
     """Read autopilot config from settings table, merging with defaults."""
-    conn = get_db()
-    row = conn.execute(
-        "SELECT value FROM settings WHERE key = 'autopilot_config'"
-    ).fetchone()
-    conn.close()
+    with get_db_safe() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = 'autopilot_config'"
+        ).fetchone()
     if row:
         saved = json.loads(row["value"])
         merged = {**_AUTOPILOT_DEFAULTS, **saved}
@@ -211,13 +224,12 @@ def _get_autopilot_config() -> dict:
 
 def _save_autopilot_config(cfg: dict):
     """Persist autopilot config to settings table."""
-    conn = get_db()
-    conn.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES ('autopilot_config', ?)",
-        (json.dumps(cfg),),
-    )
-    conn.commit()
-    conn.close()
+    with get_db_safe() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('autopilot_config', ?)",
+            (json.dumps(cfg),),
+        )
+        conn.commit()
 
 
 async def autopilot_loop():
@@ -307,40 +319,39 @@ async def autopilot_loop():
 
             # Save to SQLite — posts + publish_log
             if content_pack.get("title"):
-                conn = get_db()
-                cur = conn.execute(
-                    "INSERT INTO posts (title, body, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?)",
-                    (
-                        content_pack.get("title", ""),
-                        content_pack.get("body", ""),
-                        json.dumps(platforms),
-                        status,
-                        json.dumps({
-                            "pipeline_thread": thread_id,
-                            "source": "autopilot",
-                            "niche": niche,
-                            "risk_score": risk_score,
-                            "hashtags": content_pack.get("hashtags", []),
-                            "hook": content_pack.get("hook", ""),
-                            "cta": content_pack.get("cta", ""),
-                        }),
-                    ),
-                )
-                new_post_id = cur.lastrowid
-                # Write publish_log entries for each platform result
-                for pr in publish_results:
-                    conn.execute(
-                        "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
+                with get_db_safe() as conn:
+                    cur = conn.execute(
+                        "INSERT INTO posts (title, body, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?)",
                         (
-                            new_post_id,
-                            pr.get("platform", ""),
-                            pr.get("success", False),
-                            pr.get("post_url", ""),
-                            pr.get("error", ""),
+                            content_pack.get("title", ""),
+                            content_pack.get("body", ""),
+                            json.dumps(platforms),
+                            status,
+                            json.dumps({
+                                "pipeline_thread": thread_id,
+                                "source": "autopilot",
+                                "niche": niche,
+                                "risk_score": risk_score,
+                                "hashtags": content_pack.get("hashtags", []),
+                                "hook": content_pack.get("hook", ""),
+                                "cta": content_pack.get("cta", ""),
+                            }),
                         ),
                     )
-                conn.commit()
-                conn.close()
+                    new_post_id = cur.lastrowid
+                    # Write publish_log entries for each platform result
+                    for pr in publish_results:
+                        conn.execute(
+                            "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
+                            (
+                                new_post_id,
+                                pr.get("platform", ""),
+                                pr.get("success", False),
+                                pr.get("post_url", ""),
+                                pr.get("error", ""),
+                            ),
+                        )
+                    conn.commit()
                 _autopilot_posts_today += 1
 
             _autopilot_last_run = datetime.now(timezone.utc).isoformat()
@@ -419,6 +430,54 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ViralOps Engine", lifespan=lifespan)
 
 
+# ── API Key Authentication Middleware ──
+_AUTH_EXEMPT = {"/api/health", "/docs", "/openapi.json", "/redoc"}
+
+
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    """Require VIRALOPS_API_KEY on all /api/ routes (except health).
+
+    If VIRALOPS_API_KEY env var is not set, auth is disabled (dev mode).
+    In production, set this to a secure random string.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
+        # Skip auth for non-API routes (HTML pages, static) and exempt paths
+        if not path.startswith("/api/") or path in _AUTH_EXEMPT:
+            return await call_next(request)
+
+        expected_key = os.environ.get("VIRALOPS_API_KEY")
+        if not expected_key:
+            # Dev mode — no key = no auth
+            return await call_next(request)
+
+        # Check Authorization header (Bearer) or X-API-Key header
+        auth_header = request.headers.get("authorization", "")
+        api_key_header = request.headers.get("x-api-key", "")
+
+        token = ""
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:]
+        elif api_key_header:
+            token = api_key_header
+
+        if not token or not _secrets.compare_digest(token, expected_key):
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "success": False,
+                    "error": "Unauthorized — provide VIRALOPS_API_KEY via Bearer token or X-API-Key header",
+                },
+            )
+
+        return await call_next(request)
+
+
+app.add_middleware(ApiKeyMiddleware)
+
+
 # ── Global Exception Handler ──
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -469,9 +528,8 @@ async def dashboard(request: Request):
 
 @app.get("/compose", response_class=HTMLResponse)
 async def compose(request: Request):
-    conn = get_db()
-    cats = conn.execute("SELECT * FROM categories").fetchall()
-    conn.close()
+    with get_db_safe() as conn:
+        cats = conn.execute("SELECT * FROM categories").fetchall()
     return templates.TemplateResponse(request, "app.html", {"page": "compose", "categories": cats})
 
 @app.get("/content", response_class=HTMLResponse)
@@ -533,55 +591,51 @@ async def blog_share_page(request: Request):
 
 @app.get("/api/posts")
 async def api_list_posts(status: Optional[str] = None):
-    conn = get_db()
-    if status and status != "all":
-        rows = conn.execute("SELECT * FROM posts WHERE status = ? ORDER BY id DESC", (status,)).fetchall()
-    else:
-        rows = conn.execute("SELECT * FROM posts ORDER BY id DESC").fetchall()
-    conn.close()
+    with get_db_safe() as conn:
+        if status and status != "all":
+            rows = conn.execute("SELECT * FROM posts WHERE status = ? ORDER BY id DESC", (status,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM posts ORDER BY id DESC").fetchall()
     return [dict(r) for r in rows]
 
 @app.post("/api/posts")
 async def api_create_post(request: Request):
     data = await request.json()
-    conn = get_db()
-    conn.execute(
-        "INSERT INTO posts (title, body, category, platforms, status, scheduled_at, extra_fields) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (data.get("title", ""), data.get("body", ""), data.get("category", "general"),
-         json.dumps(data.get("platforms", [])), data.get("status", "draft"),
-         data.get("scheduled_at", ""), json.dumps(data.get("extra_fields", {})))
-    )
-    conn.commit()
-    post_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    conn.close()
+    with get_db_safe() as conn:
+        conn.execute(
+            "INSERT INTO posts (title, body, category, platforms, status, scheduled_at, extra_fields) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (data.get("title", ""), data.get("body", ""), data.get("category", "general"),
+             json.dumps(data.get("platforms", [])), data.get("status", "draft"),
+             data.get("scheduled_at", ""), json.dumps(data.get("extra_fields", {})))
+        )
+        conn.commit()
+        post_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     return {"success": True, "post_id": post_id}
 
 @app.delete("/api/posts/{post_id}")
 async def api_delete_post(post_id: int):
-    conn = get_db()
-    conn.execute("DELETE FROM posts WHERE id = ?", (post_id,))
-    conn.commit()
-    conn.close()
+    with get_db_safe() as conn:
+        conn.execute("DELETE FROM posts WHERE id = ?", (post_id,))
+        conn.commit()
     return {"success": True}
 
 @app.put("/api/posts/{post_id}")
 async def api_update_post(post_id: int, request: Request):
     data = await request.json()
-    conn = get_db()
-    fields, values = [], []
-    for col in ("title", "body", "category", "platforms", "status", "scheduled_at", "extra_fields"):
-        if col in data:
-            val = data[col]
-            if col in ("platforms", "extra_fields") and isinstance(val, (list, dict)):
-                val = json.dumps(val)
-            fields.append(f"{col} = ?")
-            values.append(val)
-    if not fields:
-        return {"success": False, "error": "No fields to update"}
-    values.append(post_id)
-    conn.execute(f"UPDATE posts SET {', '.join(fields)} WHERE id = ?", values)
-    conn.commit()
-    conn.close()
+    with get_db_safe() as conn:
+        fields, values = [], []
+        for col in ("title", "body", "category", "platforms", "status", "scheduled_at", "extra_fields"):
+            if col in data:
+                val = data[col]
+                if col in ("platforms", "extra_fields") and isinstance(val, (list, dict)):
+                    val = json.dumps(val)
+                fields.append(f"{col} = ?")
+                values.append(val)
+        if not fields:
+            return {"success": False, "error": "No fields to update"}
+        values.append(post_id)
+        conn.execute(f"UPDATE posts SET {', '.join(fields)} WHERE id = ?", values)
+        conn.commit()
     return {"success": True}
 
 
@@ -687,39 +741,38 @@ async def api_pipeline_run(request: Request):
 
         # Save to SQLite if content was generated — posts + publish_log
         if content_pack.get("title"):
-            conn = get_db()
-            cur = conn.execute(
-                "INSERT INTO posts (title, body, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?)",
-                (
-                    content_pack.get("title", ""),
-                    content_pack.get("body", ""),
-                    json.dumps(platforms),
-                    "published" if publish_results else publish_mode,
-                    json.dumps({
-                        "pipeline_thread": thread_id,
-                        "reconcile_summary": reconcile.get("summary", ""),
-                        "risk_score": risk.get("risk_score", 0),
-                        "hashtags": content_pack.get("hashtags", []),
-                        "hook": content_pack.get("hook", ""),
-                        "cta": content_pack.get("cta", ""),
-                    }),
-                ),
-            )
-            new_post_id = cur.lastrowid
-            # Write publish_log entries for each platform result from the pipeline
-            for pr in publish_results:
-                conn.execute(
-                    "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
+            with get_db_safe() as conn:
+                cur = conn.execute(
+                    "INSERT INTO posts (title, body, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?)",
                     (
-                        new_post_id,
-                        pr.get("platform", ""),
-                        pr.get("status") == "published",
-                        pr.get("post_url", ""),
-                        pr.get("detail", "") if pr.get("status") == "failed" else "",
+                        content_pack.get("title", ""),
+                        content_pack.get("body", ""),
+                        json.dumps(platforms),
+                        "published" if publish_results else publish_mode,
+                        json.dumps({
+                            "pipeline_thread": thread_id,
+                            "reconcile_summary": reconcile.get("summary", ""),
+                            "risk_score": risk.get("risk_score", 0),
+                            "hashtags": content_pack.get("hashtags", []),
+                            "hook": content_pack.get("hook", ""),
+                            "cta": content_pack.get("cta", ""),
+                        }),
                     ),
                 )
-            conn.commit()
-            conn.close()
+                new_post_id = cur.lastrowid
+                # Write publish_log entries for each platform result from the pipeline
+                for pr in publish_results:
+                    conn.execute(
+                        "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
+                        (
+                            new_post_id,
+                            pr.get("platform", ""),
+                            pr.get("status") == "published",
+                            pr.get("post_url", ""),
+                            pr.get("detail", "") if pr.get("status") == "failed" else "",
+                        ),
+                    )
+                conn.commit()
 
         return {
             "success": True,
@@ -799,7 +852,7 @@ async def api_autopilot_status():
 @app.get("/api/alerts/history")
 async def api_alerts_history(limit: int = 50):
     """Return recent alert history from the in-memory AlertManager."""
-    history = _alert_manager._history[-limit:]
+    history = list(_alert_manager._history)[-limit:]
     return {"alerts": list(reversed(history)), "total": len(_alert_manager._history)}
 
 
@@ -862,10 +915,10 @@ async def api_publish_post(post_id: int, request: Request):
     Runs risk assessment before publishing. If risk_score >= 4,
     returns 403 unless ?force=true is passed.
     """
-    conn = get_db()
-    post = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+    # Read post from DB (short-lived connection for reads)
+    with get_db_safe() as conn:
+        post = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
     if not post:
-        conn.close()
         raise HTTPException(404, "Post not found")
 
     platforms = json.loads(post["platforms"] or "[]")
@@ -894,7 +947,6 @@ async def api_publish_post(post_id: int, request: Request):
     # Block if risk >= 4 unless force=true
     force = request.query_params.get("force", "").lower() == "true"
     if risk_score >= 4 and not force:
-        conn.close()
         await _alert_manager.publish_failed(
             "all", f"Publish blocked: risk_score={risk_score} for post {post_id}"
         )
@@ -937,20 +989,21 @@ async def api_publish_post(post_id: int, request: Request):
             # Alert on publish failure
             await _alert_manager.publish_failed(platform, error)
 
-        conn.execute(
-            "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
-            (post_id, platform, success, post_url, error)
-        )
         results.append({"platform": platform, "success": success, "post_url": post_url, "error": error})
 
-    # Update status
+    # Write publish_log + update status (short-lived connection for writes)
     all_ok = all(r["success"] for r in results)
-    conn.execute(
-        "UPDATE posts SET status = ?, published_at = ? WHERE id = ?",
-        ("published" if all_ok else "failed", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"), post_id)
-    )
-    conn.commit()
-    conn.close()
+    with get_db_safe() as conn:
+        for r in results:
+            conn.execute(
+                "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
+                (post_id, r["platform"], r["success"], r["post_url"], r["error"])
+            )
+        conn.execute(
+            "UPDATE posts SET status = ?, published_at = ? WHERE id = ?",
+            ("published" if all_ok else "failed", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"), post_id)
+        )
+        conn.commit()
     return {"success": all_ok, "risk_score": risk_score, "results": results}
 
 
@@ -972,21 +1025,19 @@ async def api_test_connection(platform: str):
 
 @app.get("/api/stats")
 async def api_stats():
-    conn = get_db()
-    total = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
-    published = conn.execute("SELECT COUNT(*) FROM posts WHERE status='published'").fetchone()[0]
-    scheduled = conn.execute("SELECT COUNT(*) FROM posts WHERE status='scheduled'").fetchone()[0]
-    drafts = conn.execute("SELECT COUNT(*) FROM posts WHERE status='draft'").fetchone()[0]
-    failed = conn.execute("SELECT COUNT(*) FROM posts WHERE status='failed'").fetchone()[0]
-    conn.close()
+    with get_db_safe() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
+        published = conn.execute("SELECT COUNT(*) FROM posts WHERE status='published'").fetchone()[0]
+        scheduled = conn.execute("SELECT COUNT(*) FROM posts WHERE status='scheduled'").fetchone()[0]
+        drafts = conn.execute("SELECT COUNT(*) FROM posts WHERE status='draft'").fetchone()[0]
+        failed = conn.execute("SELECT COUNT(*) FROM posts WHERE status='failed'").fetchone()[0]
     return {"total": total, "published": published, "scheduled": scheduled, "drafts": drafts, "failed": failed}
 
 
 @app.get("/api/calendar-events")
 async def api_calendar_events(month: Optional[str] = None):
-    conn = get_db()
-    rows = conn.execute("SELECT id, title, platforms, status, scheduled_at, published_at FROM posts WHERE scheduled_at IS NOT NULL AND scheduled_at != ''").fetchall()
-    conn.close()
+    with get_db_safe() as conn:
+        rows = conn.execute("SELECT id, title, platforms, status, scheduled_at, published_at FROM posts WHERE scheduled_at IS NOT NULL AND scheduled_at != ''").fetchall()
     events = []
     for r in rows:
         dt = r["scheduled_at"] or r["published_at"] or ""
@@ -1000,8 +1051,8 @@ async def api_calendar_events(month: Optional[str] = None):
 
 @app.get("/api/analytics")
 async def api_analytics():
-    conn = get_db()
-    logs = conn.execute("SELECT * FROM publish_log ORDER BY published_at DESC LIMIT 100").fetchall()
+    with get_db_safe() as conn:
+        logs = conn.execute("SELECT * FROM publish_log ORDER BY published_at DESC LIMIT 100").fetchall()
     # Platform stats
     platform_stats = {}
     for log in logs:
@@ -1013,7 +1064,6 @@ async def api_analytics():
             platform_stats[p]["success"] += 1
         else:
             platform_stats[p]["failed"] += 1
-    conn.close()
     return {"logs": [dict(l) for l in logs], "platform_stats": platform_stats}
 
 
@@ -1066,14 +1116,13 @@ async def api_rss_import_entry(request: Request):
     data = await request.json()
     from integrations.rss_reader import import_entry_as_draft
     draft = import_entry_as_draft(data.get("entry", {}), data.get("platforms", []))
-    conn = get_db()
-    conn.execute(
-        "INSERT INTO posts (title, body, category, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?, ?)",
-        (draft["title"], draft["body"], draft["category"], draft["platforms"], draft["status"], draft["extra_fields"])
-    )
-    conn.commit()
-    post_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    conn.close()
+    with get_db_safe() as conn:
+        conn.execute(
+            "INSERT INTO posts (title, body, category, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?, ?)",
+            (draft["title"], draft["body"], draft["category"], draft["platforms"], draft["status"], draft["extra_fields"])
+        )
+        conn.commit()
+        post_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     return {"success": True, "post_id": post_id}
 
 
@@ -1181,45 +1230,41 @@ async def api_rss_railway_bulk_import(request: Request):
 
 @app.get("/api/hashtags")
 async def api_list_hashtags():
-    conn = get_db()
-    rows = conn.execute("SELECT * FROM hashtag_collections ORDER BY updated_at DESC").fetchall()
-    conn.close()
+    with get_db_safe() as conn:
+        rows = conn.execute("SELECT * FROM hashtag_collections ORDER BY updated_at DESC").fetchall()
     return [dict(r) for r in rows]
 
 @app.post("/api/hashtags")
 async def api_create_hashtag_collection(request: Request):
     data = await request.json()
-    conn = get_db()
-    conn.execute(
-        "INSERT INTO hashtag_collections (name, description, hashtags, platforms, niche) VALUES (?, ?, ?, ?, ?)",
-        (data.get("name", ""), data.get("description", ""),
-         json.dumps(data.get("hashtags", [])), json.dumps(data.get("platforms", [])),
-         data.get("niche", "general"))
-    )
-    conn.commit()
-    cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    conn.close()
+    with get_db_safe() as conn:
+        conn.execute(
+            "INSERT INTO hashtag_collections (name, description, hashtags, platforms, niche) VALUES (?, ?, ?, ?, ?)",
+            (data.get("name", ""), data.get("description", ""),
+             json.dumps(data.get("hashtags", [])), json.dumps(data.get("platforms", [])),
+             data.get("niche", "general"))
+        )
+        conn.commit()
+        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     return {"success": True, "id": cid}
 
 @app.put("/api/hashtags/{collection_id}")
 async def api_update_hashtag_collection(collection_id: int, request: Request):
     data = await request.json()
-    conn = get_db()
-    conn.execute(
-        "UPDATE hashtag_collections SET name=?, description=?, hashtags=?, platforms=?, niche=?, updated_at=datetime('now') WHERE id=?",
-        (data.get("name"), data.get("description"), json.dumps(data.get("hashtags", [])),
-         json.dumps(data.get("platforms", [])), data.get("niche"), collection_id)
-    )
-    conn.commit()
-    conn.close()
+    with get_db_safe() as conn:
+        conn.execute(
+            "UPDATE hashtag_collections SET name=?, description=?, hashtags=?, platforms=?, niche=?, updated_at=datetime('now') WHERE id=?",
+            (data.get("name"), data.get("description"), json.dumps(data.get("hashtags", [])),
+             json.dumps(data.get("platforms", [])), data.get("niche"), collection_id)
+        )
+        conn.commit()
     return {"success": True}
 
 @app.delete("/api/hashtags/{collection_id}")
 async def api_delete_hashtag_collection(collection_id: int):
-    conn = get_db()
-    conn.execute("DELETE FROM hashtag_collections WHERE id = ?", (collection_id,))
-    conn.commit()
-    conn.close()
+    with get_db_safe() as conn:
+        conn.execute("DELETE FROM hashtag_collections WHERE id = ?", (collection_id,))
+        conn.commit()
     return {"success": True}
 
 @app.post("/api/hashtags/generate")
@@ -1499,9 +1544,8 @@ async def health():
 
     # DB connectivity
     try:
-        conn = get_db()
-        conn.execute("SELECT 1").fetchone()
-        conn.close()
+        with get_db_safe() as conn:
+            conn.execute("SELECT 1").fetchone()
         checks["database"] = "ok"
     except Exception as e:
         checks["database"] = f"FAIL: {e}"
