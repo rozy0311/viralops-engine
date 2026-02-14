@@ -362,20 +362,28 @@ class PublerPublisher:
     async def upload_media(self, url: str = "", file_path: str = "") -> dict | None:
         """
         Upload media to Publer Media Library.
-        Returns media dict with 'id' for use in posts.
+        Returns media dict with 'id' and 'path' for use in posts.
 
-        Supports URL upload or file upload.
+        Supports URL upload (async via /media/from-url) or
+        direct file upload (sync via POST /media multipart).
         """
         try:
             if url:
-                # URL-based upload
+                # URL-based upload — async, returns job_id
+                # Publer API: POST /media/from-url
                 resp = await self._request(
                     "POST",
-                    "media/upload_from_url",
-                    json_data={"url": url},
+                    "media/from-url",
+                    json_data={
+                        "media": [{"url": url}],
+                        "type": "single",
+                        "direct_upload": False,
+                        "in_library": False,
+                    },
                 )
             elif file_path:
-                # File upload — use multipart
+                # Direct file upload — multipart/form-data
+                # Publer API: POST /media
                 client = await self._get_client()
                 with open(file_path, "rb") as f:
                     files = {"file": f}
@@ -390,15 +398,20 @@ class PublerPublisher:
             else:
                 return None
 
-            if resp.status_code in (200, 201):
+            if resp.status_code in (200, 201, 202):
                 data = resp.json()
-                # May return job_id for async processing
-                if "job_id" in data.get("data", data):
-                    job_id = data.get("data", data)["job_id"]
+                # URL uploads are async — poll job_id
+                job_id = data.get("job_id") or data.get("data", {}).get("job_id")
+                if job_id:
                     result = await self._poll_job(job_id)
                     if result["success"]:
-                        return result.get("payload", {})
+                        payload = result.get("payload", {})
+                        # Payload is a list for URL uploads
+                        if isinstance(payload, list) and len(payload) > 0:
+                            return payload[0]
+                        return payload
                     return None
+                # Direct upload returns media object immediately
                 return data.get("data", data)
             else:
                 logger.error("Publer media upload error: %s", resp.text)
@@ -507,12 +520,17 @@ class PublerPublisher:
                 if title and content_type in ("article", "pin"):
                     network_data["title"] = title
 
-                # Add media references
+                # Add media references (pre-uploaded)
                 media_ids = content.get("media_ids", [])
+                media_paths = content.get("media_paths", [])  # optional CDN paths
                 if media_ids:
-                    network_data["media"] = [
-                        {"id": mid, "type": "image"} for mid in media_ids
-                    ]
+                    media_list = []
+                    for idx, mid in enumerate(media_ids):
+                        media_entry: dict[str, Any] = {"id": mid}
+                        if idx < len(media_paths):
+                            media_entry["path"] = media_paths[idx]
+                        media_list.append(media_entry)
+                    network_data["media"] = media_list
 
                 networks_content[publer_network] = network_data
 
@@ -536,13 +554,16 @@ class PublerPublisher:
         if media_url and not content.get("media_ids"):
             media_result = await self.upload_media(url=media_url)
             if media_result and "id" in media_result:
-                media_ref = [{"id": media_result["id"], "type": "image"}]
+                media_ref = [{
+                    "id": media_result["id"],
+                    "path": media_result.get("path", ""),
+                }]
                 for net_key in networks_content:
                     networks_content[net_key]["media"] = media_ref
 
         # ── Build request body ──
         schedule_at = content.get("schedule_at", "")
-        state = "scheduled" if schedule_at else "scheduled"
+        state = "scheduled" if schedule_at else "draft"
         endpoint = "posts/schedule/publish" if not schedule_at else "posts/schedule"
 
         post_body = {
