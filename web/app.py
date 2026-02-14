@@ -109,6 +109,10 @@ def init_db():
 _scheduler_task = None
 _rss_tick_task = None
 _blog_share_tick_task = None
+_autopilot_task = None
+_autopilot_last_run = None
+_autopilot_posts_today = 0
+_autopilot_posts_today_date = None
 
 
 async def scheduler_loop():
@@ -162,17 +166,180 @@ async def blog_share_tick_loop():
         await asyncio.sleep(interval)
 
 
+# ── Autopilot defaults ──
+_AUTOPILOT_DEFAULTS = {
+    "enabled": False,
+    "interval_hours": 4,
+    "niches": ["general"],
+    "platforms": ["tiktok", "pinterest"],
+    "max_posts_per_day": 6,
+}
+
+
+def _get_autopilot_config() -> dict:
+    """Read autopilot config from settings table, merging with defaults."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key = 'autopilot_config'"
+    ).fetchone()
+    conn.close()
+    if row:
+        saved = json.loads(row["value"])
+        merged = {**_AUTOPILOT_DEFAULTS, **saved}
+        return merged
+    return dict(_AUTOPILOT_DEFAULTS)
+
+
+def _save_autopilot_config(cfg: dict):
+    """Persist autopilot config to settings table."""
+    conn = get_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('autopilot_config', ?)",
+        (json.dumps(cfg),),
+    )
+    conn.commit()
+    conn.close()
+
+
+async def autopilot_loop():
+    """Background loop — generates content via full EMADS-PR pipeline.
+
+    Picks niche from rotation, runs pipeline, auto-publishes if risk < 4,
+    otherwise saves as draft. Respects max_posts_per_day limit.
+    """
+    global _autopilot_last_run, _autopilot_posts_today, _autopilot_posts_today_date
+    await asyncio.sleep(120)  # Initial delay — let other services start
+    _niche_index = 0
+
+    while True:
+        try:
+            cfg = _get_autopilot_config()
+            if not cfg.get("enabled"):
+                await asyncio.sleep(60)
+                continue
+
+            # Reset daily counter
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if _autopilot_posts_today_date != today:
+                _autopilot_posts_today = 0
+                _autopilot_posts_today_date = today
+
+            # Check daily limit
+            if _autopilot_posts_today >= cfg.get("max_posts_per_day", 6):
+                logger.info("autopilot.daily_limit_reached",
+                            count=_autopilot_posts_today)
+                await asyncio.sleep(600)  # Check again in 10 min
+                continue
+
+            # Pick niche from rotation
+            niches = cfg.get("niches", ["general"])
+            niche = niches[_niche_index % len(niches)]
+            _niche_index += 1
+            platforms = cfg.get("platforms", ["tiktok", "pinterest"])
+
+            logger.info("autopilot.generating", niche=niche, platforms=platforms)
+
+            from graph import get_compiled_graph
+            import uuid
+
+            graph = get_compiled_graph()
+            thread_id = f"autopilot-{uuid.uuid4().hex[:8]}"
+
+            initial_state = {
+                "niche_config": {"niche": niche, "sub_niche": niche},
+                "topic": None,  # Let the pipeline generate a topic
+                "platforms": platforms,
+                "publish_mode": "draft",
+            }
+
+            result = await asyncio.to_thread(
+                graph.invoke,
+                initial_state,
+                {"configurable": {"thread_id": thread_id}},
+            )
+
+            content_pack = result.get("content_pack", {})
+            risk = result.get("risk_result", {})
+            risk_score = risk.get("risk_score", 0)
+
+            # Auto-publish if risk score < 4, otherwise save as draft
+            publish_mode = "immediate" if risk_score < 4 else "draft"
+            status = publish_mode
+
+            publish_results = []
+            if publish_mode == "immediate" and content_pack.get("title"):
+                # Attempt to publish
+                for plat in platforms:
+                    try:
+                        pub = _get_publisher(plat)
+                        if pub:
+                            pub_result = await asyncio.to_thread(
+                                pub.publish if not asyncio.iscoroutinefunction(pub.publish) else None,
+                                content_pack,
+                            ) if not asyncio.iscoroutinefunction(pub.publish) else await pub.publish(content_pack)
+                            publish_results.append({"platform": plat, **pub_result})
+                    except Exception as pub_err:
+                        publish_results.append({
+                            "platform": plat,
+                            "success": False,
+                            "error": str(pub_err),
+                        })
+                status = "published" if publish_results else "draft"
+
+            # Save to SQLite
+            if content_pack.get("title"):
+                conn = get_db()
+                conn.execute(
+                    "INSERT INTO posts (title, body, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        content_pack.get("title", ""),
+                        content_pack.get("body", ""),
+                        json.dumps(platforms),
+                        status,
+                        json.dumps({
+                            "pipeline_thread": thread_id,
+                            "source": "autopilot",
+                            "niche": niche,
+                            "risk_score": risk_score,
+                            "hashtags": content_pack.get("hashtags", []),
+                            "hook": content_pack.get("hook", ""),
+                            "cta": content_pack.get("cta", ""),
+                        }),
+                    ),
+                )
+                conn.commit()
+                conn.close()
+                _autopilot_posts_today += 1
+
+            _autopilot_last_run = datetime.now(timezone.utc).isoformat()
+            logger.info("autopilot.completed",
+                        niche=niche,
+                        title=content_pack.get("title", ""),
+                        risk_score=risk_score,
+                        status=status,
+                        posts_today=_autopilot_posts_today)
+
+        except Exception as e:
+            logger.error("autopilot.error", error=str(e))
+
+        # Sleep for configured interval
+        cfg = _get_autopilot_config()
+        interval_sec = cfg.get("interval_hours", 4) * 3600
+        await asyncio.sleep(interval_sec)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """App lifespan — init DB and start scheduler + auto-tick loops."""
     init_db()
-    global _scheduler_task, _rss_tick_task, _blog_share_tick_task
+    global _scheduler_task, _rss_tick_task, _blog_share_tick_task, _autopilot_task
     _scheduler_task = asyncio.create_task(scheduler_loop())
     _rss_tick_task = asyncio.create_task(rss_tick_loop())
     _blog_share_tick_task = asyncio.create_task(blog_share_tick_loop())
+    _autopilot_task = asyncio.create_task(autopilot_loop())
     logger.info("app.started", msg="Dashboard ready at http://localhost:8000")
     yield
-    for task in (_scheduler_task, _rss_tick_task, _blog_share_tick_task):
+    for task in (_scheduler_task, _rss_tick_task, _blog_share_tick_task, _autopilot_task):
         if task:
             task.cancel()
 
@@ -476,6 +643,47 @@ async def api_pipeline_run(request: Request):
             status_code=500,
             content={"success": False, "error": str(e)},
         )
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Autopilot Config
+# ════════════════════════════════════════════════════════════════
+
+
+@app.get("/api/autopilot/config")
+async def api_autopilot_config_get():
+    """Return current autopilot configuration."""
+    return _get_autopilot_config()
+
+
+@app.put("/api/autopilot/config")
+async def api_autopilot_config_put(request: Request):
+    """Update autopilot configuration.
+
+    Body: {enabled?, interval_hours?, niches?, platforms?, max_posts_per_day?}
+    """
+    data = await request.json()
+    current = _get_autopilot_config()
+    # Merge incoming fields over current config
+    for key in ("enabled", "interval_hours", "niches", "platforms", "max_posts_per_day"):
+        if key in data:
+            current[key] = data[key]
+    _save_autopilot_config(current)
+    return current
+
+
+@app.get("/api/autopilot/status")
+async def api_autopilot_status():
+    """Return autopilot runtime status."""
+    cfg = _get_autopilot_config()
+    return {
+        "running": cfg.get("enabled", False) and _autopilot_task is not None
+                   and not _autopilot_task.done(),
+        "last_run": _autopilot_last_run,
+        "posts_today": _autopilot_posts_today,
+        "posts_today_date": _autopilot_posts_today_date,
+        "config": cfg,
+    }
 
 
 # ════════════════════════════════════════════════════════════════
