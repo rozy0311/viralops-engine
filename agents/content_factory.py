@@ -133,45 +133,62 @@ def _llm_generate_json(system_prompt: str, user_prompt: str, temperature: float 
 
 
 def _call_gemini(system_prompt: str, user_prompt: str, temperature: float) -> tuple[Optional[dict], str]:
-    """Call Gemini API via google.genai SDK. Returns (parsed_json, model_name) or (None, '')."""
+    """Call Gemini API via google.genai SDK. Returns (parsed_json, model_name) or (None, '').
+
+    Includes 1 automatic retry with higher max_output_tokens on JSON truncation.
+    """
     client = _get_gemini_client()
     if not client:
         return None, ""
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    try:
-        from google.genai import types
+    # Retry once with more tokens if JSON is truncated
+    token_limits = [4096, 8192]
 
-        response = client.models.generate_content(
-            model=model_name,
-            contents=user_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=temperature,
-                max_output_tokens=4000,
-                response_mime_type="application/json",
-            ),
-        )
+    for attempt, max_tokens in enumerate(token_limits):
+        try:
+            from google.genai import types
 
-        # Track usage
-        if hasattr(response, "usage_metadata") and response.usage_metadata:
-            _track_cost(model_name, {
-                "prompt_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
-                "completion_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
-            })
+            response = client.models.generate_content(
+                model=model_name,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=temperature,
+                    max_output_tokens=max_tokens,
+                    response_mime_type="application/json",
+                ),
+            )
 
-        text = response.text.strip()
-        # Gemini sometimes wraps JSON in ```json ... ```
-        if text.startswith("```"):
-            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            # Track usage
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                _track_cost(model_name, {
+                    "prompt_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
+                    "completion_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
+                })
 
-        parsed = json.loads(text)
-        logger.info("content_factory.gemini_success", model=model_name)
-        return parsed, f"gemini/{model_name}"
+            text = response.text.strip()
+            # Gemini sometimes wraps JSON in ```json ... ```
+            if text.startswith("```"):
+                text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-    except Exception as e:
-        logger.warning("content_factory.gemini_error", model=model_name, error=str(e))
-        return None, ""
+            parsed = json.loads(text)
+            logger.info("content_factory.gemini_success", model=model_name, attempt=attempt + 1)
+            return parsed, f"gemini/{model_name}"
+
+        except json.JSONDecodeError as e:
+            # JSON truncation — retry with more tokens
+            if attempt < len(token_limits) - 1:
+                logger.warning("content_factory.gemini_json_truncated",
+                               model=model_name, attempt=attempt + 1,
+                               max_tokens=max_tokens, error=str(e)[:80])
+                continue
+            logger.warning("content_factory.gemini_error", model=model_name, error=str(e))
+            return None, ""
+
+        except Exception as e:
+            logger.warning("content_factory.gemini_error", model=model_name, error=str(e))
+            return None, ""
 
 
 def _call_github_models(system_prompt: str, user_prompt: str, temperature: float) -> tuple[Optional[dict], str]:
@@ -630,22 +647,23 @@ UNIVERSAL CAPTION FORMULA (from spec):
 Full tutorial pinned on profile! 👇
 Micro keywords: [keyword1 • keyword2 • keyword3]
 
-OUTPUT FORMAT (JSON):
+OUTPUT FORMAT (JSON — keep total response under 1500 tokens):
 {{
-  "title": "Compelling title (60 chars max for SEO)",
-  "body": "Full article/post body (500-1500 words, markdown)",
+  "title": "Compelling title (max 60 chars)",
+  "body": "Social media post body (150-300 words, concise, markdown)",
   "hook": "Scroll-stopping first line (under 100 chars)",
   "pain_point": "The problem your audience faces (1-2 sentences)",
-  "solution_steps": "3-5 actionable steps (numbered list)",
+  "solution_steps": ["Step 1 action", "Step 2 action", "Step 3 action"],
   "step_1": "First action step (short)",
   "step_2": "Second action step (short)",
-  "result": "Result with metrics (short)",
-  "micro_keywords": "3 SEO micro keywords separated by ' • '",
+  "result": "Result with specific metrics (short)",
+  "micro_keywords": "keyword1 • keyword2 • keyword3",
   "cta": "Call-to-action (save, share, follow, link)",
-  "seo_description": "Meta description (155 chars max)",
-  "image_prompt": "DALL-E prompt for hero image (detailed, photographic style, 9:16 format)",
+  "seo_description": "Meta description (max 155 chars)",
+  "image_prompt": "DALL-E prompt for hero image",
   "content_type": "article|tip|listicle|how-to|story",
-  "estimated_engagement": "low|medium|high|viral"
+  "estimated_engagement": "low|medium|high|viral",
+  "hashtags": ["#MicroNicheTag1", "#MicroNicheTag2", "#MicroNicheTag3", "#MicroNicheTag4", "#MicroNicheTag5"]
 }}
 
 RULES:
@@ -654,7 +672,8 @@ RULES:
 3. Content must be 70%+ original (no copy-paste from sources)
 4. Include specific data/numbers when possible
 5. Make it emotionally resonant for the target persona
-6. Use the Universal Caption Formula for captions
+6. KEEP body SHORT — this is social media, not a blog post
+7. hashtags: 5 MICRO-NICHE tags specific to this topic (NOT generic like #viral #trending)
 """
 
 
@@ -730,8 +749,15 @@ def generate_content_pack(state: dict) -> dict:
         # Generate 5 micro-niche hashtags
         hashtag_result = _generate_hashtags_for_content(niche_key, platform, location, topic_keywords)
         if "content_pack" in result:
-            result["content_pack"]["hashtags"] = hashtag_result.get("hashtags", [])
-            result["content_pack"]["hashtag_strategy"] = hashtag_result.get("strategy", "micro_niche_5")
+            db_hashtags = hashtag_result.get("hashtags", [])
+            curated = hashtag_result.get("curated_count", 0)
+            llm_hashtags = result["content_pack"].get("hashtags", [])
+            if isinstance(llm_hashtags, list) and len(llm_hashtags) >= 3 and curated < 3:
+                result["content_pack"]["hashtags"] = [t if t.startswith("#") else f"#{t}" for t in llm_hashtags[:5]]
+                result["content_pack"]["hashtag_strategy"] = "llm_generated"
+            else:
+                result["content_pack"]["hashtags"] = db_hashtags
+                result["content_pack"]["hashtag_strategy"] = hashtag_result.get("strategy", "micro_niche_5")
             # Clean GenAI filler from RSS rewrite
             for field in ("body", "hook", "pain_point", "solution_steps", "cta"):
                 if field in result["content_pack"] and result["content_pack"][field]:
@@ -787,8 +813,19 @@ def generate_content_pack(state: dict) -> dict:
 
     # ── Generate 5 micro-niche hashtags (NOT broad generic) ──
     hashtag_result = _generate_hashtags_for_content(niche_key, platform, location, topic_keywords)
-    content_pack["hashtags"] = hashtag_result.get("hashtags", [])
-    content_pack["hashtag_strategy"] = hashtag_result.get("strategy", "micro_niche_5")
+    db_hashtags = hashtag_result.get("hashtags", [])
+    curated = hashtag_result.get("curated_count", 0)
+
+    # If niche DB has curated hashtags, use those. Otherwise prefer LLM-generated ones.
+    llm_hashtags = content_pack.get("hashtags", [])
+    if isinstance(llm_hashtags, list) and len(llm_hashtags) >= 3 and curated < 3:
+        # LLM hashtags are better — niche DB had no curated data for this topic
+        content_pack["hashtags"] = [t if t.startswith("#") else f"#{t}" for t in llm_hashtags[:5]]
+        content_pack["hashtag_strategy"] = "llm_generated"
+        logger.info("content_factory.using_llm_hashtags", count=len(content_pack["hashtags"]))
+    else:
+        content_pack["hashtags"] = db_hashtags
+        content_pack["hashtag_strategy"] = hashtag_result.get("strategy", "micro_niche_5")
 
     state["content_pack"] = content_pack
     if "content_factory_status" not in state:

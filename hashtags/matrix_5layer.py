@@ -317,26 +317,30 @@ def generate_micro_niche_5(
     # Candidate pools — micro-niche specific, NOT broad
     pool = []
     seen = set()
+    curated_count = 0  # Track how many from DB vs keyword extraction
 
-    def _add(tags):
+    def _add(tags, is_curated=False):
+        nonlocal curated_count
         for t in (tags or []):
             tag = t if t.startswith("#") else f"#{t}"
             if tag.lower() not in seen:
                 seen.add(tag.lower())
                 pool.append(tag)
+                if is_curated:
+                    curated_count += 1
 
     # Priority 1: highest_search (curated high-volume niche tags)
-    _add(niche_data.get("highest_search", []))
+    _add(niche_data.get("highest_search", []), is_curated=True)
 
     # Priority 2: micro audience layers (audience-specific)
-    _add(niche_data.get("micro1", []))
-    _add(niche_data.get("micro2", []))
-    _add(niche_data.get("micro3", []))
+    _add(niche_data.get("micro1", []), is_curated=True)
+    _add(niche_data.get("micro2", []), is_curated=True)
+    _add(niche_data.get("micro3", []), is_curated=True)
 
     # Priority 3: YAML niche-specific tags
-    _add(yaml_hashtags.get("niche", []))
-    _add(yaml_hashtags.get("trending", []))
-    _add(yaml_hashtags.get("community", []))
+    _add(yaml_hashtags.get("niche", []), is_curated=True)
+    _add(yaml_hashtags.get("trending", []), is_curated=True)
+    _add(yaml_hashtags.get("community", []), is_curated=True)
 
     # Priority 4: Topic-specific dynamic tags from keywords
     if topic_keywords:
@@ -376,6 +380,7 @@ def generate_micro_niche_5(
     return {
         "hashtags": selected[:5],
         "count": len(selected[:5]),
+        "curated_count": curated_count,
         "strategy": "micro_niche_5",
         "platform": platform,
         "niche": niche,

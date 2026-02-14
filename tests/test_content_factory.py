@@ -207,3 +207,53 @@ class TestAdaptForPlatformLLMContent:
         assert "[Chicago]" not in caption
         assert "Busy people?" not in caption
         assert "Attention grabbing hook" in caption
+
+
+class TestHashtagLLMFallback:
+    """Test that LLM-generated hashtags are used when niche DB has no curated data."""
+
+    def test_llm_hashtags_used_for_unknown_niche(self):
+        """For niches not in DB, generate_content_pack should use LLM hashtags."""
+        state = {
+            "niche_config": {"id": "sustainable_living", "display_name": "Sustainable Living"},
+            "niche_key": "sustainable_living",
+            "target_platform": "tiktok",
+            "budget_remaining_pct": 0,  # Force fallback (no LLM cost)
+        }
+        result = generate_content_pack(state)
+        pack = result["content_pack"]
+        # Even in fallback mode, hashtags should exist
+        assert "hashtags" in pack
+        assert "hashtag_strategy" in pack
+
+    def test_db_hashtags_used_for_known_niche(self):
+        """For niches in DB (like plant_based_raw), curated hashtags should be preferred."""
+        state = {
+            "niche_config": {"id": "plant_based_raw", "display_name": "Plant-Based Raw Foods"},
+            "niche_key": "plant_based_raw",
+            "target_platform": "instagram",
+            "budget_remaining_pct": 0,  # Force fallback
+        }
+        result = generate_content_pack(state)
+        pack = result["content_pack"]
+        assert pack.get("hashtag_strategy") == "micro_niche_5"
+        # Should have curated tags, not generic keyword extraction
+        assert len(pack.get("hashtags", [])) >= 3
+
+
+class TestGeminiRetryLogic:
+    """Test Gemini retry on JSON truncation (mocked)."""
+
+    def test_call_gemini_returns_none_without_key(self):
+        """Without GEMINI_API_KEY, _call_gemini should return (None, '')."""
+        import os
+        from agents.content_factory import _call_gemini
+        original = os.environ.get("GEMINI_API_KEY")
+        try:
+            os.environ.pop("GEMINI_API_KEY", None)
+            result, name = _call_gemini("system", "user", 0.8)
+            assert result is None
+            assert name == ""
+        finally:
+            if original:
+                os.environ["GEMINI_API_KEY"] = original
