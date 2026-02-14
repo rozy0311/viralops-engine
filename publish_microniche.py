@@ -722,10 +722,33 @@ def get_content_pack(mode: str = "auto") -> dict:
     location = random.choice(LOCATIONS)
     season = random.choice(SEASONS)
 
+    # ── Load already-published titles for deduplication ──
+    published_titles = set()
+    try:
+        from web.app import get_db_safe, init_db
+        init_db()
+        with get_db_safe() as conn:
+            rows = conn.execute(
+                "SELECT title FROM posts WHERE status = 'published'"
+            ).fetchall()
+            published_titles = {r[0] for r in rows}
+    except Exception:
+        pass  # DB unavailable — skip dedup
+
+    def _pick_unseen(candidates, top_n=None):
+        """Pick a random pack not yet published. Falls back to any if all published."""
+        pool = candidates[:top_n] if top_n else candidates
+        unseen = [p for p in pool if p["title"] not in published_titles]
+        if unseen:
+            return random.choice(unseen)
+        # All top picks already published — expand to full pool
+        unseen_all = [p for p in candidates if p["title"] not in published_titles]
+        return random.choice(unseen_all) if unseen_all else random.choice(pool)
+
     if mode == "hunter_prewritten":
         # Pick from niche_hunter scored packs — sorted by score descending
         sorted_packs = sorted(NICHE_HUNTER_PACKS, key=lambda p: p.get("_niche_score", 0), reverse=True)
-        pack = random.choice(sorted_packs[:5])  # Top 5 scored
+        pack = _pick_unseen(sorted_packs, top_n=8)
         pack["_location"] = location
         pack["_season"] = season
         pack["_source"] = "hunter_prewritten"
@@ -734,7 +757,7 @@ def get_content_pack(mode: str = "auto") -> dict:
         return pack
 
     if mode == "prewritten":
-        pack = random.choice(ALL_PACKS)  # Now includes niche_hunter packs too
+        pack = _pick_unseen(ALL_PACKS)
         pack["_location"] = location
         pack["_season"] = season
         pack["_source"] = "prewritten"
@@ -1050,6 +1073,7 @@ def main():
     print(f"Source: {pack.get('_source', 'unknown')}")
     print(f"Niche: {pack.get('_niche', 'prewritten')}")
     print("=" * 60)
+    return publish_success
 
 
 def batch_publish(count=3, gap_minutes=2):
@@ -1071,10 +1095,10 @@ def batch_publish(count=3, gap_minutes=2):
         try:
             # Run a single publish
             sys.argv = ["publish_microniche.py", mode]
-            main()
-            results.append(("OK", mode))
+            success = main()
+            results.append(("OK" if success else "FAIL", mode))
         except SystemExit:
-            results.append(("FAIL", mode))
+            results.append(("EXIT", mode))
         except Exception as e:
             results.append(("ERROR", str(e)))
 
