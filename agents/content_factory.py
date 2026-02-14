@@ -1,7 +1,14 @@
 """
 Content Factory Agent — CTO Agent (EMADS-PR v1.0)
-REAL implementation with OpenAI GPT integration.
+Multi-provider LLM: Gemini (primary) → GitHub Models (fallback) → OpenAI (last resort).
 Generates content packs: title + body + universal caption + hashtags + image prompt.
+
+v3.0 — Multi-LLM Provider:
+- Gemini 2.0 Flash (free/cheap, fast, primary)
+- GitHub Models GPT-4.1 (free via Copilot, fallback)
+- OpenAI GPT-4.1 (paid, last resort, can be disabled)
+- Respects LLM_PROVIDER_ORDER and DISABLE_OPENAI from .env
+- Template-based fallback when ALL LLMs unavailable
 
 Fixed in v2.0:
 - Extracts hooks/personas from sub_niches[] (correct nesting)
@@ -29,6 +36,9 @@ MODEL_PRICING = {
     "gpt-4.1": {"input": 0.002, "output": 0.008},
     "gpt-4.1-mini": {"input": 0.0004, "output": 0.0016},
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
+    "gemini-2.0-flash": {"input": 0.0, "output": 0.0},  # Free tier
+    "gemini-2.5-flash": {"input": 0.00015, "output": 0.0006},
+    "github/gpt-4.1": {"input": 0.0, "output": 0.0},  # Free via Copilot
 }
 
 # ── Paths ──
@@ -39,30 +49,205 @@ CONTENT_TRANSFORMS_PATH = os.path.join(TEMPLATES_DIR, "content_transforms.json")
 NICHES_YAML_PATH = os.path.join(CONFIG_DIR, "niches.yaml")
 
 
+# ════════════════════════════════════════════════════════════════
+# Multi-Provider LLM Client — Gemini → GitHub Models → OpenAI
+# ════════════════════════════════════════════════════════════════
+
+def _get_provider_order() -> list[str]:
+    """Get LLM provider priority from env. Default: gemini first."""
+    order = os.getenv("LLM_PROVIDER_ORDER", "gemini,github_models,openai")
+    return [p.strip() for p in order.split(",") if p.strip()]
+
+
+def _get_gemini_client():
+    """Lazy-load Gemini client (google.genai SDK — new unified API)."""
+    try:
+        from google import genai
+        api_key = os.getenv("GEMINI_API_KEY", "")
+        if not api_key:
+            return None
+        client = genai.Client(api_key=api_key)
+        return client
+    except ImportError:
+        logger.debug("content_factory.no_gemini_sdk", msg="google-genai not installed")
+        return None
+
+
+def _get_github_models_client():
+    """Lazy-load GitHub Models client (OpenAI-compatible API)."""
+    try:
+        from openai import OpenAI
+        api_key = os.getenv("GH_MODELS_API_KEY", "")
+        api_base = os.getenv("GH_MODELS_API_BASE", "https://models.github.ai/inference")
+        if not api_key:
+            return None
+        return OpenAI(api_key=api_key, base_url=api_base)
+    except ImportError:
+        logger.debug("content_factory.no_openai_sdk", msg="openai package not installed for GitHub Models")
+        return None
+
+
 def _get_openai_client():
-    """Lazy-load OpenAI client."""
+    """Lazy-load OpenAI client (disabled by default via DISABLE_OPENAI)."""
+    if os.getenv("DISABLE_OPENAI", "false").lower() in ("true", "1", "yes"):
+        return None
     try:
         from openai import OpenAI
         api_key = os.getenv("OPENAI_API_KEY", "")
         if not api_key:
-            logger.warning("content_factory.no_api_key", msg="OPENAI_API_KEY not set — using fallback mode")
             return None
         return OpenAI(api_key=api_key)
     except ImportError:
-        logger.warning("content_factory.no_openai", msg="openai package not installed — using fallback mode")
         return None
 
 
+def _llm_generate_json(system_prompt: str, user_prompt: str, temperature: float = 0.8) -> tuple[Optional[dict], str]:
+    """
+    Call LLM with provider cascade: Gemini → GitHub Models → OpenAI.
+    Returns (parsed_json_dict, provider_name) or (None, "none").
+    """
+    providers = _get_provider_order()
+
+    for provider in providers:
+        try:
+            if provider == "gemini":
+                result, name = _call_gemini(system_prompt, user_prompt, temperature)
+                if result is not None:
+                    return result, name
+
+            elif provider == "github_models":
+                result, name = _call_github_models(system_prompt, user_prompt, temperature)
+                if result is not None:
+                    return result, name
+
+            elif provider == "openai":
+                result, name = _call_openai(system_prompt, user_prompt, temperature)
+                if result is not None:
+                    return result, name
+
+        except Exception as e:
+            logger.warning("content_factory.provider_failed", provider=provider, error=str(e))
+            continue
+
+    return None, "none"
+
+
+def _call_gemini(system_prompt: str, user_prompt: str, temperature: float) -> tuple[Optional[dict], str]:
+    """Call Gemini API via google.genai SDK. Returns (parsed_json, model_name) or (None, '')."""
+    client = _get_gemini_client()
+    if not client:
+        return None, ""
+
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    try:
+        from google.genai import types
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=temperature,
+                max_output_tokens=2000,
+                response_mime_type="application/json",
+            ),
+        )
+
+        # Track usage
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            _track_cost(model_name, {
+                "prompt_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
+                "completion_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
+            })
+
+        text = response.text.strip()
+        # Gemini sometimes wraps JSON in ```json ... ```
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+        parsed = json.loads(text)
+        logger.info("content_factory.gemini_success", model=model_name)
+        return parsed, f"gemini/{model_name}"
+
+    except Exception as e:
+        logger.warning("content_factory.gemini_error", model=model_name, error=str(e))
+        return None, ""
+
+
+def _call_github_models(system_prompt: str, user_prompt: str, temperature: float) -> tuple[Optional[dict], str]:
+    """Call GitHub Models (OpenAI-compatible). Returns (parsed_json, model_name) or (None, '')."""
+    client = _get_github_models_client()
+    if not client:
+        return None, ""
+
+    model_name = os.getenv("GH_MODELS_MODEL", "openai/gpt-4.1")
+    try:
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=temperature,
+            max_tokens=2000,
+            response_format={"type": "json_object"},
+        )
+
+        if response.usage:
+            _track_cost(model_name, {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+            })
+
+        parsed = json.loads(response.choices[0].message.content)
+        logger.info("content_factory.github_models_success", model=model_name)
+        return parsed, f"github_models/{model_name}"
+
+    except Exception as e:
+        logger.warning("content_factory.github_models_error", model=model_name, error=str(e))
+        return None, ""
+
+
+def _call_openai(system_prompt: str, user_prompt: str, temperature: float) -> tuple[Optional[dict], str]:
+    """Call OpenAI API (last resort). Returns (parsed_json, model_name) or (None, '')."""
+    client = _get_openai_client()
+    if not client:
+        return None, ""
+
+    model_name = "gpt-4.1-mini"  # Cost-aware default
+    try:
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=temperature,
+            max_tokens=2000,
+            response_format={"type": "json_object"},
+        )
+
+        if response.usage:
+            _track_cost(model_name, {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+            })
+
+        parsed = json.loads(response.choices[0].message.content)
+        logger.info("content_factory.openai_success", model=model_name)
+        return parsed, f"openai/{model_name}"
+
+    except Exception as e:
+        logger.warning("content_factory.openai_error", model=model_name, error=str(e))
+        return None, ""
+
+
 def _select_model(budget_remaining_pct: float = 100.0) -> str:
-    """Cost-aware model selection (Training 07-Cost-Aware-Planning)."""
-    if budget_remaining_pct > 50:
-        return "gpt-4.1"
-    elif budget_remaining_pct > 20:
-        return "gpt-4.1-mini"
-    elif budget_remaining_pct > 5:
-        return "gpt-4o-mini"
+    """Cost-aware model selection. With Gemini free tier, budget is less of a concern."""
+    if budget_remaining_pct > 5:
+        return "auto"  # Use provider cascade
     else:
-        return "fallback"
+        return "fallback"  # No LLM, use templates
 
 
 def _track_cost(model: str, usage: dict):
@@ -558,47 +743,35 @@ def generate_content_pack(state: dict) -> dict:
     if model == "fallback":
         logger.warning("content_factory.fallback", reason="budget_empty")
         content_pack = _fallback_generate(niche_config, topic)
-    elif not (client := _get_openai_client()):
-        content_pack = _fallback_generate(niche_config, topic)
-        state["content_factory_status"] = "completed_fallback"
     else:
-        # ── Real LLM generation ──
+        # ── Real LLM generation via provider cascade ──
         try:
             system_prompt = _build_system_prompt(niche_config)
             user_prompt = f"Generate a viral content pack about: {topic or niche_config.get('display_name', niche_config.get('name', 'trending topic'))}"
             if topic:
                 user_prompt += f"\n\nSpecific angle: {topic}"
 
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.8,
-                max_tokens=2000,
-                response_format={"type": "json_object"},
+            content_pack, provider_name = _llm_generate_json(
+                system_prompt, user_prompt, temperature=0.8,
             )
 
-            if response.usage:
-                _track_cost(model, {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                })
+            if content_pack is not None:
+                content_pack["_generated_by"] = provider_name
+                content_pack["_timestamp"] = datetime.utcnow().isoformat()
+                state["content_factory_status"] = "completed_llm"
+                logger.info("content_factory.success", provider=provider_name, title=content_pack.get("title", "")[:50])
 
-            content_pack = json.loads(response.choices[0].message.content)
-            content_pack["_generated_by"] = model
-            content_pack["_timestamp"] = datetime.utcnow().isoformat()
-            state["content_factory_status"] = "completed_llm"
-            logger.info("content_factory.success", model=model, title=content_pack.get("title", "")[:50])
-
-            # ── GenAI Answer Extraction — strip filler/irrelevant conclusions ──
-            for field in ("body", "hook", "pain_point", "solution_steps", "cta"):
-                if field in content_pack and content_pack[field]:
-                    content_pack[field] = extract_relevant_answer(content_pack[field])
+                # ── GenAI Answer Extraction — strip filler/irrelevant conclusions ──
+                for field in ("body", "hook", "pain_point", "solution_steps", "cta"):
+                    if field in content_pack and content_pack[field]:
+                        content_pack[field] = extract_relevant_answer(content_pack[field])
+            else:
+                logger.warning("content_factory.all_providers_failed", msg="All LLM providers failed — using template")
+                content_pack = _fallback_generate(niche_config, topic)
+                state["content_factory_status"] = "completed_fallback"
 
         except Exception as e:
-            logger.error("content_factory.error", error=str(e), model=model)
+            logger.error("content_factory.error", error=str(e))
             content_pack = _fallback_generate(niche_config, topic)
             content_pack["_error"] = str(e)
             state["content_factory_status"] = "completed_fallback_after_error"
@@ -615,71 +788,68 @@ def generate_content_pack(state: dict) -> dict:
 
 
 def _rewrite_rss_content(rss_content: dict, niche_config: dict, model: str) -> dict:
-    """Rewrite RSS feed content for multi-platform publishing."""
-    client = _get_openai_client()
+    """Rewrite RSS feed content for multi-platform publishing.
+
+    Uses multi-provider LLM cascade: Gemini → GitHub Models → OpenAI.
+    Falls back to passthrough if all providers fail or model == 'fallback'.
+    """
     original_title = rss_content.get("title", "")
     original_body = rss_content.get("body", "")[:3000]
     source_url = rss_content.get("url", "")
 
-    if not client or model == "fallback":
+    passthrough_pack = {
+        "title": original_title,
+        "body": original_body,
+        "hook": original_title,
+        "pain_point": "",
+        "solution_steps": "",
+        "cta": f"Read more: {source_url}",
+        "seo_description": original_title[:155],
+        "image_prompt": f"Blog post illustration for: {original_title}",
+        "content_type": "article",
+        "estimated_engagement": "medium",
+        "_generated_by": "rss_passthrough",
+        "_source_url": source_url,
+    }
+
+    if model == "fallback":
         return {
-            "content_pack": {
-                "title": original_title,
-                "body": original_body,
-                "hook": original_title,
-                "pain_point": "",
-                "solution_steps": "",
-                "cta": f"Read more: {source_url}",
-                "seo_description": original_title[:155],
-                "image_prompt": f"Blog post illustration for: {original_title}",
-                "content_type": "article",
-                "estimated_engagement": "medium",
-                "_generated_by": "rss_passthrough",
-                "_source_url": source_url,
-            },
+            "content_pack": passthrough_pack,
             "content_factory_status": "completed_rss_passthrough",
         }
 
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": f"""You are a content repurposing engine.
+        system_prompt = f"""You are a content repurposing engine.
 Rewrite the following blog post into a viral content pack.
 Keep the core information but make it engaging for social media.
 Output JSON with: title, body, hook, pain_point, solution_steps, step_1, step_2, result, micro_keywords, cta, seo_description, image_prompt, content_type, estimated_engagement.
-Original source: {source_url} — ALWAYS credit the source."""},
-                {"role": "user", "content": f"Title: {original_title}\n\nBody:\n{original_body}"},
-            ],
-            temperature=0.7,
-            max_tokens=2000,
-            response_format={"type": "json_object"},
+Original source: {source_url} — ALWAYS credit the source."""
+        user_prompt = f"Title: {original_title}\n\nBody:\n{original_body}"
+
+        content_pack, provider_name = _llm_generate_json(
+            system_prompt, user_prompt, temperature=0.7,
         )
 
-        if response.usage:
-            _track_cost(model, {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-            })
+        if content_pack is not None:
+            content_pack["_generated_by"] = f"{provider_name}_rss_rewrite"
+            content_pack["_source_url"] = source_url
+            return {
+                "content_pack": content_pack,
+                "content_factory_status": "completed_rss_rewrite",
+            }
+        else:
+            logger.warning("content_factory.rss_all_providers_failed")
+            return {
+                "content_pack": passthrough_pack,
+                "content_factory_status": "completed_rss_passthrough",
+            }
 
-        content_pack = json.loads(response.choices[0].message.content)
-        content_pack["_generated_by"] = f"{model}_rss_rewrite"
-        content_pack["_source_url"] = source_url
-        return {
-            "content_pack": content_pack,
-            "content_factory_status": "completed_rss_rewrite",
-        }
     except Exception as e:
         logger.error("content_factory.rss_rewrite_error", error=str(e))
+        passthrough_pack["_error"] = str(e)
+        passthrough_pack["_generated_by"] = "rss_error_fallback"
         return {
-            "content_pack": {
-                "title": original_title,
-                "body": original_body,
-                "hook": original_title,
-                "_generated_by": "rss_error_fallback",
-                "_source_url": source_url,
-                "_error": str(e),
-            },
+            "content_pack": passthrough_pack,
             "content_factory_status": "completed_rss_error_fallback",
         }
 
