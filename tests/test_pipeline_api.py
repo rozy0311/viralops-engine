@@ -26,7 +26,7 @@ sys.path.insert(0, str(_root))
 # Now import graph so it's in sys.modules (with mocked langgraph)
 import graph as _graph_module  # noqa: E402
 
-from web.app import app, _PUBLER_PLATFORMS
+from web.app import app, _PUBLER_PLATFORMS, _alert_manager
 
 client = TestClient(app)
 
@@ -384,3 +384,228 @@ class TestSchedulerPublishFix:
         source = inspect.getsource(PublishScheduler._publish_to_platform)
         assert "lambda" not in source, \
             "_publish_to_platform still uses lambda: asyncio.run() anti-pattern"
+
+
+# ════════════════════════════════════════════════════════════════
+# 8. PUBLISH SAFETY GATE (EMADS-PR risk check)
+# ════════════════════════════════════════════════════════════════
+
+class TestPublishSafetyGate:
+    """Test POST /api/publish/{post_id} — EMADS-PR safety gate."""
+
+    def _seed_post(self, platforms=None, title="Test", body="body"):
+        """Helper: insert a test post and return its id."""
+        from web.app import get_db
+        platforms = platforms or ["tiktok"]
+        conn = get_db()
+        cur = conn.execute(
+            "INSERT INTO posts (title, body, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?)",
+            (title, body, json.dumps(platforms), "draft", "{}"),
+        )
+        post_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        return post_id
+
+    @patch("agents.risk_health.assess_risk")
+    @patch("web.app._get_publisher")
+    def test_low_risk_publishes_normally(self, mock_pub, mock_risk):
+        """Risk < 4 should publish without blocking."""
+        mock_risk.return_value = {
+            "risk_result": {"risk_score": 2, "risk_factors": [], "risk_level": "low"}
+        }
+        pub_instance = MagicMock()
+        pub_instance.publish = AsyncMock(return_value=MagicMock(success=True, post_url="https://tiktok.com/123", error=""))
+        mock_pub.return_value = pub_instance
+
+        post_id = self._seed_post()
+        r = client.post(f"/api/publish/{post_id}")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["success"] is True
+        assert data["risk_score"] == 2
+
+    @patch("agents.risk_health.assess_risk")
+    @patch("web.app._alert_manager")
+    def test_high_risk_blocks_without_force(self, mock_alert, mock_risk):
+        """Risk >= 4 should return 403 and require human review."""
+        mock_risk.return_value = {
+            "risk_result": {"risk_score": 7, "risk_factors": ["too many platforms"], "risk_level": "high"}
+        }
+        mock_alert.publish_failed = AsyncMock()
+        post_id = self._seed_post()
+        r = client.post(f"/api/publish/{post_id}")
+        assert r.status_code == 403
+        data = r.json()
+        assert data["requires_human_review"] is True
+        assert data["risk_score"] == 7
+
+    @patch("agents.risk_health.assess_risk")
+    @patch("web.app._get_publisher")
+    def test_high_risk_force_overrides(self, mock_pub, mock_risk):
+        """Risk >= 4 with ?force=true should still publish."""
+        mock_risk.return_value = {
+            "risk_result": {"risk_score": 7, "risk_factors": [], "risk_level": "high"}
+        }
+        pub_instance = MagicMock()
+        pub_instance.publish = AsyncMock(return_value=MagicMock(success=True, post_url="url", error=""))
+        mock_pub.return_value = pub_instance
+
+        post_id = self._seed_post()
+        r = client.post(f"/api/publish/{post_id}?force=true")
+        assert r.status_code == 200
+        assert r.json()["success"] is True
+
+    def test_publish_nonexistent_post_404(self):
+        """Publishing a nonexistent post should return 404."""
+        r = client.post("/api/publish/99999")
+        assert r.status_code == 404
+
+    @patch("agents.risk_health.assess_risk", side_effect=Exception("risk agent down"))
+    @patch("web.app._get_publisher")
+    def test_risk_failure_defaults_to_zero(self, mock_pub, mock_risk):
+        """If risk check fails, default to risk_score=0 and allow publish."""
+        pub_instance = MagicMock()
+        pub_instance.publish = AsyncMock(return_value=MagicMock(success=True, post_url="url", error=""))
+        mock_pub.return_value = pub_instance
+
+        post_id = self._seed_post()
+        r = client.post(f"/api/publish/{post_id}")
+        assert r.status_code == 200
+        assert r.json()["risk_score"] == 0
+
+
+# ════════════════════════════════════════════════════════════════
+# 9. ALERTING SYSTEM
+# ════════════════════════════════════════════════════════════════
+
+class TestAlertingSystem:
+    """Test AlertManager and /api/alerts/history endpoint."""
+
+    def test_alert_history_endpoint_exists(self):
+        r = client.get("/api/alerts/history")
+        assert r.status_code == 200
+        data = r.json()
+        assert "alerts" in data
+        assert "total" in data
+
+    @pytest.mark.asyncio
+    async def test_console_alert_stored_in_history(self):
+        """Console alerts should be stored in history."""
+        from monitoring.alerting import AlertManager, AlertLevel, AlertChannel
+        mgr = AlertManager(default_channel=AlertChannel.CONSOLE)
+        await mgr.send("test alert", level=AlertLevel.INFO)
+        assert len(mgr._history) >= 1
+        assert mgr._history[-1]["message"] == "test alert"
+
+    @pytest.mark.asyncio
+    async def test_telegram_fallback_when_not_configured(self):
+        """Telegram alert without env vars should fall back to console."""
+        from monitoring.alerting import AlertManager, AlertLevel, AlertChannel
+        import os
+        # Ensure no Telegram config
+        with patch.dict(os.environ, {}, clear=True):
+            mgr = AlertManager(default_channel=AlertChannel.TELEGRAM)
+            result = await mgr.send("test telegram", level=AlertLevel.WARNING)
+            assert result is False  # Falls back
+            assert mgr._history[-1]["channel"] == "telegram"
+
+    @pytest.mark.asyncio
+    async def test_publish_failed_quick_method(self):
+        """publish_failed() should create a WARNING-level alert."""
+        from monitoring.alerting import AlertManager, AlertChannel
+        mgr = AlertManager(default_channel=AlertChannel.CONSOLE)
+        await mgr.publish_failed("tiktok", "API 429")
+        assert len(mgr._history) >= 1
+        last = mgr._history[-1]
+        assert "tiktok" in last["message"]
+        assert last["level"] == "warning"
+
+    @pytest.mark.asyncio
+    async def test_webhook_fallback_when_not_configured(self):
+        """Webhook alert without env var should fall back to console."""
+        from monitoring.alerting import AlertManager, AlertLevel, AlertChannel
+        import os
+        with patch.dict(os.environ, {}, clear=True):
+            mgr = AlertManager(default_channel=AlertChannel.WEBHOOK)
+            result = await mgr.send("test webhook", level=AlertLevel.INFO)
+            assert result is False
+
+
+# ════════════════════════════════════════════════════════════════
+# 10. PUBLISH_LOG GAP FIX
+# ════════════════════════════════════════════════════════════════
+
+class TestPublishLogGapFix:
+    """Test that publish results are written to publish_log table."""
+
+    @patch("graph.get_compiled_graph")
+    def test_pipeline_run_writes_publish_log(self, mock_graph):
+        """POST /api/pipeline/run should write results to publish_log."""
+        mock_app = MagicMock()
+        mock_app.invoke.return_value = {
+            "content_pack": {"title": "Pipeline Log Test", "body": "body"},
+            "reconcile_result": {"summary": "ok"},
+            "risk_result": {"risk_score": 1},
+            "cost_result": {"estimated_cost_usd": 0},
+            "publish_results": [
+                {"platform": "tiktok", "status": "published", "detail": "ok", "post_url": ""},
+                {"platform": "pinterest", "status": "failed", "detail": "API error", "post_url": ""},
+            ],
+            "errors": [],
+        }
+        mock_graph.return_value = mock_app
+
+        r = client.post("/api/pipeline/run", json={
+            "niche": "test",
+            "platforms": ["tiktok", "pinterest"],
+            "publish_mode": "immediate",
+        })
+        assert r.status_code == 200
+
+        # Check publish_log has entries
+        from web.app import get_db
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT * FROM publish_log WHERE post_id = (SELECT MAX(id) FROM posts WHERE title = 'Pipeline Log Test')"
+        ).fetchall()
+        conn.close()
+        assert len(rows) == 2
+        platforms_logged = {r["platform"] for r in rows}
+        assert "tiktok" in platforms_logged
+        assert "pinterest" in platforms_logged
+
+    @patch("agents.risk_health.assess_risk")
+    @patch("web.app._get_publisher")
+    def test_direct_publish_writes_publish_log(self, mock_pub, mock_risk):
+        """POST /api/publish/{id} should write results to publish_log."""
+        mock_risk.return_value = {
+            "risk_result": {"risk_score": 1, "risk_factors": [], "risk_level": "low"}
+        }
+        pub_instance = MagicMock()
+        pub_instance.publish = AsyncMock(
+            return_value=MagicMock(success=True, post_url="https://example.com/post", error="")
+        )
+        mock_pub.return_value = pub_instance
+
+        from web.app import get_db
+        conn = get_db()
+        cur = conn.execute(
+            "INSERT INTO posts (title, body, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?)",
+            ("Log Test", "body", json.dumps(["tiktok"]), "draft", "{}"),
+        )
+        post_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+
+        r = client.post(f"/api/publish/{post_id}")
+        assert r.status_code == 200
+
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT * FROM publish_log WHERE post_id = ?", (post_id,)
+        ).fetchall()
+        conn.close()
+        assert len(rows) >= 1
+        assert rows[0]["platform"] == "tiktok"
+        assert rows[0]["success"] == 1  # SQLite stores bool as int

@@ -94,19 +94,55 @@ class AlertManager:
             self._console_alert(message, level)
             return False
 
-        # In production: POST to Telegram Bot API
-        # url = f"https://api.telegram.org/bot{token}/sendMessage"
-        # payload = {"chat_id": chat_id, "text": f"{icon} {message}", "parse_mode": "Markdown"}
-        logger.info("Telegram alert sent: %s", message[:50])
-        return True
+        icons = {"info": "ℹ️", "warning": "⚠️", "critical": "🚨"}
+        icon = icons.get(level.value, "📢")
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": f"{icon} *ViralOps Alert*\n{message}",
+            "parse_mode": "Markdown",
+        }
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+            logger.info("Telegram alert sent: %s", message[:50])
+            return True
+        except Exception as e:
+            logger.error("Telegram alert failed: %s", str(e))
+            self._console_alert(message, level)
+            return False
 
     async def _webhook_alert(
         self, message: str, level: AlertLevel, metadata: dict | None
     ) -> bool:
         """Send alert via webhook."""
-        # In production: POST to configured webhook URL
-        logger.info("Webhook alert: %s", message[:50])
-        return True
+        import os
+        webhook_url = os.environ.get("ALERT_WEBHOOK_URL")
+        if not webhook_url:
+            logger.warning("Webhook URL not configured, falling back to console")
+            self._console_alert(message, level)
+            return False
+
+        payload = {
+            "text": message,
+            "level": level.value,
+            "source": "viralops-engine",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "metadata": metadata or {},
+        }
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(webhook_url, json=payload)
+                resp.raise_for_status()
+            logger.info("Webhook alert sent: %s", message[:50])
+            return True
+        except Exception as e:
+            logger.error("Webhook alert failed: %s", str(e))
+            self._console_alert(message, level)
+            return False
 
     # ─── Quick alert methods ────────────────────
 

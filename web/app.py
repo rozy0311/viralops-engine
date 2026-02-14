@@ -34,8 +34,12 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from core.models import PublishResult
+from monitoring.alerting import AlertManager, AlertLevel
 
 logger = structlog.get_logger()
+
+# ── Global AlertManager singleton ──
+_alert_manager = AlertManager()
 
 # ── Database ──
 DB_PATH = os.path.join(os.path.dirname(__file__), "viralops.db")
@@ -48,8 +52,23 @@ def get_db():
 
 
 def init_db():
-    """Initialize database tables."""
+    """Initialize database tables (with schema migration for old TEXT-id tables)."""
     conn = get_db()
+
+    # ── Schema migration: fix legacy TEXT PRIMARY KEY → INTEGER AUTOINCREMENT ──
+    try:
+        info = conn.execute("PRAGMA table_info(posts)").fetchall()
+        if info:
+            id_col = next((c for c in info if c["name"] == "id"), None)
+            if id_col and id_col["type"].upper() == "TEXT":
+                logger.info("init_db.migrating", msg="Fixing posts table: TEXT id → INTEGER AUTOINCREMENT")
+                conn.executescript("""
+                    DROP TABLE IF EXISTS posts;
+                    DROP TABLE IF EXISTS publish_log;
+                """)
+    except Exception:
+        pass  # Table may not exist yet
+
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS posts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -286,10 +305,10 @@ async def autopilot_loop():
                         })
                 status = "published" if publish_results else "draft"
 
-            # Save to SQLite
+            # Save to SQLite — posts + publish_log
             if content_pack.get("title"):
                 conn = get_db()
-                conn.execute(
+                cur = conn.execute(
                     "INSERT INTO posts (title, body, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?)",
                     (
                         content_pack.get("title", ""),
@@ -307,6 +326,19 @@ async def autopilot_loop():
                         }),
                     ),
                 )
+                new_post_id = cur.lastrowid
+                # Write publish_log entries for each platform result
+                for pr in publish_results:
+                    conn.execute(
+                        "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
+                        (
+                            new_post_id,
+                            pr.get("platform", ""),
+                            pr.get("success", False),
+                            pr.get("post_url", ""),
+                            pr.get("error", ""),
+                        ),
+                    )
                 conn.commit()
                 conn.close()
                 _autopilot_posts_today += 1
@@ -321,6 +353,13 @@ async def autopilot_loop():
 
         except Exception as e:
             logger.error("autopilot.error", error=str(e))
+            try:
+                await _alert_manager.send(
+                    f"Autopilot error: {e}",
+                    level=AlertLevel.CRITICAL,
+                )
+            except Exception:
+                pass
 
         # Sleep for configured interval
         cfg = _get_autopilot_config()
@@ -348,6 +387,13 @@ async def _watchdog():
                     except Exception:
                         pass
                 logger.error("watchdog.restarting", task=ref_name, error=str(exc))
+                try:
+                    await _alert_manager.send(
+                        f"Watchdog restarted crashed task: {ref_name}\nError: {exc}",
+                        level=AlertLevel.WARNING,
+                    )
+                except Exception:
+                    pass
                 globals()[ref_name] = asyncio.create_task(factory())
         await asyncio.sleep(30)
 
@@ -639,10 +685,10 @@ async def api_pipeline_run(request: Request):
         cost = result.get("cost_result", {})
         publish_results = result.get("publish_results", [])
 
-        # Save to SQLite if content was generated
+        # Save to SQLite if content was generated — posts + publish_log
         if content_pack.get("title"):
             conn = get_db()
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO posts (title, body, platforms, status, extra_fields) VALUES (?, ?, ?, ?, ?)",
                 (
                     content_pack.get("title", ""),
@@ -659,6 +705,19 @@ async def api_pipeline_run(request: Request):
                     }),
                 ),
             )
+            new_post_id = cur.lastrowid
+            # Write publish_log entries for each platform result from the pipeline
+            for pr in publish_results:
+                conn.execute(
+                    "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        new_post_id,
+                        pr.get("platform", ""),
+                        pr.get("status") == "published",
+                        pr.get("post_url", ""),
+                        pr.get("detail", "") if pr.get("status") == "failed" else "",
+                    ),
+                )
             conn.commit()
             conn.close()
 
@@ -733,6 +792,18 @@ async def api_autopilot_status():
 
 
 # ════════════════════════════════════════════════════════════════
+# API — Alerts
+# ════════════════════════════════════════════════════════════════
+
+
+@app.get("/api/alerts/history")
+async def api_alerts_history(limit: int = 50):
+    """Return recent alert history from the in-memory AlertManager."""
+    history = _alert_manager._history[-limit:]
+    return {"alerts": list(reversed(history)), "total": len(_alert_manager._history)}
+
+
+# ════════════════════════════════════════════════════════════════
 # API — Publish
 # ════════════════════════════════════════════════════════════════
 
@@ -785,7 +856,12 @@ class _SimpleQueueItem:
 
 
 @app.post("/api/publish/{post_id}")
-async def api_publish_post(post_id: int):
+async def api_publish_post(post_id: int, request: Request):
+    """Publish a post with EMADS-PR safety gate.
+
+    Runs risk assessment before publishing. If risk_score >= 4,
+    returns 403 unless ?force=true is passed.
+    """
     conn = get_db()
     post = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
     if not post:
@@ -794,6 +870,46 @@ async def api_publish_post(post_id: int):
 
     platforms = json.loads(post["platforms"] or "[]")
     extra = json.loads(post["extra_fields"] or "{}")
+
+    # ── EMADS-PR Safety Gate: risk assessment before publishing ──
+    try:
+        from agents.risk_health import assess_risk
+        safety_state = {
+            "platforms": platforms,
+            "content_pack": {
+                "title": post["title"],
+                "body": post["body"],
+                **{k: v for k, v in extra.items() if not isinstance(v, dict)},
+            },
+            "replan_count": 0,
+        }
+        safety_state = assess_risk(safety_state)
+        risk_result = safety_state.get("risk_result", {})
+        risk_score = risk_result.get("risk_score", 0)
+    except Exception as e:
+        logger.warning("publish.risk_check_failed", error=str(e))
+        risk_score = 0
+        risk_result = {"risk_score": 0, "error": str(e)}
+
+    # Block if risk >= 4 unless force=true
+    force = request.query_params.get("force", "").lower() == "true"
+    if risk_score >= 4 and not force:
+        conn.close()
+        await _alert_manager.publish_failed(
+            "all", f"Publish blocked: risk_score={risk_score} for post {post_id}"
+        )
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "error": "Risk score too high — human review required",
+                "risk_score": risk_score,
+                "risk_factors": risk_result.get("risk_factors", []),
+                "requires_human_review": True,
+                "hint": "Add ?force=true to override after review",
+            },
+        )
+
     results = []
 
     for platform in platforms:
@@ -818,6 +934,8 @@ async def api_publish_post(post_id: int):
             success = False
             post_url = ""
             error = str(e)
+            # Alert on publish failure
+            await _alert_manager.publish_failed(platform, error)
 
         conn.execute(
             "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
@@ -833,7 +951,7 @@ async def api_publish_post(post_id: int):
     )
     conn.commit()
     conn.close()
-    return {"success": all_ok, "results": results}
+    return {"success": all_ok, "risk_score": risk_score, "results": results}
 
 
 @app.post("/api/test-connection/{platform}")
