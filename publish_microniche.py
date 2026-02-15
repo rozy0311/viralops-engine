@@ -644,28 +644,34 @@ def overlay_text_on_image(image_path: str, pack: dict) -> str:
         hook_text = hook_text[:117].rsplit(" ", 1)[0] + "..."
     
     hashtags = pack.get("hashtags", [])
-    tag_line = " ".join("#" + t.lstrip("#") for t in hashtags[:5] if t.strip())
+    clean_tags = ["#" + t.lstrip("#") for t in hashtags[:5] if t.strip()]
+    # Split into 2 neat rows: 3 + 2 (or 2 + 2, etc.)
+    mid = (len(clean_tags) + 1) // 2  # e.g. 5 -> 3, 4 -> 2
+    tag_row1 = "  ".join(clean_tags[:mid])   # wider spacing between tags
+    tag_row2 = "  ".join(clean_tags[mid:]) if len(clean_tags) > mid else ""
     brand_text = "@TheRikeRootStories"
+    
+    # Use a smaller font for hashtags so they don't overwhelm the image
+    tag_font = brand_font  # 28pt — subtle, readable
     
     # ── Calculate text layout from bottom up ──
     padding = 40
-    line_spacing = 12
+    line_spacing = 10
     
     # Wrap hook text
     hook_lines = wrap_text(hook_text, hook_font, w - padding * 2, draw)
     hook_height = len(hook_lines) * (44 + line_spacing)
     
     # Total text block height
-    brand_h = 28 + line_spacing
-    tag_h = 28 + line_spacing
-    total_text_h = hook_height + tag_h + brand_h + padding * 3
+    brand_h = 24 + line_spacing
+    tag_h = (28 + 6) * (2 if tag_row2 else 1)  # 1 or 2 rows of tags
+    total_text_h = hook_height + tag_h + brand_h + padding * 2 + 30
     
     # Semi-transparent dark gradient band at bottom
     band_top = h - total_text_h - 40
     for y in range(band_top, h):
-        # Gradient from transparent to dark
         progress = (y - band_top) / (h - band_top)
-        alpha = int(180 * min(progress * 1.5, 1.0))  # max alpha 180/255
+        alpha = int(160 * min(progress * 1.5, 1.0))  # slightly less dark (160 vs 180)
         draw.line([(0, y), (w, y)], fill=(0, 0, 0, alpha))
     
     # ── Draw hook text (centered, white) ──
@@ -675,15 +681,19 @@ def overlay_text_on_image(image_path: str, pack: dict) -> str:
                   font=hook_font, anchor="mt")
         y_cursor += 44 + line_spacing
     
-    # ── Draw hashtags line (centered, light green) ──
-    y_cursor += 8
-    draw.text((w // 2, y_cursor), tag_line, fill=(180, 230, 180, 200),
-              font=brand_font, anchor="mt")
-    y_cursor += 28 + line_spacing
+    # ── Draw hashtags — 2 neat rows, subtle color ──
+    y_cursor += 12
+    draw.text((w // 2, y_cursor), tag_row1, fill=(180, 220, 180, 180),
+              font=tag_font, anchor="mt")
+    y_cursor += 28 + 6
+    if tag_row2:
+        draw.text((w // 2, y_cursor), tag_row2, fill=(180, 220, 180, 180),
+                  font=tag_font, anchor="mt")
+        y_cursor += 28 + 6
     
-    # ── Draw brand (centered, subtle) ──
-    y_cursor += 4
-    draw.text((w // 2, y_cursor), brand_text, fill=(200, 200, 200, 160),
+    # ── Draw brand (centered, very subtle) ──
+    y_cursor += 6
+    draw.text((w // 2, y_cursor), brand_text, fill=(200, 200, 200, 140),
               font=brand_font, anchor="mt")
     
     # Composite overlay onto image
@@ -757,27 +767,41 @@ def generate_post_image(pack: dict, tmpdir: str) -> str:
 # ═══════════════════════════════════════════════════════════════
 
 def _strip_markdown(text: str) -> str:
-    """Strip markdown syntax for TikTok plain-text display.
+    """Strip markdown syntax and format for TikTok plain-text readability.
     
     TikTok does NOT render markdown. Literal ** ### etc. look broken.
-    Keep emojis (they render fine). Clean up spacing.
+    Keep emojis (they render fine). Add proper spacing for visual hierarchy.
     """
     import re
-    # Remove ### headers — keep the text after ###
-    text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
+    
+    # Remove ### headers — keep text, ensure blank line BEFORE for visual separation
+    text = re.sub(r'\n*(#{1,6})\s*', r'\n\n', text)
     # Remove **bold** markers — keep inner text
     text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
-    # Remove *italic* markers — keep inner text
+    # Remove *italic* markers — keep inner text  
     text = re.sub(r'\*([^*]+)\*', r'\1', text)
     # Remove __ underline markers
     text = re.sub(r'__([^_]+)__', r'\1', text)
     # Remove backtick code markers
     text = re.sub(r'`([^`]+)`', r'\1', text)
+    
+    # ── Add visual spacing for readability ──
+    # Blank line BEFORE emoji section headers (lines starting with emoji)
+    text = re.sub(r'\n(?=[\U0001F300-\U0001F9FF\u2600-\u27BF\u2700-\u27BF\u274C\u2705\u26A1])', r'\n\n', text)
+    
+    # Blank line BEFORE numbered items like "1)" "2)" so they breathe
+    text = re.sub(r'\n(?=\d+[)\.]\s)', r'\n\n', text)
+    
+    # Ensure lines that start with a dash/bullet get a little space
+    text = re.sub(r'\n(?=[—–\-•]\s)', r'\n', text)
+    
     # Clean up excessive blank lines (max 2 consecutive)
     text = re.sub(r'\n{3,}', '\n\n', text)
+    
     # Remove leading/trailing whitespace per line
     lines = [line.strip() for line in text.split('\n')]
     text = '\n'.join(lines)
+    
     return text.strip()
 
 
@@ -799,13 +823,15 @@ def build_caption(pack: dict, location: str, season: str) -> str:
     # Ensure all hashtags have # prefix
     tag_str = " ".join("#" + t.lstrip("#") for t in hashtags if t.strip())
     
-    # Build: Title + Content + Hashtags
+    # Build: Title + blank line + Content + blank line + separator + Hashtags
     parts = []
     if title:
         parts.append(title)
-        parts.append("")
+        parts.append("")  # blank line after title
     if content:
         parts.append(content)
+        parts.append("")  # blank line before hashtags
+        parts.append("— — —")  # clean visual separator
         parts.append("")
     parts.append(tag_str)
     
