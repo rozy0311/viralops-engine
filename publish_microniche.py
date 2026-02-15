@@ -953,7 +953,27 @@ def main():
     # ── Step 2: Generate 9:16 image ──
     print("\n[2/5] Generating 9:16 TikTok image...")
     tmpdir = tempfile.mkdtemp(prefix="viralops_microniche_")
-    image_path = generate_post_image(pack, tmpdir)
+    
+    # Check if pack has an AI-generated realistic image (from quality generator)
+    ai_image = pack.get("_ai_image_path", "")
+    if ai_image and os.path.exists(ai_image):
+        image_path = ai_image
+        print(f"  ✓ Using AI-generated realistic image: {image_path}")
+    else:
+        # Fallback: try generating AI image on the fly
+        try:
+            from llm_content import generate_image_for_pack
+            ai_result = generate_image_for_pack(pack, tmpdir)
+            if ai_result and os.path.exists(ai_result):
+                image_path = ai_result
+                print(f"  ✓ AI image generated on-the-fly: {image_path}")
+            else:
+                image_path = generate_post_image(pack, tmpdir)
+                print(f"  ℹ Using PIL gradient image (AI image generation unavailable)")
+        except Exception as e:
+            image_path = generate_post_image(pack, tmpdir)
+            print(f"  ℹ Using PIL gradient fallback: {e}")
+    
     print(f"  Image saved: {image_path}")
 
     # ── Step 3: Build Universal Caption ──

@@ -30,3 +30,5 @@ logs/
 # Data
 *.db
 *.sqlite3
+
+data/
