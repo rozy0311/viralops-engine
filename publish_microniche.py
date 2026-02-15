@@ -671,31 +671,47 @@ def generate_post_image(pack: dict, tmpdir: str) -> str:
 # ═══════════════════════════════════════════════════════════════
 
 def build_caption(pack: dict, location: str, season: str) -> str:
-    """Build the Universal Caption following the spec template."""
-    pain = pack.get("pain_point", "Looking for a healthier routine?")
-    audiences = pack.get("audiences", ["Beginners", "Busy people", "Budget vegans"])
-    steps = pack.get("steps", [pack.get("step1", "Step 1"), pack.get("step2", "Step 2")])
-    result_text = pack.get("result", "Easy plant-based win")
-    hashtags = pack.get("hashtags", ["#plantbased", "#vegan", "#healthyeating", "#wellness", "#tiktok"])
-
-    # Universal Caption format from spec
-    caption_parts = [
-        f"[{location}] [{season}] {pain} \u2744\ufe0f",
-        " | ".join(f"{a}?" for a in audiences),
-        "",
-    ]
-
-    # Steps
-    for i, step in enumerate(steps, 1):
-        caption_parts.append(f"\u2022 Step {i}: {step}")
-
-    caption_parts.append(f"\u2022 Result: {result_text} \u2728")
-    caption_parts.append("")
-    caption_parts.append("Full tutorial pinned on my profile! \U0001f447")
-    caption_parts.append("")
-    caption_parts.append(" ".join(hashtags))
-
-    return "\n".join(caption_parts)
+    """Build TikTok description: FULL content + hashtags (max ~4000 chars).
+    
+    For TikTok photo posts, the 'text' field IS the description.
+    We send the full content_formatted (the actual article) + hashtags at the end.
+    This is what users see when they open the post.
+    """
+    content = pack.get("content_formatted", "")
+    title = pack.get("title", "")
+    hashtags = pack.get("hashtags", ["plantbased", "vegan", "healthyeating", "wellness", "tiktok"])
+    
+    # Ensure all hashtags have # prefix
+    tag_str = " ".join("#" + t.lstrip("#") for t in hashtags if t.strip())
+    
+    # Build: Title + Content + Hashtags
+    parts = []
+    if title:
+        parts.append(title)
+        parts.append("")
+    if content:
+        parts.append(content)
+        parts.append("")
+    parts.append(tag_str)
+    
+    full_text = "\n".join(parts)
+    
+    # TikTok photo posts have ~4000 char limit for description
+    # If too long, trim content but ALWAYS keep title + hashtags
+    if len(full_text) > 4000:
+        max_content_len = 4000 - len(title) - len(tag_str) - 10  # 10 for newlines
+        if max_content_len > 500:
+            content = content[:max_content_len].rsplit("\n", 1)[0]  # trim at last newline
+            parts = []
+            if title:
+                parts.append(title)
+                parts.append("")
+            parts.append(content)
+            parts.append("")
+            parts.append(tag_str)
+            full_text = "\n".join(parts)
+    
+    return full_text
 
 
 # ═══════════════════════════════════════════════════════════════

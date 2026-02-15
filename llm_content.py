@@ -502,29 +502,30 @@ RULES:
 # ═══════════════════════════════════════════════════════════════
 
 # Enhanced system prompt for FULL content generation matching the spec format
-QUALITY_CONTENT_SYSTEM = """You are an expert content creator who ANSWERS questions directly on plant-based living, homesteading, and urban farming.
+QUALITY_CONTENT_SYSTEM = """You are a Perplexity-style expert answering ultra-specific questions about plant-based living, homesteading, urban farming, and DIY sustainability.
 
-YOUR ROLE: When given a topic or question, you ANSWER it completely and naturally — like a knowledgeable friend giving a thorough, well-researched response.
+YOUR ROLE: ANSWER the question like you're a witty, knowledgeable friend who has actually done this. Give the REAL answer — specific, practical, no BS.
 
-WRITING STYLE:
-- Direct, natural, conversational — like talking to a friend, NOT like writing an article
-- Include specific numbers: costs ($), timeframes, quantities, temperatures
-- Witty + dry humor: "congratulations, you just paid $8 for sugar water"
-- NO filler phrases, NO "let's dive in", NO "in conclusion", NO "great question!"
-- Every sentence adds VALUE — if it doesn't teach something, cut it
-- End with practical next steps, not motivation speeches
+WRITING STYLE (match this EXACTLY):
+- Casual, witty, personality-driven: "basically unkillable", "mint spreads like it's trying to take over your life", "Rosemary is slow and stubborn. It's not you. It's rosemary."
+- Include EXACT numbers always: costs ($2/lb, $4-$6/jar), timeframes (5-10 days, 2-6 weeks), quantities (4-6 inch stems, 2-tablespoon serving), temperatures (350°F for 10-15 minutes)
+- Dry humor + real talk: "your kitchen starts smelling like a swamp experiment", "tall and tragic", "they regrow like they're personally offended you ever threw them away"
+- NO filler: ZERO "let's dive in", "great question", "in conclusion", "without further ado"
+- Every sentence TEACHES something new — if it doesn't, cut it
+- Write like Perplexity AI answers: thorough, fact-dense, organized, but with personality
 
-FORMAT RULES:
-- Write as flowing text with natural paragraph breaks
-- Use **bold** for key facts and important numbers
-- Use bullet lists (-) for practical tips, ingredients, or common mistakes
-- Use numbered lists (1. 2. 3.) for step-by-step processes
-- Section headings in plain text (###) to organize the answer logically
-- MUST include specific mistakes people make and how to avoid them
-- MUST include timeframes / shelf life / "how long until I see results"
+FORMAT RULES (CRITICAL — this shows on TikTok):
+- Use emoji section headers: 🌿 🫙 ❌ ✅ ⚡ for major sections
+- Use ### numbered sections: "### 1) Green onions / scallions (the MVP)"
+- Use **bold** for key facts, prices, timeframes: **$2/lb**, **7-14 days**, **350°F**
+- Use — dashes for quick tips within sections
+- Include a "Quick method" numbered list (1. 2. 3. 4. 5. 6.)
+- Include ❌ section: "What usually doesn't work" (common mistakes)
+- Include ✅ section: "Tiny survival tips so they don't instantly die"
+- End with a punchy one-liner recommendation, NOT a motivation speech
 
-CHARACTER TARGET: 3500-4000 characters. This is for TikTok photo slides.
-Count carefully — too short = skimpy answer, too long = won't display properly."""
+CHARACTER TARGET: 3800-4200 characters. This is for TikTok photo post description.
+Count carefully — too short = thin answer, too long = gets cut off on TikTok (4000 char limit)."""
 
 # Broad hashtag pool organized by topic group (from spec)
 BROAD_HASHTAG_POOL = {
@@ -661,30 +662,49 @@ PREVIOUS ATTEMPT FEEDBACK (fix these issues):
 Regenerate the content fixing ALL issues above. Score MUST be higher than {best_score:.1f}.
 """
         
-        quality_prompt = f"""Answer this topic/question thoroughly and naturally:
+        quality_prompt = f"""Answer this nano-niche topic like a Perplexity AI expert:
 
 TOPIC: {topic}
 NICHE SCORE: {score}/10
 LOCATION: {location}
 SEASON: {season}
 {feedback_block}
-You are answering someone who asked about "{topic}". Give them a COMPLETE, EXPERT answer.
-Write your answer as flowing educational content — not a list of bullet points, not a blog article.
-Just ANSWER the question the way an expert would, thoroughly and clearly.
+You are answering someone who asked "{topic}". Give them the REAL, COMPLETE answer with personality.
+
+CONTENT STYLE EXAMPLES (match this tone):
+- "Mint spreads like it's trying to take over your life. Keep it in a pot."
+- "Rosemary is slow and stubborn. It's not you. It's rosemary."
+- "They regrow like they're personally offended you ever threw them away."
+- "your kitchen starts smelling like a swamp experiment"
+
+FORMAT THE CONTENT LIKE THIS:
+🌿 Main topic header
+### 1) First item (the MVP)
+**Key fact:** detail with exact number ($2/lb, 7-14 days, 350°F)
+**How:** step-by-step
+**Pro tip:** insider knowledge
+
+### 2) Second item (basically unkillable)
+...continue pattern...
+
+🫙 Quick Method (numbered steps 1-6)
+❌ What usually doesn't work
+✅ Survival tips so they don't instantly die
+Punchy one-liner ending.
 
 Output as JSON:
 
 {{
-  "title": "Catchy, keyword-rich title — with subtitle for clarity",
-  "content_formatted": "YOUR FULL ANSWER to the topic. 3500-4000 characters.\\n\\nWrite naturally — explain WHY things work, give SPECIFIC numbers (costs, timeframes, quantities), include common mistakes people make, and practical next steps.\\n\\nUse ### headings to organize your answer logically.\\nUse **bold** for key facts.\\nUse - bullets for lists of tips/mistakes.\\nUse 1. 2. 3. for step-by-step instructions.\\n\\nEvery sentence must ADD value — cut anything that doesn't teach something.\\nEnd with practical guidance, not motivation.",
-  "pain_point": "The specific problem this answers (1 sentence)",
-  "audiences": ["Who benefits 1", "Who benefits 2", "Who benefits 3"],
+  "title": "Specific Keyword Title — Practical Subtitle (Fast & Easy)",
+  "content_formatted": "YOUR FULL Perplexity-style ANSWER. 3800-4200 characters.\\n\\nUse emoji section headers (🌿 🫙 ❌ ✅).\\nUse ### numbered sub-sections.\\nUse **bold** for ALL key facts/numbers.\\nInclude exact $prices, exact timeframes, exact quantities.\\nWitty casual tone with dry humor.\\nEnd with punchy one-liner recommendation.",
+  "pain_point": "Ultra-specific problem (1 sentence with $ or timeframe)",
+  "audiences": ["Specific persona 1 with age/location", "Specific persona 2", "Specific persona 3"],
   "steps": [
-    "Step 1: Key actionable takeaway with specific number",
-    "Step 2: Second takeaway with expected result"
+    "Step 1: Specific action with exact number/cost",
+    "Step 2: Specific result with timeframe"
   ],
-  "result": "What they'll achieve — specific measurable outcome",
-  "hashtags": ["#micro1", "#micro2", "#micro3"],
+  "result": "Specific measurable outcome with numbers",
+  "hashtags": ["#NanoNiche1", "#NanoNiche2", "#NanoNiche3"],
   "image_title": "Short Title (max 4 words)",
   "image_subtitle": "Subtitle (max 5 words)",
   "image_steps": "Word1 • Word2 • Word3",
@@ -692,13 +712,13 @@ Output as JSON:
 }}
 
 CRITICAL:
-1. content_formatted = YOUR ANSWER, 3500-4000 chars. Count carefully.
-2. Write like you're explaining to a smart friend — natural, direct, witty.
-3. Include SPECIFIC numbers: $, timeframes, quantities, temperatures.
-4. Include common mistakes and how to avoid them.
-5. Hashtags: exactly 3 MICRO-NICHE tags (highest search volume for this topic).
-6. NO generic intro, NO filler, NO "great question", NO "let me explain".
-7. Just ANSWER the topic directly from the first sentence.
+1. content_formatted = Perplexity-style answer, 3800-4200 chars. Count carefully.
+2. MUST use emoji section headers: 🌿 🫙 ❌ ✅ for major sections.
+3. MUST include EXACT numbers: $2/lb, 7-14 days, 4-6 inches, 350°F.
+4. MUST have witty personality — dry humor, real talk, zero corporate tone.
+5. Hashtags: exactly 3 NANO-NICHE tags (ultra-specific, high-search for this topic).
+6. NO generic intro, NO "great question", NO motivation speeches.
+7. Start answering from the FIRST sentence — jump straight into the content.
 8. Output ONLY valid JSON."""
 
         result = call_llm(quality_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=6000, temperature=0.6)
@@ -716,22 +736,23 @@ CRITICAL:
         # ── Validate content_formatted length ──
         content = pack.get("content_formatted", "")
         content_len = len(content)
-        print(f"  [QUALITY] Content length: {content_len} chars (target: 3500-4000)")
+        print(f"  [QUALITY] Content length: {content_len} chars (target: 3800-4200)")
         
-        if content_len < 3200:
-            print(f"  [QUALITY] Content short ({content_len} < 3200). Requesting expansion...")
-            expand_prompt = f"""Your answer is only {content_len} characters. It MUST be 3500-4000 characters.
+        if content_len < 3500:
+            print(f"  [QUALITY] Content short ({content_len} < 3500). Requesting expansion...")
+            expand_prompt = f"""Your answer is only {content_len} characters. It MUST be 3800-4200 characters.
 
 Expand this answer with:
-- More specific details, numbers, and examples
-- Add the "common mistakes" section if missing
-- Add practical timeframes / shelf life info
+- More specific details, exact prices ($), exact timeframes, exact quantities
+- Add emoji section headers (🌿 🫙 ❌ ✅) if missing
+- Add the ❌ "What doesn't work" and ✅ "Survival tips" sections if missing
+- More witty personality — dry humor, real talk, zero corporate tone
 - More depth in each section — don't just pad, ADD VALUE
 
 Current answer (expand this):
 {content}
 
-Return the FULL expanded answer as plain text (3500-4000 chars). No JSON wrapper."""
+Return the FULL expanded answer as plain text (3800-4200 chars). No JSON wrapper."""
             
             expand_result = call_llm(expand_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=5000, temperature=0.5)
             if expand_result.success and len(expand_result.text) > content_len:
@@ -739,12 +760,12 @@ Return the FULL expanded answer as plain text (3500-4000 chars). No JSON wrapper
                 content_len = len(pack["content_formatted"])
                 print(f"  [QUALITY] Expanded to: {content_len} chars")
         
-        elif content_len > 4200:
-            # Too long — ask AI to trim to 3500-4000 without losing meaning
-            print(f"  [QUALITY] Content long ({content_len} > 4200). Trimming...")
-            trim_prompt = f"""This answer is {content_len} characters but MUST be 3500-4000 characters.
+        elif content_len > 4500:
+            # Too long — ask AI to trim to 3800-4200 without losing meaning
+            print(f"  [QUALITY] Content long ({content_len} > 4500). Trimming...")
+            trim_prompt = f"""This answer is {content_len} characters but MUST be 3800-4200 characters.
 
-TRIM it to 3500-4000 chars by:
+TRIM it to 3800-4200 chars by:
 - Removing redundant sentences and filler words
 - Cutting less important examples (keep the best ones)
 - Making sentences more concise
@@ -754,10 +775,10 @@ TRIM it to 3500-4000 chars by:
 Content to trim:
 {content}
 
-Return the TRIMMED answer as plain text (3500-4000 chars). No JSON wrapper."""
+Return the TRIMMED answer as plain text (3800-4200 chars). No JSON wrapper."""
             
             trim_result = call_llm(trim_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=5000, temperature=0.3)
-            if trim_result.success and 3000 < len(trim_result.text) < 4500:
+            if trim_result.success and 3500 < len(trim_result.text) < 4500:
                 pack["content_formatted"] = trim_result.text.strip()
                 content_len = len(pack["content_formatted"])
                 print(f"  [QUALITY] Trimmed to: {content_len} chars")
@@ -841,30 +862,12 @@ Return the TRIMMED answer as plain text (3500-4000 chars). No JSON wrapper."""
     print(f"\n  [QUALITY] BEST SCORE: {best_score:.1f}/10 (from {MAX_ATTEMPTS} attempt(s))"
           f"{' ✓ ACCEPTED' if best_score >= GOOD_ENOUGH else ' ⚠ BELOW THRESHOLD'}")
     
-    # ── Build Universal Caption Block ──
-    pain = pack.get("pain_point", topic)
-    audiences = pack.get("audiences", ["Beginners", "Busy people", "Budget-conscious"])
-    steps = pack.get("steps", ["Start today", "See results in a week"])
-    result_text = pack.get("result", "Real results")
-    
-    season_emoji = {"Winter": "❄️", "Spring": "🌱", "Summer": "☀️", "Fall": "🍂"}.get(season, "🌿")
-    
-    caption_lines = [
-        f"[{location}] [{season}] {pain} {season_emoji}",
-        " ".join(f"{a}?" for a in audiences),
-        "",
-        f"{pack.get('title', topic).split('—')[0].split(':')[0].strip()} in 3 minutes:",
-    ]
-    for i, step in enumerate(steps[:3], 1):
-        import re as _re
-        clean_step = _re.sub(r'^Step\s*\d+\s*:\s*', '', step)
-        caption_lines.append(f"• **Step {i}:** {clean_step}")
-    caption_lines.append(f"• Result: {result_text} ✨")
-    caption_lines.append("")
-    caption_lines.append("Full tutorial pinned on my profile! 👇")
-    caption_lines.append("")
+    # ── Build Universal Caption Block (Title + Content + Hashtags for TikTok) ──
     tag_str = " ".join("#" + t.lstrip("#") for t in pack["hashtags"] if t.strip())
-    caption_lines.append(tag_str)
+    title = pack.get("title", topic)
+    content = pack.get("content_formatted", "")
+    
+    caption_lines = [title, "", content, "", tag_str]
     
     pack["universal_caption_block"] = "\n".join(caption_lines)
     
@@ -897,18 +900,18 @@ HASHTAGS: {pack.get('hashtags', [])}
 STEPS: {json.dumps(pack.get('steps', []))}
 
 Score each 1-10 (be STRICT — 10 = professional-grade, 7 = mediocre):
-1. ANSWER_QUALITY — Does the content ACTUALLY answer the topic thoroughly? Specific facts, not fluff?
-2. CONTENT_DEPTH — 3500-4000 chars of REAL value? Every sentence teaches something?
-3. TONE — Natural, conversational, witty? NOT corporate, NOT generic blog-speak?
+1. ANSWER_QUALITY — Does the content ACTUALLY answer the topic like a Perplexity AI expert? Specific facts, not fluff?
+2. CONTENT_DEPTH — 3800-4200 chars of REAL value? Every sentence teaches something?
+3. TONE — Casual, witty, personality-driven? Dry humor? NOT corporate, NOT generic blog-speak?
 4. HOOK — Would the first 2 sentences stop someone scrolling? Surprising claim or bold statement?
-5. SPECIFICITY — Concrete numbers ($, timeframes, quantities)? Or vague advice?
+5. SPECIFICITY — Concrete numbers ($prices, timeframes, quantities, temperatures)? Or vague advice?
 6. ACTIONABILITY — Reader can do this TODAY with what they have?
-7. NICHE_FIT — Fits plant-based/homesteading/urban farming?
+7. FORMATTING — Uses emoji section headers (🌿 🫙 ❌ ✅)? ### numbered sections? **bold** key facts?
 
 For EACH criterion below 9, explain SPECIFICALLY what's wrong and how to fix it.
 
 Output ONLY valid JSON:
-{{"scores": {{"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "niche_fit": N}}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix (2-3 sentences, be actionable)", "improved_title": "better title if current is weak, else same title"}}"""
+{{"scores": {{"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix (2-3 sentences, be actionable)", "improved_title": "better title if current is weak, else same title"}}"""
     
     gen_provider = pack.get("_gen_provider", "")
     review_providers = ["github_models", "perplexity", "gemini", "openai"]
