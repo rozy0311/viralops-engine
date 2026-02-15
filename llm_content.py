@@ -306,8 +306,9 @@ def build_image_prompt(pack: Dict[str, Any]) -> str:
         f"Context: {pain_point[:100]}. "
         f"Style: Clean, warm natural lighting, lifestyle food/home photography. "
         f"Vertical 9:16 portrait format. "
-        f"No text overlay, no watermarks, no people's faces. "
-        f"Professional quality, vibrant colors, shallow depth of field."
+        f"ABSOLUTELY NO TEXT, NO LETTERS, NO WORDS, NO NUMBERS, NO WATERMARKS, NO LOGOS anywhere in the image. "
+        f"No people's faces. "
+        f"Professional quality, vibrant colors, shallow depth of field, bokeh background."
     )
     
     return prompt
@@ -936,8 +937,11 @@ Output ONLY valid JSON:
     return review
 
 
-def get_unused_topics(top_n: int = 10) -> List[Tuple[str, float, str]]:
-    """Get top niche_hunter topics that haven't been published yet."""
+def get_unused_topics(top_n: int = 10) -> List[Tuple[str, float, str, str]]:
+    """Get top niche_hunter topics that haven't been published yet.
+    
+    Returns list of (topic, score, niche, hook) tuples.
+    """
     import sqlite3
     
     db_path = os.path.join(os.path.dirname(__file__), "niche_hunter.db")
@@ -959,14 +963,14 @@ def get_unused_topics(top_n: int = 10) -> List[Tuple[str, float, str]]:
     
     conn = sqlite3.connect(db_path)
     all_topics = conn.execute(
-        "SELECT topic, final_score, niche FROM niche_scores ORDER BY final_score DESC LIMIT ?",
+        "SELECT topic, final_score, niche, COALESCE(hook, '') FROM niche_scores ORDER BY final_score DESC LIMIT ?",
         (top_n * 5,),
     ).fetchall()
     conn.close()
     
     # Filter out already-published (keyword overlap check)
     unused = []
-    for topic, score, niche in all_topics:
+    for topic, score, niche, hook in all_topics:
         topic_words = set(topic.lower().split()[:6])
         is_used = False
         for title in published_titles:
@@ -975,7 +979,7 @@ def get_unused_topics(top_n: int = 10) -> List[Tuple[str, float, str]]:
                 is_used = True
                 break
         if not is_used:
-            unused.append((topic, score, niche))
+            unused.append((topic, score, niche, hook))
         if len(unused) >= top_n:
             break
     
@@ -1436,7 +1440,7 @@ def cli_single_mode():
     
     if unused:
         print(f"\n  📊 Top unused niche_hunter topics:")
-        for i, (topic, score, niche) in enumerate(unused, 1):
+        for i, (topic, score, niche, _hook) in enumerate(unused, 1):
             print(f"    {i}) [{score:.2f}] {topic[:65]}")
         print(f"\n  Enter number (1-{len(unused)}) to pick, or type custom topic:")
     else:
@@ -1455,18 +1459,21 @@ def cli_single_mode():
     # Determine topic
     topic = ""
     score = 8.0
+    db_hook = ""
     if choice.isdigit() and unused:
         idx = int(choice) - 1
         if 0 <= idx < len(unused):
-            topic, score, niche = unused[idx]
+            topic, score, niche, db_hook = unused[idx]
         else:
-            topic, score, niche = unused[0]
+            topic, score, niche, db_hook = unused[0]
     else:
         topic = choice
         score = 8.0
     
     # Generate
     pack = generate_quality_post(topic, score)
+    if pack and db_hook:
+        pack["_db_hook"] = db_hook
     
     if not pack:
         print(f"\n  ❌ Generation failed. Try again or check API keys.")
@@ -1666,7 +1673,7 @@ def _menu_viral_framework():
         # Build a state dict for content_factory
         unused = get_unused_topics(top_n=5)
         if unused:
-            topic, score, niche = unused[0]
+            topic, score, niche, _hook = unused[0]
             print(f"  Topic: {topic}")
         else:
             topic = input("  Enter topic: ").strip() or "How to grow mushrooms indoors?"
@@ -1877,7 +1884,7 @@ def _menu_topics():
     print(f"\n{'='*60}")
     print(f"  UNUSED NICHE HUNTER TOPICS")
     print(f"{'='*60}")
-    for i, (topic, score, niche) in enumerate(unused, 1):
+    for i, (topic, score, niche, _hook) in enumerate(unused, 1):
         print(f"  {i:2d}) [{score:.2f}] [{niche:20s}] {topic}")
     print(f"\n  Total: {len(unused)} unused topics available")
 
@@ -2001,7 +2008,7 @@ if __name__ == "__main__":
             if not topic:
                 unused = get_unused_topics(top_n=5)
                 if unused:
-                    topic, score, niche = unused[0]
+                    topic, score, niche, _hook = unused[0]
                     print(f"  Auto-picked: {topic} (score={score:.2f})")
                 else:
                     topic = "How to grow mushrooms in apartment with no sunlight?"

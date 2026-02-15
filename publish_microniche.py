@@ -604,9 +604,95 @@ def load_fonts():
                 "body": ImageFont.truetype(font_path, 48),
                 "small": ImageFont.truetype(font_path, 40),
                 "brand": ImageFont.truetype(font_path, 36),
+                "overlay_hook": ImageFont.truetype(font_path, 44),
+                "overlay_brand": ImageFont.truetype(font_path, 28),
             }
     default = ImageFont.load_default()
-    return {"title": default, "subtitle": default, "body": default, "small": default, "brand": default}
+    return {"title": default, "subtitle": default, "body": default, "small": default, "brand": default, "overlay_hook": default, "overlay_brand": default}
+
+
+def overlay_text_on_image(image_path: str, pack: dict) -> str:
+    """Overlay clean micro-niche hook text on AI-generated photo.
+    
+    Adds:
+    - Semi-transparent dark band at bottom ~30% of image
+    - Topic hook/question in readable white text (not too big)
+    - Brand watermark small at bottom
+    - Hashtags line at very bottom
+    
+    This makes the image meaningful and on-topic instead of just a stock photo.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    
+    img = Image.open(image_path).convert("RGBA")
+    w, h = img.size
+    
+    # Create overlay layer
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    
+    fonts = load_fonts()
+    hook_font = fonts["overlay_hook"]
+    brand_font = fonts["overlay_brand"]
+    
+    # Get the hook/question text — prefer hook from DB, then pain_point, then topic title
+    hook_text = pack.get("_db_hook", "") or pack.get("pain_point", "") or pack.get("title", "")
+    # Clean it up — remove markdown, keep it punchy
+    hook_text = hook_text.replace("**", "").replace("###", "").replace("##", "").replace("#", "").strip()
+    # If too long, truncate at ~120 chars
+    if len(hook_text) > 120:
+        hook_text = hook_text[:117].rsplit(" ", 1)[0] + "..."
+    
+    hashtags = pack.get("hashtags", [])
+    tag_line = " ".join("#" + t.lstrip("#") for t in hashtags[:5] if t.strip())
+    brand_text = "@TheRikeRootStories"
+    
+    # ── Calculate text layout from bottom up ──
+    padding = 40
+    line_spacing = 12
+    
+    # Wrap hook text
+    hook_lines = wrap_text(hook_text, hook_font, w - padding * 2, draw)
+    hook_height = len(hook_lines) * (44 + line_spacing)
+    
+    # Total text block height
+    brand_h = 28 + line_spacing
+    tag_h = 28 + line_spacing
+    total_text_h = hook_height + tag_h + brand_h + padding * 3
+    
+    # Semi-transparent dark gradient band at bottom
+    band_top = h - total_text_h - 40
+    for y in range(band_top, h):
+        # Gradient from transparent to dark
+        progress = (y - band_top) / (h - band_top)
+        alpha = int(180 * min(progress * 1.5, 1.0))  # max alpha 180/255
+        draw.line([(0, y), (w, y)], fill=(0, 0, 0, alpha))
+    
+    # ── Draw hook text (centered, white) ──
+    y_cursor = band_top + padding + 20
+    for line in hook_lines:
+        draw.text((w // 2, y_cursor), line, fill=(255, 255, 255, 240),
+                  font=hook_font, anchor="mt")
+        y_cursor += 44 + line_spacing
+    
+    # ── Draw hashtags line (centered, light green) ──
+    y_cursor += 8
+    draw.text((w // 2, y_cursor), tag_line, fill=(180, 230, 180, 200),
+              font=brand_font, anchor="mt")
+    y_cursor += 28 + line_spacing
+    
+    # ── Draw brand (centered, subtle) ──
+    y_cursor += 4
+    draw.text((w // 2, y_cursor), brand_text, fill=(200, 200, 200, 160),
+              font=brand_font, anchor="mt")
+    
+    # Composite overlay onto image
+    result = Image.alpha_composite(img, overlay)
+    result = result.convert("RGB")
+    
+    # Save back (overwrite)
+    result.save(image_path, "JPEG", quality=95)
+    return image_path
 
 
 def generate_post_image(pack: dict, tmpdir: str) -> str:
@@ -670,16 +756,45 @@ def generate_post_image(pack: dict, tmpdir: str) -> str:
 # BUILD UNIVERSAL CAPTION from content pack
 # ═══════════════════════════════════════════════════════════════
 
+def _strip_markdown(text: str) -> str:
+    """Strip markdown syntax for TikTok plain-text display.
+    
+    TikTok does NOT render markdown. Literal ** ### etc. look broken.
+    Keep emojis (they render fine). Clean up spacing.
+    """
+    import re
+    # Remove ### headers — keep the text after ###
+    text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
+    # Remove **bold** markers — keep inner text
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    # Remove *italic* markers — keep inner text
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    # Remove __ underline markers
+    text = re.sub(r'__([^_]+)__', r'\1', text)
+    # Remove backtick code markers
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    # Clean up excessive blank lines (max 2 consecutive)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # Remove leading/trailing whitespace per line
+    lines = [line.strip() for line in text.split('\n')]
+    text = '\n'.join(lines)
+    return text.strip()
+
+
 def build_caption(pack: dict, location: str, season: str) -> str:
-    """Build TikTok description: FULL content + hashtags (max ~4000 chars).
+    """Build TikTok description: FULL content (markdown-stripped) + hashtags.
     
     For TikTok photo posts, the 'text' field IS the description.
-    We send the full content_formatted (the actual article) + hashtags at the end.
-    This is what users see when they open the post.
+    TikTok is PLAIN TEXT — no markdown rendering.
+    We strip **, ###, etc. but keep emojis and clean structure.
     """
     content = pack.get("content_formatted", "")
     title = pack.get("title", "")
     hashtags = pack.get("hashtags", ["plantbased", "vegan", "healthyeating", "wellness", "tiktok"])
+    
+    # Strip markdown from title and content
+    title = _strip_markdown(title)
+    content = _strip_markdown(content)
     
     # Ensure all hashtags have # prefix
     tag_str = " ".join("#" + t.lstrip("#") for t in hashtags if t.strip())
@@ -993,6 +1108,13 @@ def main(content_pack_override: dict = None):
         except Exception as e:
             image_path = generate_post_image(pack, tmpdir)
             print(f"  ℹ Using PIL gradient fallback: {e}")
+    
+    # ── Overlay clean micro-niche hook text on the image ──
+    try:
+        image_path = overlay_text_on_image(image_path, pack)
+        print(f"  ✓ Text overlay added (hook + hashtags + brand)")
+    except Exception as e:
+        print(f"  ⚠ Text overlay failed (non-critical): {e}")
     
     print(f"  Image saved: {image_path}")
 
