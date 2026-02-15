@@ -525,8 +525,9 @@ FORMAT RULES (CRITICAL — this shows on TikTok):
 - Include ✅ section: "Tiny survival tips so they don't instantly die"
 - End with a punchy one-liner recommendation, NOT a motivation speech
 
-CHARACTER TARGET: 3800-4200 characters. This is for TikTok photo post description.
+CHARACTER TARGET: 3800-4200 characters MINIMUM. This is for TikTok photo post description.
 Count carefully — too short = thin answer, too long = gets cut off on TikTok (4000 char limit).
+If your answer is under 3500 characters, you have NOT answered thoroughly enough. Add more specific examples, more sections, more facts.
 
 BRAND NAMES: NEVER mention specific brand names (Walmart, Goya, Just Egg, Trader Joe's, Whole Foods, etc.).
 Use generic terms instead: "grocery store", "dried black beans", "liquid egg substitute", "budget store".
@@ -717,15 +718,17 @@ Output as JSON:
 }}
 
 CRITICAL:
-1. content_formatted = Perplexity-style answer, 3800-4200 chars. Count carefully.
+1. content_formatted = Perplexity-style answer, MINIMUM 3800 characters (target 3800-4200). Shorter = FAIL.
+   If you're at 2500 chars, you need 5-6 MORE sections. If at 3000, add 2-3 MORE sections. COUNT CAREFULLY.
 2. MUST use emoji section headers: 🌿 🫙 ❌ ✅ for major sections.
-3. MUST include EXACT numbers: $2/lb, 7-14 days, 4-6 inches, 350°F.
+3. MUST include EXACT numbers: $2/lb, 7-14 days, 4-6 inches, 350°F — at least 15 specific numbers.
 4. MUST have witty personality — dry humor, real talk, zero corporate tone.
 5. Hashtags: exactly 3 NANO-NICHE tags (ultra-specific, high-search for this topic).
 6. NO generic intro, NO "great question", NO motivation speeches.
-7. NO BRAND NAMES — never mention Walmart, Goya, Just Egg, Trader Joe's, Whole Foods, etc. Use generic terms: "grocery store", "dried beans", "liquid egg substitute".
-7. Start answering from the FIRST sentence — jump straight into the content.
-8. Output ONLY valid JSON."""
+7. NO BRAND NAMES — never mention Walmart, Goya, Just Egg, Trader Joe's, Whole Foods, etc. Use generic terms.
+8. Start answering from the FIRST sentence — jump straight into the content.
+9. Include ALL of these sections: 🌿 Main topic, ### numbered items (3-5), 🫙 Quick method (6 steps), ❌ What doesn't work (3-4 items), ✅ Survival tips (4-5 items), punchy one-liner ending.
+10. Output ONLY valid JSON."""
 
         result = call_llm(quality_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=6000, temperature=0.6)
         
@@ -744,29 +747,39 @@ CRITICAL:
         content_len = len(content)
         print(f"  [QUALITY] Content length: {content_len} chars (target: 3800-4200)")
         
-        if content_len < 3500:
-            print(f"  [QUALITY] Content short ({content_len} < 3500). Requesting expansion...")
-            expand_prompt = f"""Your answer is only {content_len} characters. It MUST be 3800-4200 characters.
+        # ── Iterative expansion (up to 2 passes) ──
+        for _exp_pass in range(2):
+            if content_len >= 3500:
+                break
+            print(f"  [QUALITY] Content short ({content_len} < 3500). Expansion pass {_exp_pass + 1}...")
+            
+            needed = 4000 - content_len  # aim for 4000 center of range
+            expand_prompt = f"""Your answer is only {content_len} characters. It MUST be 3800-4200 characters (you need ~{needed} more chars).
 
-Expand this answer with:
-- More specific details, exact prices ($), exact timeframes, exact quantities
-- Add emoji section headers (🌿 🫙 ❌ ✅) if missing
-- Add the ❌ "What doesn't work" and ✅ "Survival tips" sections if missing
-- More witty personality — dry humor, real talk, zero corporate tone
-- More depth in each section — don't just pad, ADD VALUE
+Expand this answer by ADDING these concrete sections (don't rewrite what's already good):
+- Add a ### section with 3-4 specific examples/variations with EXACT prices ($), timeframes, quantities
+- Add ❌ "What usually doesn't work" section (3-4 specific mistakes with WHY they fail)
+- Add ✅ "Survival tips so they don't instantly die" section (4-5 tips with exact numbers)
+- Add a "🫙 Quick Method" numbered list (6 steps with specific measurements)
+- Add more witty personality — dry humor one-liners between sections
+- Add real-world context: "In Miami during winter..." or "If you live in an apartment..."
+- EVERY new sentence must teach something specific — zero filler
 
-Current answer (expand this):
+Current answer (EXPAND this, keep everything that's good):
 {content}
 
-Return the FULL expanded answer as plain text (3800-4200 chars). No JSON wrapper."""
+Return the FULL expanded answer as plain text (3800-4200 chars). Count carefully. No JSON wrapper."""
             
-            expand_result = call_llm(expand_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=5000, temperature=0.5)
+            expand_result = call_llm(expand_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=6000, temperature=0.5)
             if expand_result.success and len(expand_result.text) > content_len:
                 pack["content_formatted"] = expand_result.text.strip()
-                content_len = len(pack["content_formatted"])
+                content = pack["content_formatted"]
+                content_len = len(content)
                 print(f"  [QUALITY] Expanded to: {content_len} chars")
+            else:
+                break  # expansion failed, don't retry
         
-        elif content_len > 4500:
+        if content_len > 4500:
             # Too long — ask AI to trim to 3800-4200 without losing meaning
             print(f"  [QUALITY] Content long ({content_len} > 4500). Trimming...")
             trim_prompt = f"""This answer is {content_len} characters but MUST be 3800-4200 characters.
@@ -897,17 +910,17 @@ def _review_quality_content(pack: Dict[str, Any]) -> Optional[Dict]:
 
 TITLE: {pack.get('title', '')}
 PAIN POINT: {pack.get('pain_point', '')}
-CONTENT LENGTH: {content_len} characters (target: 3500-4000)
+CONTENT LENGTH: {content_len} characters (target: 3500-4200)
 
 FULL CONTENT:
-{content[:2000]}
+{content[:3500]}
 
 HASHTAGS: {pack.get('hashtags', [])}
 STEPS: {json.dumps(pack.get('steps', []))}
 
 Score each 1-10 (be STRICT — 10 = professional-grade, 7 = mediocre):
 1. ANSWER_QUALITY — Does the content ACTUALLY answer the topic like a Perplexity AI expert? Specific facts, not fluff?
-2. CONTENT_DEPTH — 3800-4200 chars of REAL value? Every sentence teaches something?
+2. CONTENT_DEPTH — 3500-4200 chars of REAL value? Every sentence teaches something? (3200+ is acceptable if dense)
 3. TONE — Casual, witty, personality-driven? Dry humor? NOT corporate, NOT generic blog-speak?
 4. HOOK — Would the first 2 sentences stop someone scrolling? Surprising claim or bold statement?
 5. SPECIFICITY — Concrete numbers ($prices, timeframes, quantities, temperatures)? Or vague advice?
