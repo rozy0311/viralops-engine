@@ -343,12 +343,17 @@ def _call_openai_compatible(
 # We replicate this using Gemini's image generation models.
 
 # Cascade of image-generation models (try in order, skip quota-exhausted)
-IMAGE_MODELS = [
+# Gemini models share one quota pool; Imagen models have a separate quota pool.
+IMAGE_MODELS_GEMINI = [
     "gemini-2.0-flash-exp-image-generation",
     "gemini-2.5-flash-image",
+]
+IMAGE_MODELS_IMAGEN = [
     "imagen-4-fast-generate",     # Imagen 4 Fast (25 RPD free)
     "imagen-4-generate",          # Imagen 4 Standard (25 RPD free)
 ]
+# Combined for iteration — but quota tracking is per-pool
+IMAGE_MODELS = IMAGE_MODELS_GEMINI + IMAGE_MODELS_IMAGEN
 
 
 def build_image_prompt(pack: Dict[str, Any]) -> str:
@@ -405,10 +410,18 @@ def generate_ai_image(
     
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     
-    gemini_quota_exhausted = False
+    # Track quota exhaustion per pool (Gemini vs Imagen)
+    gemini_img_exhausted = False
+    imagen_exhausted = False
     for model in IMAGE_MODELS:
-        if gemini_quota_exhausted:
-            print(f"  [IMAGE] Skipping {model} — Gemini quota exhausted")
+        # Check per-pool quota skip
+        is_gemini_model = model in IMAGE_MODELS_GEMINI
+        is_imagen_model = model in IMAGE_MODELS_IMAGEN
+        if is_gemini_model and gemini_img_exhausted:
+            print(f"  [IMAGE] Skipping {model} — Gemini image quota exhausted")
+            continue
+        if is_imagen_model and imagen_exhausted:
+            print(f"  [IMAGE] Skipping {model} — Imagen quota exhausted")
             continue
         for attempt in range(max_retries):
             try:
@@ -429,10 +442,14 @@ def generate_ai_image(
                 elapsed = time.time() - t0
                 
                 if r.status_code == 429:
-                    # If first attempt of first model → quota exhausted, skip all
+                    # Mark the correct pool as exhausted
                     if "RESOURCE_EXHAUSTED" in r.text or attempt == 0:
-                        print(f"  [IMAGE] Gemini quota exhausted — skipping to fallback")
-                        gemini_quota_exhausted = True
+                        if is_gemini_model:
+                            print(f"  [IMAGE] Gemini image quota exhausted — trying Imagen models…")
+                            gemini_img_exhausted = True
+                        else:
+                            print(f"  [IMAGE] Imagen quota exhausted — trying Pollinations…")
+                            imagen_exhausted = True
                         break
                     wait = min(30 * (attempt + 1), 90)
                     print(f"  [IMAGE] Rate limited — waiting {wait}s...")

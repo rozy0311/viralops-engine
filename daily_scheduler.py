@@ -76,9 +76,33 @@ MAX_RETRIES = 3              # Retry count on transient publish failures
 RETRY_WAIT_SECS = 120        # Wait 2min between retries
 RATE_LIMIT_WAIT_HOURS = 6    # If TikTok rate-limited, wait 6h and retry (daemon mode)
 TIKTOK_OPTIMAL_HOURS = [7, 10, 19, 21]   # US/Pacific peak hours
+TIKTOK_RL_RETRY_SLOTS = 3   # After rate-limit, try this many later slots before giving up
 
 # Known-used topic IDs (historical — dedup also checks posts table)
 USED_IDS: set[int] = {247, 248, 257, 274, 313, 327}
+
+
+# ── Telegram Notification ──────────────────────────────────────────
+def _notify_telegram(message: str) -> bool:
+    """Send a notification to Telegram (sync, best-effort)."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        return False
+    try:
+        import httpx
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        }
+        r = httpx.post(url, json=payload, timeout=10)
+        return r.status_code == 200
+    except Exception as e:
+        log.warning("Telegram notify failed: %s", e)
+        return False
 
 
 # ── Helpers ────────────────────────────────────────────────────────
@@ -175,6 +199,7 @@ def run_once(
     if not pack:
         log.error("Content generation FAILED for topic %d", tid)
         _jsonl_log({"event": "gen_failed", "topic_id": tid, "status": "failed"})
+        _notify_telegram(f"❌ *ViralOps* — Content generation FAILED\nTopic: {topic[:60]}\nID: {tid}")
         return False
 
     title = pack.get("title", topic)[:80]
@@ -221,6 +246,12 @@ def run_once(
                     "dot_breaks": dot_count,
                     "status": "published",
                 })
+                _notify_telegram(
+                    f"✅ *ViralOps — Published!*\n"
+                    f"📝 {title}\n"
+                    f"📊 {content_len} chars, {dot_count} breaks\n"
+                    f"🆔 Topic #{tid} (score {score:.1f})"
+                )
                 return True
             else:
                 log.warning("publish_main returned False (attempt %d)", attempt)
@@ -233,6 +264,11 @@ def run_once(
                     "status": "rate_limited",
                     "error": str(exc),
                 })
+                _notify_telegram(
+                    f"⏳ *ViralOps — TikTok Rate Limited*\n"
+                    f"Topic: {topic[:50]}\n"
+                    f"Will retry at next slot (daemon) or tomorrow."
+                )
                 return False  # Caller will handle wait/retry
             log.error("Publish error (attempt %d): %s", attempt, exc)
             traceback.print_exc()
@@ -247,6 +283,11 @@ def run_once(
         "topic_id": tid,
         "status": "failed",
     })
+    _notify_telegram(
+        f"❌ *ViralOps — Publish FAILED*\n"
+        f"Topic: {topic[:50]} (#{tid})\n"
+        f"All {MAX_RETRIES} attempts exhausted."
+    )
     return False
 
 
@@ -268,9 +309,18 @@ def _next_optimal_slot() -> dt.datetime:
 
 
 def daemon_loop() -> None:
-    """Run forever, publishing 1 post per day at the next optimal TikTok time slot."""
+    """Run forever, publishing 1 post per day at the next optimal TikTok time slot.
+    
+    On rate-limit: tries remaining slots in the same day (up to TIKTOK_RL_RETRY_SLOTS)
+    before giving up and waiting until tomorrow.
+    """
     log.info("═══ DAEMON MODE — 1 post/day at TikTok peak hours ═══")
     log.info("Optimal hours: %s", TIKTOK_OPTIMAL_HOURS)
+    tg_ok = _notify_telegram("🚀 *ViralOps Daemon Started*\nPosting at hours: " + str(TIKTOK_OPTIMAL_HOURS))
+    if tg_ok:
+        log.info("Telegram notification: ON")
+    else:
+        log.info("Telegram notification: OFF (no token/chat_id or failed)")
 
     while True:
         target = _next_optimal_slot()
@@ -281,18 +331,33 @@ def daemon_loop() -> None:
 
         ok = run_once()
         if not ok:
-            # Rate-limited or failed → wait RATE_LIMIT_WAIT_HOURS and retry
-            log.info("Failed/rate-limited. Waiting %dh before retry …", RATE_LIMIT_WAIT_HOURS)
-            time.sleep(RATE_LIMIT_WAIT_HOURS * 3600)
-            continue
+            # Rate-limited or failed — try remaining slots today
+            retries_left = TIKTOK_RL_RETRY_SLOTS
+            while retries_left > 0:
+                retries_left -= 1
+                next_slot = _next_optimal_slot()
+                # If next slot is tomorrow, stop retrying
+                if next_slot.date() > dt.datetime.now().date():
+                    log.info("No more slots today. Will try tomorrow.")
+                    break
+                wait = (next_slot - dt.datetime.now()).total_seconds()
+                if wait > 0:
+                    log.info("Rate-limited. Retrying at %s (%.0f min)…",
+                             next_slot.strftime("%H:%M"), wait / 60)
+                    time.sleep(wait)
+                ok = run_once()
+                if ok:
+                    break
+            if not ok:
+                _notify_telegram("😴 *ViralOps* — All slots used today. Waiting until tomorrow.")
 
-        # Success — wait until next day's first optimal slot
+        # Success or all retries done — wait until next day's first optimal slot
         next_day = dt.datetime.now() + dt.timedelta(days=1)
         first_hour = sorted(TIKTOK_OPTIMAL_HOURS)[0]
         wake = next_day.replace(hour=first_hour, minute=random.randint(0, 14), second=0)
         sleep_secs = (wake - dt.datetime.now()).total_seconds()
         if sleep_secs > 0:
-            log.info("Done for today. Next run: %s (%.1f hours)", wake.strftime("%Y-%m-%d %H:%M"), sleep_secs / 3600)
+            log.info("Next run: %s (%.1f hours)", wake.strftime("%Y-%m-%d %H:%M"), sleep_secs / 3600)
             time.sleep(sleep_secs)
 
 
