@@ -300,15 +300,20 @@ def build_image_prompt(pack: Dict[str, Any]) -> str:
     # Determine visual subject from content
     content = pack.get("content_formatted", "")
     
-    # Build descriptive prompt matching user's style
+    # Build hyper-detailed cinematic prompt for maximum realism
     prompt = (
-        f"Create a realistic, high-quality photograph related to: {image_title}. "
-        f"Context: {pain_point[:100]}. "
-        f"Style: Clean, warm natural lighting, lifestyle food/home photography. "
-        f"Vertical 9:16 portrait format. "
-        f"ABSOLUTELY NO TEXT, NO LETTERS, NO WORDS, NO NUMBERS, NO WATERMARKS, NO LOGOS anywhere in the image. "
-        f"No people's faces. "
-        f"Professional quality, vibrant colors, shallow depth of field, bokeh background."
+        f"Ultra-realistic photograph, shot on Sony A7IV with 85mm f/1.4 lens. "
+        f"Subject: {image_title}. "
+        f"Scene context: {pain_point[:120]}. "
+        f"Style: Editorial food/lifestyle photography for a premium magazine. "
+        f"Warm golden-hour natural lighting streaming through a window, casting soft shadows. "
+        f"Shallow depth of field with creamy bokeh background. "
+        f"Rich vibrant colors, visible textures and fine details on every surface. "
+        f"Wooden cutting board, fresh herbs, rustic kitchen counter, linen napkin — organic props. "
+        f"Vertical 9:16 portrait composition with rule-of-thirds framing. "
+        f"8K resolution quality, hyper-detailed, photorealistic, no CGI look. "
+        f"ABSOLUTELY NO TEXT, NO LETTERS, NO WORDS, NO NUMBERS, NO WATERMARKS, NO LOGOS in the image. "
+        f"No human faces, no hands. Raw authentic aesthetic."
     )
     
     return prompt

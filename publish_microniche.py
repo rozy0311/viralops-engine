@@ -632,68 +632,50 @@ def overlay_text_on_image(image_path: str, pack: dict) -> str:
     draw = ImageDraw.Draw(overlay)
     
     fonts = load_fonts()
-    hook_font = fonts["overlay_hook"]
+    hook_font = fonts["overlay_brand"]  # 28pt — small, clean text on image
     brand_font = fonts["overlay_brand"]
     
     # Get the hook/question text — prefer hook from DB, then pain_point, then topic title
     hook_text = pack.get("_db_hook", "") or pack.get("pain_point", "") or pack.get("title", "")
-    # Clean it up — remove markdown, keep it punchy
+    # Clean it up — remove markdown, keep it VERY short (max 60 chars)
     hook_text = hook_text.replace("**", "").replace("###", "").replace("##", "").replace("#", "").strip()
-    # If too long, truncate at ~120 chars
-    if len(hook_text) > 120:
-        hook_text = hook_text[:117].rsplit(" ", 1)[0] + "..."
+    if len(hook_text) > 60:
+        hook_text = hook_text[:57].rsplit(" ", 1)[0] + "..."
     
-    hashtags = pack.get("hashtags", [])
-    clean_tags = ["#" + t.lstrip("#") for t in hashtags[:5] if t.strip()]
-    # Split into 2 neat rows: 3 + 2 (or 2 + 2, etc.)
-    mid = (len(clean_tags) + 1) // 2  # e.g. 5 -> 3, 4 -> 2
-    tag_row1 = "  ".join(clean_tags[:mid])   # wider spacing between tags
-    tag_row2 = "  ".join(clean_tags[mid:]) if len(clean_tags) > mid else ""
+    # NO hashtags on image — keep it clean, hashtags go in caption only
     brand_text = "@TheRikeRootStories"
     
-    # Use a smaller font for hashtags so they don't overwhelm the image
-    tag_font = brand_font  # 28pt — subtle, readable
+    tag_font = brand_font  # 28pt
     
-    # ── Calculate text layout from bottom up ──
-    padding = 40
-    line_spacing = 10
+    # ── MINIMAL overlay — short hook + brand only, NO hashtags ──
+    padding = 30
+    line_spacing = 6
     
-    # Wrap hook text
+    # Wrap hook text (small font, short text)
     hook_lines = wrap_text(hook_text, hook_font, w - padding * 2, draw)
-    hook_height = len(hook_lines) * (44 + line_spacing)
+    hook_height = len(hook_lines) * (28 + line_spacing)
     
-    # Total text block height
-    brand_h = 24 + line_spacing
-    tag_h = (28 + 6) * (2 if tag_row2 else 1)  # 1 or 2 rows of tags
-    total_text_h = hook_height + tag_h + brand_h + padding * 2 + 30
+    # Total text block height — very compact
+    brand_h = 22 + line_spacing
+    total_text_h = hook_height + brand_h + padding * 2 + 10
     
-    # Semi-transparent dark gradient band at bottom
-    band_top = h - total_text_h - 40
+    # Subtle semi-transparent gradient band at very bottom (narrow)
+    band_top = h - total_text_h - 20
     for y in range(band_top, h):
         progress = (y - band_top) / (h - band_top)
-        alpha = int(160 * min(progress * 1.5, 1.0))  # slightly less dark (160 vs 180)
+        alpha = int(120 * min(progress * 1.8, 1.0))  # lighter (120 vs 160)
         draw.line([(0, y), (w, y)], fill=(0, 0, 0, alpha))
     
-    # ── Draw hook text (centered, white) ──
-    y_cursor = band_top + padding + 20
+    # ── Draw hook text (centered, white, small) ──
+    y_cursor = band_top + padding + 10
     for line in hook_lines:
-        draw.text((w // 2, y_cursor), line, fill=(255, 255, 255, 240),
+        draw.text((w // 2, y_cursor), line, fill=(255, 255, 255, 220),
                   font=hook_font, anchor="mt")
-        y_cursor += 44 + line_spacing
-    
-    # ── Draw hashtags — 2 neat rows, subtle color ──
-    y_cursor += 12
-    draw.text((w // 2, y_cursor), tag_row1, fill=(180, 220, 180, 180),
-              font=tag_font, anchor="mt")
-    y_cursor += 28 + 6
-    if tag_row2:
-        draw.text((w // 2, y_cursor), tag_row2, fill=(180, 220, 180, 180),
-                  font=tag_font, anchor="mt")
-        y_cursor += 28 + 6
+        y_cursor += 28 + line_spacing
     
     # ── Draw brand (centered, very subtle) ──
-    y_cursor += 6
-    draw.text((w // 2, y_cursor), brand_text, fill=(200, 200, 200, 140),
+    y_cursor += 8
+    draw.text((w // 2, y_cursor), brand_text, fill=(200, 200, 200, 120),
               font=brand_font, anchor="mt")
     
     # Composite overlay onto image
@@ -824,11 +806,11 @@ def _strip_markdown(text: str) -> str:
     # ── Step 4: Clean up excessive blank lines (max 1 blank = \n\n) ──
     text = re.sub(r'\n{3,}', '\n\n', text)
     
-    # ── Step 5: TikTok/Publer newline fix ──
-    # Publer/TikTok API collapses \n\n → \n (no visible gap).
-    # Workaround: insert invisible Braille blank (U+2800) on empty lines.
-    # This makes the blank line "non-empty" so it survives API processing.
-    text = text.replace('\n\n', '\n\u2800\n')
+    # ── Step 5: TikTok/Publer line break fix ──
+    # Publer/TikTok API strips pure blank lines and invisible Unicode.
+    # PROVEN HACK: A line containing only a dot/period (.) creates a visible
+    # paragraph break on TikTok. This is widely used by creators.
+    text = text.replace('\n\n', '\n.\n')
     
     return text.strip()
 
@@ -851,18 +833,18 @@ def build_caption(pack: dict, location: str, season: str) -> str:
     # Ensure all hashtags have # prefix
     tag_str = " ".join("#" + t.lstrip("#") for t in hashtags if t.strip())
     
-    # Build: Title + blank line + Content + blank line + separator + Hashtags
-    # Use \u2800 (Braille blank) for "empty" lines — TikTok/Publer strip real blank lines
-    BLANK = '\u2800'  # invisible but non-empty → survives API stripping
+    # Build: Title + Content + separator + Hashtags
+    # Use dot-line (.) for paragraph breaks — proven TikTok hack
+    DOT = '.'  # simple period on its own line = visible gap on TikTok
     parts = []
     if title:
         parts.append(title)
-        parts.append(BLANK)  # visible gap after title
+        parts.append(DOT)
     if content:
         parts.append(content)
-        parts.append(BLANK)  # gap before separator
-        parts.append('— — —')  # clean visual separator
-        parts.append(BLANK)
+        parts.append(DOT)
+        parts.append('— — —')
+        parts.append(DOT)
     parts.append(tag_str)
     
     full_text = '\n'.join(parts)
@@ -876,9 +858,9 @@ def build_caption(pack: dict, location: str, season: str) -> str:
             parts = []
             if title:
                 parts.append(title)
-                parts.append('\u2800')
+                parts.append('.')
             parts.append(content)
-            parts.append('\u2800')
+            parts.append('.')
             parts.append(tag_str)
             full_text = '\n'.join(parts)
     
