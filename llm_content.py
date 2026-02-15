@@ -526,7 +526,11 @@ FORMAT RULES (CRITICAL — this shows on TikTok):
 - End with a punchy one-liner recommendation, NOT a motivation speech
 
 CHARACTER TARGET: 3800-4200 characters. This is for TikTok photo post description.
-Count carefully — too short = thin answer, too long = gets cut off on TikTok (4000 char limit)."""
+Count carefully — too short = thin answer, too long = gets cut off on TikTok (4000 char limit).
+
+BRAND NAMES: NEVER mention specific brand names (Walmart, Goya, Just Egg, Trader Joe's, Whole Foods, etc.).
+Use generic terms instead: "grocery store", "dried black beans", "liquid egg substitute", "budget store".
+This keeps content evergreen and avoids looking like an ad."""
 
 # Broad hashtag pool organized by topic group (from spec)
 BROAD_HASHTAG_POOL = {
@@ -719,6 +723,7 @@ CRITICAL:
 4. MUST have witty personality — dry humor, real talk, zero corporate tone.
 5. Hashtags: exactly 3 NANO-NICHE tags (ultra-specific, high-search for this topic).
 6. NO generic intro, NO "great question", NO motivation speeches.
+7. NO BRAND NAMES — never mention Walmart, Goya, Just Egg, Trader Joe's, Whole Foods, etc. Use generic terms: "grocery store", "dried beans", "liquid egg substitute".
 7. Start answering from the FIRST sentence — jump straight into the content.
 8. Output ONLY valid JSON."""
 
