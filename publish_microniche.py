@@ -824,6 +824,12 @@ def _strip_markdown(text: str) -> str:
     # ── Step 4: Clean up excessive blank lines (max 1 blank = \n\n) ──
     text = re.sub(r'\n{3,}', '\n\n', text)
     
+    # ── Step 5: TikTok/Publer newline fix ──
+    # Publer/TikTok API collapses \n\n → \n (no visible gap).
+    # Workaround: insert invisible Braille blank (U+2800) on empty lines.
+    # This makes the blank line "non-empty" so it survives API processing.
+    text = text.replace('\n\n', '\n\u2800\n')
+    
     return text.strip()
 
 
@@ -846,18 +852,20 @@ def build_caption(pack: dict, location: str, season: str) -> str:
     tag_str = " ".join("#" + t.lstrip("#") for t in hashtags if t.strip())
     
     # Build: Title + blank line + Content + blank line + separator + Hashtags
+    # Use \u2800 (Braille blank) for "empty" lines — TikTok/Publer strip real blank lines
+    BLANK = '\u2800'  # invisible but non-empty → survives API stripping
     parts = []
     if title:
         parts.append(title)
-        parts.append("")  # blank line after title
+        parts.append(BLANK)  # visible gap after title
     if content:
         parts.append(content)
-        parts.append("")  # blank line before hashtags
-        parts.append("— — —")  # clean visual separator
-        parts.append("")
+        parts.append(BLANK)  # gap before separator
+        parts.append('— — —')  # clean visual separator
+        parts.append(BLANK)
     parts.append(tag_str)
     
-    full_text = "\n".join(parts)
+    full_text = '\n'.join(parts)
     
     # TikTok photo posts have ~4000 char limit for description
     # If too long, trim content but ALWAYS keep title + hashtags
@@ -868,11 +876,11 @@ def build_caption(pack: dict, location: str, season: str) -> str:
             parts = []
             if title:
                 parts.append(title)
-                parts.append("")
+                parts.append('\u2800')
             parts.append(content)
-            parts.append("")
+            parts.append('\u2800')
             parts.append(tag_str)
-            full_text = "\n".join(parts)
+            full_text = '\n'.join(parts)
     
     return full_text
 
