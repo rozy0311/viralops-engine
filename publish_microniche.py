@@ -770,12 +770,17 @@ def _strip_markdown(text: str) -> str:
     """Strip markdown syntax and format for TikTok plain-text readability.
     
     TikTok does NOT render markdown. Literal ** ### etc. look broken.
-    Keep emojis (they render fine). Add proper spacing for visual hierarchy.
+    Keep emojis (they render fine).
+    
+    KEY INSIGHT: On TikTok, a single \\n gives NO visible gap.
+    Only \\n\\n (double newline) creates a visible paragraph break.
+    So we convert every logical paragraph/section break to \\n\\n.
     """
     import re
     
-    # Remove ### headers — keep text, ensure blank line BEFORE for visual separation
-    text = re.sub(r'\n*(#{1,6})\s*', r'\n\n', text)
+    # ── Step 1: Strip markdown syntax ──
+    # Remove ### headers — keep text after them
+    text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
     # Remove **bold** markers — keep inner text
     text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
     # Remove *italic* markers — keep inner text  
@@ -785,22 +790,39 @@ def _strip_markdown(text: str) -> str:
     # Remove backtick code markers
     text = re.sub(r'`([^`]+)`', r'\1', text)
     
-    # ── Add visual spacing for readability ──
-    # Blank line BEFORE emoji section headers (lines starting with emoji)
-    text = re.sub(r'\n(?=[\U0001F300-\U0001F9FF\u2600-\u27BF\u2700-\u27BF\u274C\u2705\u26A1])', r'\n\n', text)
-    
-    # Blank line BEFORE numbered items like "1)" "2)" so they breathe
-    text = re.sub(r'\n(?=\d+[)\.]\s)', r'\n\n', text)
-    
-    # Ensure lines that start with a dash/bullet get a little space
-    text = re.sub(r'\n(?=[—–\-•]\s)', r'\n', text)
-    
-    # Clean up excessive blank lines (max 2 consecutive)
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    
-    # Remove leading/trailing whitespace per line
+    # ── Step 2: Clean up each line ──
     lines = [line.strip() for line in text.split('\n')]
-    text = '\n'.join(lines)
+    
+    # ── Step 3: Rebuild with proper paragraph spacing ──
+    # Every non-empty line after another non-empty line gets a blank line between
+    # EXCEPT consecutive bullet/dash lines (keep them grouped)
+    result_lines = []
+    for i, line in enumerate(lines):
+        if not line:
+            # Keep existing blank lines
+            if not result_lines or result_lines[-1] != '':
+                result_lines.append('')
+            continue
+        
+        is_bullet = bool(re.match(r'^[-•–—]\s', line))
+        prev_was_bullet = (result_lines and 
+                          result_lines[-1] != '' and 
+                          bool(re.match(r'^[-•–—]\s', result_lines[-1])))
+        
+        if result_lines and result_lines[-1] != '':
+            # If both current and previous are bullets, keep them close (single newline)
+            if is_bullet and prev_was_bullet:
+                pass  # no blank line — bullets stay grouped
+            else:
+                # Add blank line between different types of content
+                result_lines.append('')
+        
+        result_lines.append(line)
+    
+    text = '\n'.join(result_lines)
+    
+    # ── Step 4: Clean up excessive blank lines (max 1 blank = \n\n) ──
+    text = re.sub(r'\n{3,}', '\n\n', text)
     
     return text.strip()
 
