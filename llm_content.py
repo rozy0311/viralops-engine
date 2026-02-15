@@ -214,7 +214,11 @@ def _call_gemini(
         return ProviderResult(text="", provider=config.name, model=config.model,
                              success=False, error="google-genai not installed")
 
-    client = genai.Client(api_key=api_key)
+    try:
+        client = genai.Client(api_key=api_key)
+    except (ValueError, Exception) as e:
+        return ProviderResult(text="", provider=config.name, model=config.model,
+                             success=False, error=f"Gemini client init failed: {e}")
     full_prompt = f"{system}\n\n{prompt}" if system else prompt
 
     last_error = ""
@@ -804,7 +808,10 @@ CRITICAL:
         pack = _extract_json(result.text)
         if not pack:
             print(f"  [QUALITY] JSON parse FAILED from {result.provider}")
-            print(f"  [QUALITY] Raw text (first 500): {result.text[:500]}")
+            raw_len = len(result.text) if result.text else 0
+            print(f"  [QUALITY] Raw text length: {raw_len}")
+            print(f"  [QUALITY] Raw text (first 300): {repr(result.text[:300])}")
+            print(f"  [QUALITY] Raw text (last 200): {repr(result.text[-200:])}")
             continue
         
         # ── Validate content_formatted length ──
@@ -1303,87 +1310,124 @@ def generate_from_niche_hunter(top_n: int = 5) -> Optional[Dict[str, Any]]:
 # ═══════════════════════════════════════════════════════════════
 
 def _repair_json_text(text: str) -> str:
-    """Fix common LLM JSON issues: raw newlines in strings, smart quotes, etc."""
+    """Fix common LLM JSON issues: raw newlines/tabs/control chars in strings, smart quotes, etc."""
     # Replace smart quotes
     text = text.replace('\u201c', '"').replace('\u201d', '"')
     text = text.replace('\u2018', "'").replace('\u2019', "'")
+    # Replace em-dash variants that can confuse parsers
+    text = text.replace('\u2014', '-').replace('\u2013', '-')
     
-    # Fix raw newlines inside JSON string values
+    # Fix raw control characters inside JSON string values
     result = []
     in_string = False
     i = 0
     while i < len(text):
         ch = text[i]
         if ch == '\\' and in_string and i + 1 < len(text):
-            result.append(ch)
-            result.append(text[i + 1])
-            i += 2
-            continue
+            next_ch = text[i + 1]
+            # Valid JSON escapes: " \\ / b f n r t u
+            if next_ch in '"\\/bfnrtu':
+                result.append(ch)
+                result.append(next_ch)
+                i += 2
+                continue
+            else:
+                # Invalid escape like \x, \a etc → double-escape it
+                result.append('\\\\')
+                i += 1
+                continue
         if ch == '"':
             in_string = not in_string
             result.append(ch)
             i += 1
             continue
-        if ch == '\n' and in_string:
-            result.append('\\n')
-            i += 1
-            continue
-        if ch == '\t' and in_string:
-            result.append('\\t')
-            i += 1
-            continue
+        if in_string:
+            if ch == '\n':
+                result.append('\\n')
+                i += 1
+                continue
+            if ch == '\r':
+                result.append('\\r')
+                i += 1
+                continue
+            if ch == '\t':
+                result.append('\\t')
+                i += 1
+                continue
+            # Strip other control chars (0x00-0x1F except the ones handled above)
+            if ord(ch) < 0x20:
+                result.append(' ')
+                i += 1
+                continue
         result.append(ch)
         i += 1
     return ''.join(result)
 
 
 def _extract_json(text: str) -> Optional[Dict]:
-    """Extract JSON from LLM response (handles markdown code blocks, nested JSON, raw newlines)."""
+    """Extract JSON from LLM response (handles markdown code blocks, nested JSON, raw newlines).
+    
+    Uses a multi-strategy approach with progressively more aggressive cleaning:
+    1. Strip markdown fences (handles ```json, ```JSON, leading spaces, multiple blocks)
+    2. Direct parse
+    3. Repair (fix control chars, smart quotes, invalid escapes) then parse
+    4. Brace-matching extraction + repair
+    5. Aggressive cleaning (strip all non-JSON prose) + parse
+    """
     import re
+    
+    if not text or not text.strip():
+        return None
     
     text = text.strip()
     
-    # Remove markdown code block wrapper
-    if text.startswith("```"):
+    # ----- Strategy 0: Strip markdown code block wrapper(s) -----
+    # Handle: ```json, ```JSON, ``` json, leading whitespace before ```, multiple blocks
+    # Also handle case where response has text before/after the code block
+    code_block_match = re.search(r'```(?:json|JSON)?\s*\n(.*?)```', text, re.DOTALL)
+    if code_block_match:
+        text = code_block_match.group(1).strip()
+    elif text.startswith("```"):
+        # Fallback: simple strip
         first_newline = text.index("\n") if "\n" in text else len(text)
         text = text[first_newline + 1:]
         if text.rstrip().endswith("```"):
             text = text.rstrip()[:-3].rstrip()
     
-    # Try direct parse
+    # ----- Strategy 1: Direct parse -----
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError):
         pass
     
-    # Try after repairing common LLM JSON issues (raw newlines in strings)
+    # ----- Strategy 2: Repair common LLM JSON issues then parse -----
     try:
         return json.loads(_repair_json_text(text))
-    except (json.JSONDecodeError, Exception):
+    except (json.JSONDecodeError, ValueError, Exception):
         pass
     
-    # Brace-matching extraction
+    # ----- Strategy 3: Brace-matching extraction -----
     start = text.find("{")
     if start != -1:
         depth = 0
         in_string = False
-        escape = False
+        escape_next = False
         end = start
         for i in range(start, len(text)):
             ch = text[i]
-            if escape:
-                escape = False
+            if escape_next:
+                escape_next = False
                 continue
-            if ch == "\\":
-                escape = True
+            if ch == '\\' and in_string:
+                escape_next = True
                 continue
-            if ch == '"' and not escape:
+            if ch == '"':
                 in_string = not in_string
                 continue
             if not in_string:
-                if ch == "{":
+                if ch == '{':
                     depth += 1
-                elif ch == "}":
+                elif ch == '}':
                     depth -= 1
                     if depth == 0:
                         end = i + 1
@@ -1392,20 +1436,53 @@ def _extract_json(text: str) -> Optional[Dict]:
             candidate = text[start:end]
             try:
                 return json.loads(candidate)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, ValueError):
                 pass
             try:
                 return json.loads(_repair_json_text(candidate))
-            except (json.JSONDecodeError, Exception):
+            except (json.JSONDecodeError, ValueError, Exception):
                 pass
     
-    # Last resort regex
-    match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
-    if match:
+    # ----- Strategy 4: Aggressive cleaning -----
+    # Sometimes LLM wraps JSON in extra text. Try to find the outermost { ... }
+    # and aggressively clean the content.
+    first_brace = text.find('{')
+    last_brace = text.rfind('}')
+    if first_brace != -1 and last_brace > first_brace:
+        aggressive = text[first_brace:last_brace + 1]
+        # Replace literal \n (two chars) that should be \\n in JSON strings
+        # This handles cases where the LLM outputs actual backslash-n instead of newline
         try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
+            return json.loads(_repair_json_text(aggressive))
+        except (json.JSONDecodeError, ValueError, Exception):
             pass
+        # Even more aggressive: strip control chars entirely
+        cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', aggressive)
+        try:
+            return json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        try:
+            return json.loads(_repair_json_text(cleaned))
+        except (json.JSONDecodeError, ValueError, Exception):
+            pass
+    
+    # ----- Strategy 5: Last resort — find ANY valid JSON object -----
+    # Try increasingly simple regex patterns
+    for pattern in [
+        r'\{.*\}',  # Greedy — largest possible match
+        r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}',  # Non-nested or single-nested
+    ]:
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except (json.JSONDecodeError, ValueError):
+                pass
+            try:
+                return json.loads(_repair_json_text(match.group()))
+            except (json.JSONDecodeError, ValueError, Exception):
+                pass
     
     return None
 
