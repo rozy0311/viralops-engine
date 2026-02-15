@@ -4,7 +4,8 @@ ViralOps Engine — Smart LLM Content Pipeline
 Multi-provider cascade with self-review (EMADS-PR pattern).
 
 Providers (cost-aware order):
-  1. Gemini 2.5 Flash (free tier, 15 RPM)
+  1. Gemini cascade (free tier — auto-fallback through 7 models)
+     2.5 Flash → 2.5 Pro → 2.0 Flash → 3.0 Pro → 2.5 Flash Lite → 2.0 Flash Lite → 2.0 Pro Exp
   2. GitHub Models / gpt-4o-mini (free via Copilot)
   3. Perplexity / sonar (has web search — great for trending content)
   4. OpenAI / gpt-4o-mini (paid fallback)
@@ -64,13 +65,30 @@ class ProviderConfig:
     is_gemini: bool = False            # Uses Google genai SDK
 
 
+# ── Gemini model fallback chain (all free tier, same API key) ──
+# When one model hits RPD/RPM quota, auto-cascade to the next.
+# Order matches user preference: smart models first, budget models last.
+GEMINI_TEXT_MODELS = [
+    "gemini-2.5-flash",       # Primary — 5 RPM, 250K TPM, 20 RPD
+    "gemini-2.5-pro",         # 15 RPM, Unlimited TPM, 1.5K RPD
+    "gemini-2.0-flash",       # 15 RPM, Unlimited TPM, 1.5K RPD
+    "gemini-3.0-pro",         # 15 RPM, Unlimited TPM, 1.5K RPD
+    "gemini-2.5-flash-lite",  # 10 RPM, 250K TPM, 20 RPD
+    "gemini-2.0-flash-lite",  # 15 RPM, Unlimited TPM, 1.5K RPD
+    "gemini-2.0-pro-exp",     # 15 RPM, Unlimited TPM, 1.5K RPD
+]
+
+# Track which Gemini models are quota-exhausted this session
+_gemini_exhausted: set = set()
+
+
 # Provider cascade — cheapest working first
 PROVIDERS = [
     ProviderConfig(
         name="gemini",
         api_key_env="GEMINI_API_KEY",
         base_url="",  # Uses SDK
-        model="gemini-2.5-flash",
+        model="gemini-2.5-flash",  # Initial model (overridden by cascade)
         cost_per_1k_input=0.0,
         cost_per_1k_output=0.0,
         is_openai_compatible=False,
@@ -183,39 +201,79 @@ def _call_gemini(
     max_tokens: int,
     temperature: float,
 ) -> ProviderResult:
-    """Call Google Gemini via genai SDK."""
+    """
+    Call Google Gemini via genai SDK with automatic model fallback.
+
+    Cascades through GEMINI_TEXT_MODELS when a model hits 429/RESOURCE_EXHAUSTED.
+    Tracks exhausted models per session so subsequent calls skip them instantly.
+    """
     try:
         from google import genai
         from google.genai import types
     except ImportError:
         return ProviderResult(text="", provider=config.name, model=config.model,
                              success=False, error="google-genai not installed")
-    
+
     client = genai.Client(api_key=api_key)
-    
     full_prompt = f"{system}\n\n{prompt}" if system else prompt
-    
-    resp = client.models.generate_content(
-        model=config.model,
-        contents=full_prompt,
-        config=types.GenerateContentConfig(
-            max_output_tokens=max_tokens,
-            temperature=temperature,
-        ),
-    )
-    
-    text = resp.text.strip() if resp.text else ""
-    
-    # Estimate tokens (Gemini doesn't always return usage)
-    est_tokens = len(text.split()) * 1.3
-    
+
+    last_error = ""
+    for model_name in GEMINI_TEXT_MODELS:
+        # Skip models we already know are exhausted this session
+        if model_name in _gemini_exhausted:
+            continue
+
+        try:
+            resp = client.models.generate_content(
+                model=model_name,
+                contents=full_prompt,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=max_tokens,
+                    temperature=temperature,
+                ),
+            )
+
+            text = resp.text.strip() if resp.text else ""
+            if text:
+                # Estimate tokens (Gemini doesn't always return usage)
+                est_tokens = len(text.split()) * 1.3
+                return ProviderResult(
+                    text=text,
+                    provider=config.name,
+                    model=model_name,
+                    tokens_used=int(est_tokens),
+                    success=True,
+                )
+            else:
+                last_error = f"{model_name}: Empty response"
+                print(f"  [LLM] Gemini/{model_name} — empty response, trying next…")
+
+        except Exception as e:
+            err_str = str(e).lower()
+            is_quota = (
+                "resource_exhausted" in err_str
+                or "429" in err_str
+                or "quota" in err_str
+                or "rate" in err_str
+            )
+            if is_quota:
+                _gemini_exhausted.add(model_name)
+                print(f"  [LLM] Gemini/{model_name} — quota exhausted, cascading…")
+                last_error = f"{model_name}: quota exhausted"
+                continue
+            else:
+                # Non-quota error (model not found, bad request, etc.)
+                print(f"  [LLM] Gemini/{model_name} — error: {str(e)[:120]}")
+                last_error = f"{model_name}: {str(e)[:200]}"
+                continue
+
+    # All Gemini models exhausted
     return ProviderResult(
-        text=text,
+        text="",
         provider=config.name,
-        model=config.model,
-        tokens_used=int(est_tokens),
-        success=bool(text),
-        error="" if text else "Empty response",
+        model="gemini-all-exhausted",
+        success=False,
+        error=f"All {len(GEMINI_TEXT_MODELS)} Gemini models exhausted: {last_error}",
     )
 
 
@@ -280,10 +338,12 @@ def _call_openai_compatible(
 # User's workflow: "create realistic image for the answer (image size 9:16)"
 # We replicate this using Gemini's image generation models.
 
-# Cascade of image models (try in order)
+# Cascade of image-generation models (try in order, skip quota-exhausted)
 IMAGE_MODELS = [
     "gemini-2.0-flash-exp-image-generation",
     "gemini-2.5-flash-image",
+    "imagen-4-fast-generate",     # Imagen 4 Fast (25 RPD free)
+    "imagen-4-generate",          # Imagen 4 Standard (25 RPD free)
 ]
 
 
