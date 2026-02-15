@@ -1102,10 +1102,45 @@ def get_content_pack(mode: str = "auto") -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════
+# DRAFT FALLBACK NOTIFICATION
+# ═══════════════════════════════════════════════════════════════
+
+def _notify_draft_fallback(pack: dict, account_id: str, draft_job_id: str) -> None:
+    """Send Telegram notification with draft details for manual TikTok UI publish."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+    title = pack.get("title", "Untitled")[:60]
+    msg = (
+        f"📋 *ViralOps — Draft Created (API rate-limited)*\n\n"
+        f"📝 *{title}*\n"
+        f"🎵 Account: `{account_id[:12]}…`\n"
+        f"🆔 Draft job: `{draft_job_id}`\n\n"
+        f"👉 *Manual publish steps:*\n"
+        f"1️⃣ Open Publer → Drafts tab\n"
+        f"2️⃣ Find this post → click Share\n"
+        f"3️⃣ Or: copy caption + image → post in TikTok app\n\n"
+        f"_This bypasses API limit — manual posts don't count toward OpenAPI quota._"
+    )
+    try:
+        import httpx
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        httpx.post(url, json={
+            "chat_id": chat_id,
+            "text": msg,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        }, timeout=10)
+    except Exception:
+        pass
+
+
+# ═══════════════════════════════════════════════════════════════
 # MAIN PIPELINE
 # ═══════════════════════════════════════════════════════════════
 
-def main(content_pack_override: dict = None):
+def main(content_pack_override: dict = None, tiktok_account_id: str = ""):
     import httpx
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "auto"
@@ -1162,12 +1197,14 @@ def main(content_pack_override: dict = None):
     print(f"  Caption ({len(caption)} chars):")
     print(f"  {caption[:300]}...")
 
-    # ── Step 4: Upload to Publer + Publish ──
+    # ── Step 4: Upload to Publer + Publish (Hybrid: API → draft fallback) ──
     print("\n[4/5] Uploading image & publishing to TikTok...")
 
     api_key = os.environ["PUBLER_API_KEY"]
     ws_id = os.environ.get("PUBLER_WORKSPACE_ID", "")
-    tiktok_id = "698c95e5b1ab790def1352c1"
+    # Use provided account ID or fall back to legacy hardcoded
+    tiktok_id = tiktok_account_id or "698c95e5b1ab790def1352c1"
+    print(f"  Target account: {tiktok_id}")
 
     auth_headers = {"Authorization": f"Bearer-API {api_key}"}
     if ws_id:
@@ -1192,7 +1229,7 @@ def main(content_pack_override: dict = None):
     media_entry = {"id": media_data.get("id", ""), "path": media_data.get("path", media_data.get("url", ""))}
     print(f"  Media: {json.dumps(media_entry)[:200]}")
 
-    # Publish
+    # ── Phase 1: Try direct API publish ──
     post_payload = {
         "bulk": {
             "state": "draft",
@@ -1234,6 +1271,7 @@ def main(content_pack_override: dict = None):
 
     publish_success = False
     publish_error = ""
+    is_rate_limited = False
 
     if job_id:
         print(f"\n  Job ID: {job_id}")
@@ -1258,6 +1296,10 @@ def main(content_pack_override: dict = None):
                         if failure:
                             publish_error = failure.get("message", str(failure))
                             print(f"\n  FAILED: {publish_error}")
+                            # Detect TikTok rate limit
+                            err_lower = publish_error.lower()
+                            if "too many posts" in err_lower or "rate" in err_lower or "openapi" in err_lower:
+                                is_rate_limited = True
                         elif post_info.get("state") in ("live", "published"):
                             post_link = post_info.get("post_link", "")
                             publish_success = True
@@ -1275,9 +1317,62 @@ def main(content_pack_override: dict = None):
             else:
                 print(f"    [{attempt + 1}] HTTP {jr.status_code}")
 
+    # ── Phase 2: Hybrid fallback — create Publer draft for manual TikTok UI publish ──
+    draft_created = False
+    if not publish_success and is_rate_limited:
+        print("\n  ⏳ TikTok API rate-limited — switching to DRAFT fallback...")
+        print("  Creating Publer draft (you can manually publish via TikTok UI)")
+        try:
+            draft_payload = {
+                "bulk": {
+                    "state": "draft",
+                    "posts": [
+                        {
+                            "networks": {
+                                "tiktok": {
+                                    "type": "photo",
+                                    "text": caption,
+                                    "media": [media_entry],
+                                    "privacy_level": "PUBLIC_TO_EVERYONE",
+                                }
+                            },
+                            "accounts": [{"id": tiktok_id}],
+                            "details": {
+                                "reminder": True,  # Publer reminder mode — won't auto-publish
+                            },
+                        }
+                    ],
+                }
+            }
+            dr = httpx.post(
+                "https://app.publer.com/api/v1/posts/schedule",
+                headers=headers_json,
+                json=draft_payload,
+                timeout=30,
+            )
+            if dr.status_code in (200, 201):
+                draft_data = dr.json()
+                draft_job_id = draft_data.get("job_id", "")
+                draft_created = True
+                print(f"  ✅ Draft created! (job_id={draft_job_id})")
+                print(f"  → Open Publer dashboard → Drafts → find this post → share to TikTok manually")
+                print(f"  → Or: TikTok app → upload the image directly with the caption below")
+
+                # Notify via Telegram for manual action
+                _notify_draft_fallback(pack, tiktok_id, draft_job_id)
+            else:
+                print(f"  ⚠ Draft creation failed: HTTP {dr.status_code} — {dr.text[:300]}")
+        except Exception as draft_err:
+            print(f"  ⚠ Draft fallback error: {draft_err}")
+
     # ── Step 5: Save to DB ──
     print("\n[5/5] Saving to database...")
-    db_status = "published" if publish_success else "failed"
+    if draft_created:
+        db_status = "draft_pending"  # Hybrid fallback: waiting for manual TikTok UI publish
+    elif publish_success:
+        db_status = "published"
+    else:
+        db_status = "failed"
     try:
         from web.app import get_db_safe, init_db
         init_db()
@@ -1302,13 +1397,15 @@ def main(content_pack_override: dict = None):
                         "pain_point": pack.get("pain_point", ""),
                         "audiences": pack.get("audiences", []),
                         "error": publish_error,
+                        "draft_fallback": draft_created,
+                        "account_id": tiktok_id,
                     }),
                 ),
             )
             post_id = cur.lastrowid
             conn.execute(
                 "INSERT INTO publish_log (post_id, platform, success, post_url, error) VALUES (?, ?, ?, ?, ?)",
-                (post_id, "tiktok", 1 if publish_success else 0, post_link, publish_error),
+                (post_id, "tiktok", 1 if (publish_success or draft_created) else 0, post_link, publish_error),
             )
             conn.commit()
             print(f"  Saved as post #{post_id} (status={db_status})")
@@ -1318,13 +1415,25 @@ def main(content_pack_override: dict = None):
     print("\n" + "=" * 60)
     if publish_success:
         print("DONE! Micro-niche content published to TikTok.")
+    elif draft_created:
+        print("DRAFT CREATED — waiting for manual publish via TikTok UI.")
+        print("Check Publer dashboard → Drafts, or Telegram for instructions.")
     else:
         print(f"PUBLISH FAILED: {publish_error or 'unknown error'}")
     print(f"Title: {pack['title']}")
     print(f"Source: {pack.get('_source', 'unknown')}")
     print(f"Niche: {pack.get('_niche', 'prewritten')}")
     print("=" * 60)
-    return publish_success
+
+    # Return status string: "published" | "draft" | False
+    # - "published" = API publish succeeded
+    # - "draft"     = API rate-limited → Publer draft created for manual TikTok UI publish
+    # - False       = complete failure
+    if publish_success:
+        return "published"
+    elif draft_created:
+        return "draft"
+    return False
 
 
 def batch_publish(count=3, gap_minutes=2):

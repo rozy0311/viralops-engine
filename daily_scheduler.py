@@ -75,11 +75,14 @@ MIN_SCORE = 8.5              # Minimum acceptable topic score
 MAX_RETRIES = 3              # Retry count on transient publish failures
 RETRY_WAIT_SECS = 120        # Wait 2min between retries
 RATE_LIMIT_WAIT_HOURS = 6    # If TikTok rate-limited, wait 6h and retry (daemon mode)
-TIKTOK_OPTIMAL_HOURS = [7, 10, 19, 21]   # US/Pacific peak hours
+TIKTOK_OPTIMAL_HOURS = [7, 10, 12, 15, 19, 21]   # US/Pacific — 6 slots for multi-account
 TIKTOK_RL_RETRY_SLOTS = 3   # After rate-limit, try this many later slots before giving up
 
 # Known-used topic IDs (historical — dedup also checks posts table)
 USED_IDS: set[int] = {247, 248, 257, 274, 313, 327}
+
+# ── Multi-Account Manager ──────────────────────────────────────────
+from core.tiktok_accounts import get_account_manager  # noqa: E402
 
 
 # ── Telegram Notification ──────────────────────────────────────────
@@ -169,12 +172,33 @@ def _is_rate_limited_error(exc: Exception) -> bool:
 def run_once(
     dry_run: bool = False,
     force_topic_id: int | None = None,
+    account_id: str | None = None,
 ) -> bool:
     """
     Generate + publish a single post.
+    If account_id is provided, publish to that specific Publer TikTok account.
+    Otherwise, the account manager picks the next available via round-robin.
     Returns True on success, False on failure / rate-limit.
     """
-    log.info("═══ ViralOps Daily Scheduler — run_once() ═══")
+    mgr = get_account_manager()
+    acct = None
+    if account_id:
+        # Specific account requested
+        all_accts = mgr.get_all()
+        acct = next((a for a in all_accts if a["id"] == account_id), None)
+        if not acct:
+            log.error("Account %s not found!", account_id)
+            return False
+        log.info("═══ ViralOps — run_once() → account '%s' ═══", acct.get("label", account_id))
+    else:
+        acct_obj = mgr.next_account()
+        if not acct_obj:
+            log.warning("All TikTok accounts at daily limit — skipping")
+            _notify_telegram("⏳ *ViralOps* — All TikTok accounts at daily limit. Waiting for tomorrow.")
+            return False
+        acct = acct_obj.to_dict()
+        log.info("═══ ViralOps — run_once() → account '%s' (%d/%d today) ═══",
+                 acct["label"], acct["posts_today"], acct["max_daily"])
 
     # 1. Pick topic
     topic_row = pick_topic(force_topic_id)
@@ -227,15 +251,22 @@ def run_once(
         })
         return True
 
-    # 4. Publish via Publer → TikTok
+    # 4. Publish via Publer → TikTok (multi-account)
     from publish_microniche import main as publish_main  # noqa: E402
+    target_account_id = acct["id"]
+    log.info("Publishing to account: %s (%s)", acct.get("label", "?"), target_account_id)
 
     for attempt in range(1, MAX_RETRIES + 1):
         log.info("Publish attempt %d/%d …", attempt, MAX_RETRIES)
         try:
-            success = publish_main(content_pack_override=pack)
-            if success:
-                log.info("✅  Published successfully!  Topic: %s (id=%d)", topic, tid)
+            result = publish_main(content_pack_override=pack, tiktok_account_id=target_account_id)
+            # result: "published" | "draft" | False
+            if result == "published":
+                mgr.record_post(target_account_id)
+                stats = mgr.get_stats()
+                log.info("✅  Published to '%s'!  Topic: %s (id=%d)  [%d/%d today]",
+                         acct.get("label", "?"), topic, tid,
+                         stats["posts_today"], stats["daily_capacity"])
                 _jsonl_log({
                     "event": "published",
                     "topic_id": tid,
@@ -245,14 +276,35 @@ def run_once(
                     "caption_len": len(caption),
                     "dot_breaks": dot_count,
                     "status": "published",
+                    "account_id": target_account_id,
+                    "account_label": acct.get("label", ""),
                 })
                 _notify_telegram(
                     f"✅ *ViralOps — Published!*\n"
                     f"📝 {title}\n"
-                    f"📊 {content_len} chars, {dot_count} breaks\n"
+                    f"🎵 Account: {acct.get('label', target_account_id[:8])}\n"
+                    f"📊 {content_len} chars | {stats['posts_today']}/{stats['daily_capacity']} today\n"
                     f"🆔 Topic #{tid} (score {score:.1f})"
                 )
                 return True
+            elif result == "draft":
+                # Hybrid fallback: API rate-limited → Publer draft created
+                mgr.record_draft(target_account_id)
+                stats = mgr.get_stats()
+                log.info("📋  Draft created for '%s' (API rate-limited).  Topic: %s (id=%d)",
+                         acct.get("label", "?"), topic, tid)
+                _jsonl_log({
+                    "event": "draft_fallback",
+                    "topic_id": tid,
+                    "topic": topic,
+                    "title": title,
+                    "content_len": content_len,
+                    "status": "draft_pending",
+                    "account_id": target_account_id,
+                    "account_label": acct.get("label", ""),
+                })
+                # Telegram notification already sent by publish_microniche._notify_draft_fallback
+                return True  # Content was generated and saved — draft counts as success
             else:
                 log.warning("publish_main returned False (attempt %d)", attempt)
         except Exception as exc:
@@ -309,56 +361,90 @@ def _next_optimal_slot() -> dt.datetime:
 
 
 def daemon_loop() -> None:
-    """Run forever, publishing 1 post per day at the next optimal TikTok time slot.
-    
-    On rate-limit: tries remaining slots in the same day (up to TIKTOK_RL_RETRY_SLOTS)
-    before giving up and waiting until tomorrow.
+    """Run forever, publishing N posts/day across multiple TikTok accounts.
+
+    Multi-account round-robin strategy:
+      - Each account gets max 3 posts/day (safe from TikTok spam detection)
+      - Posts spread across optimal time slots with random jitter
+      - When all accounts hit daily limit → sleep until tomorrow
     """
-    log.info("═══ DAEMON MODE — 1 post/day at TikTok peak hours ═══")
-    log.info("Optimal hours: %s", TIKTOK_OPTIMAL_HOURS)
-    tg_ok = _notify_telegram("🚀 *ViralOps Daemon Started*\nPosting at hours: " + str(TIKTOK_OPTIMAL_HOURS))
+    mgr = get_account_manager()
+    stats = mgr.get_stats()
+    log.info("═══ DAEMON MODE — Multi-Account (%d accounts, %d posts/day capacity) ═══",
+             stats["enabled_accounts"], stats["daily_capacity"])
+    log.info("Optimal hours: %s  |  Jitter: %d-%d min",
+             TIKTOK_OPTIMAL_HOURS, stats["jitter_min"] // 60 if stats["jitter_min"] > 60 else stats["jitter_min"],
+             stats["jitter_max"] // 60 if stats["jitter_max"] > 60 else stats["jitter_max"])
+
+    tg_ok = _notify_telegram(
+        f"🚀 *ViralOps Daemon Started*\n"
+        f"📊 {stats['enabled_accounts']} accounts × {MAX_POSTS_PER_ACCOUNT_PER_DAY} max/each\n"
+        f"🎯 Capacity: {stats['daily_capacity']} posts/day\n"
+        f"⏰ Hours: {TIKTOK_OPTIMAL_HOURS}"
+    )
+    from core.tiktok_accounts import MAX_POSTS_PER_ACCOUNT_PER_DAY  # noqa: E402
     if tg_ok:
         log.info("Telegram notification: ON")
     else:
         log.info("Telegram notification: OFF (no token/chat_id or failed)")
 
     while True:
+        # Refresh stats at start of each cycle
+        stats = mgr.get_stats()
+
+        # Check if all accounts are at daily limit
+        if stats["remaining_today"] <= 0:
+            log.info("All accounts at daily limit (%d/%d). Sleeping until tomorrow.",
+                     stats["posts_today"], stats["daily_capacity"])
+            next_day = dt.datetime.now() + dt.timedelta(days=1)
+            first_hour = sorted(TIKTOK_OPTIMAL_HOURS)[0]
+            wake = next_day.replace(hour=first_hour, minute=random.randint(0, 14), second=0)
+            sleep_secs = (wake - dt.datetime.now()).total_seconds()
+            if sleep_secs > 0:
+                log.info("Next run: %s (%.1f hours)", wake.strftime("%Y-%m-%d %H:%M"), sleep_secs / 3600)
+                time.sleep(sleep_secs)
+            continue
+
+        # Wait for next optimal slot
         target = _next_optimal_slot()
         wait = (target - dt.datetime.now()).total_seconds()
         if wait > 0:
-            log.info("Next post at %s  (sleeping %.0f min)", target.strftime("%Y-%m-%d %H:%M"), wait / 60)
+            log.info("Next post at %s  (sleeping %.0f min)  [%d/%d posted today]",
+                     target.strftime("%Y-%m-%d %H:%M"), wait / 60,
+                     stats["posts_today"], stats["daily_capacity"])
             time.sleep(wait)
 
+        # Post one — round-robin picks the account
         ok = run_once()
-        if not ok:
-            # Rate-limited or failed — try remaining slots today
+
+        if ok:
+            # Add random jitter before next post
+            jitter = mgr.get_jitter_seconds()
+            stats = mgr.get_stats()
+            if stats["remaining_today"] > 0:
+                log.info("✅ Posted! %d/%d today. Next in %d min (jitter).",
+                         stats["posts_today"], stats["daily_capacity"], jitter // 60)
+                time.sleep(jitter)
+            else:
+                log.info("✅ Posted! All %d slots filled for today.", stats["daily_capacity"])
+        else:
+            # Failed/rate-limited — try remaining slots
             retries_left = TIKTOK_RL_RETRY_SLOTS
             while retries_left > 0:
                 retries_left -= 1
                 next_slot = _next_optimal_slot()
-                # If next slot is tomorrow, stop retrying
                 if next_slot.date() > dt.datetime.now().date():
                     log.info("No more slots today. Will try tomorrow.")
                     break
                 wait = (next_slot - dt.datetime.now()).total_seconds()
                 if wait > 0:
-                    log.info("Rate-limited. Retrying at %s (%.0f min)…",
-                             next_slot.strftime("%H:%M"), wait / 60)
+                    log.info("Retrying at %s (%.0f min)…", next_slot.strftime("%H:%M"), wait / 60)
                     time.sleep(wait)
                 ok = run_once()
                 if ok:
                     break
             if not ok:
-                _notify_telegram("😴 *ViralOps* — All slots used today. Waiting until tomorrow.")
-
-        # Success or all retries done — wait until next day's first optimal slot
-        next_day = dt.datetime.now() + dt.timedelta(days=1)
-        first_hour = sorted(TIKTOK_OPTIMAL_HOURS)[0]
-        wake = next_day.replace(hour=first_hour, minute=random.randint(0, 14), second=0)
-        sleep_secs = (wake - dt.datetime.now()).total_seconds()
-        if sleep_secs > 0:
-            log.info("Next run: %s (%.1f hours)", wake.strftime("%Y-%m-%d %H:%M"), sleep_secs / 3600)
-            time.sleep(sleep_secs)
+                _notify_telegram("😴 *ViralOps* — All retry slots used today. Waiting until tomorrow.")
 
 
 # ── CLI ────────────────────────────────────────────────────────────
