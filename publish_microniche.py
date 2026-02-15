@@ -936,7 +936,7 @@ def get_content_pack(mode: str = "auto") -> dict:
 # MAIN PIPELINE
 # ═══════════════════════════════════════════════════════════════
 
-def main():
+def main(content_pack_override: dict = None):
     import httpx
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "auto"
@@ -946,7 +946,11 @@ def main():
 
     # ── Step 1: Get content pack ──
     print("\n[1/5] Getting content pack...")
-    pack = get_content_pack(mode)
+    if content_pack_override:
+        pack = content_pack_override
+        print(f"  ✓ Using provided content pack: {pack.get('title', 'N/A')}")
+    else:
+        pack = get_content_pack(mode)
     location = pack.get("_location", "Chicago")
     season = pack.get("_season", "Winter")
 
