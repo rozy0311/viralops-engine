@@ -242,12 +242,12 @@ class TestGeminiFallbackChain:
 
     def test_gemini_text_models_list_exists(self):
         from llm_content import GEMINI_TEXT_MODELS
-        assert len(GEMINI_TEXT_MODELS) == 7
+        assert len(GEMINI_TEXT_MODELS) == 6
         assert GEMINI_TEXT_MODELS[0] == "gemini-2.5-flash"
 
     def test_gemini_exhausted_is_set(self):
         from llm_content import _gemini_exhausted
-        assert isinstance(_gemini_exhausted, set)
+        assert isinstance(_gemini_exhausted, dict)
 
     def test_call_gemini_without_api_key(self):
         """_call_gemini should fail gracefully without API key."""
@@ -274,13 +274,13 @@ class TestGeminiFallbackChain:
 
     def test_cascade_skips_exhausted_models(self):
         """Models in _gemini_exhausted should be skipped."""
-        from llm_content import _gemini_exhausted, GEMINI_TEXT_MODELS
+        from llm_content import _gemini_exhausted, _mark_gemini_exhausted, GEMINI_TEXT_MODELS
 
         # Simulate all models exhausted
         saved = _gemini_exhausted.copy()
         try:
             for m in GEMINI_TEXT_MODELS:
-                _gemini_exhausted.add(m)
+                _mark_gemini_exhausted(m)
 
             # Mock genai to track which models were actually called
             called_models = []
@@ -309,20 +309,18 @@ class TestGeminiFallbackChain:
             _gemini_exhausted.update(saved)
 
     def test_quota_error_marks_model_exhausted(self):
-        """429/RESOURCE_EXHAUSTED should add model to _gemini_exhausted set."""
-        from llm_content import _gemini_exhausted, GEMINI_TEXT_MODELS
+        """_mark_gemini_exhausted / _is_gemini_exhausted should track models."""
+        from llm_content import _gemini_exhausted, _mark_gemini_exhausted, _is_gemini_exhausted
 
         saved = _gemini_exhausted.copy()
         try:
             _gemini_exhausted.clear()
 
-            # We can't easily mock genai since _call_gemini imports it inside,
-            # but we can verify the set mechanism works
             test_model = "test-model-xyz"
-            _gemini_exhausted.add(test_model)
-            assert test_model in _gemini_exhausted
-            _gemini_exhausted.discard(test_model)
-            assert test_model not in _gemini_exhausted
+            _mark_gemini_exhausted(test_model)
+            assert _is_gemini_exhausted(test_model)
+            _gemini_exhausted.pop(test_model, None)
+            assert not _is_gemini_exhausted(test_model)
         finally:
             _gemini_exhausted.clear()
             _gemini_exhausted.update(saved)

@@ -21,7 +21,7 @@ import json
 import time
 import httpx
 from typing import Optional, Dict, Any, List, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -72,14 +72,43 @@ GEMINI_TEXT_MODELS = [
     "gemini-2.5-flash",       # Primary — 5 RPM, 250K TPM, 20 RPD
     "gemini-2.5-pro",         # 15 RPM, Unlimited TPM, 1.5K RPD
     "gemini-2.0-flash",       # 15 RPM, Unlimited TPM, 1.5K RPD
-    "gemini-3.0-pro",         # 15 RPM, Unlimited TPM, 1.5K RPD
     "gemini-2.5-flash-lite",  # 10 RPM, 250K TPM, 20 RPD
     "gemini-2.0-flash-lite",  # 15 RPM, Unlimited TPM, 1.5K RPD
     "gemini-2.0-pro-exp",     # 15 RPM, Unlimited TPM, 1.5K RPD
 ]
 
-# Track which Gemini models are quota-exhausted this session
-_gemini_exhausted: set = set()
+# Track which Gemini models are quota-exhausted with timestamps.
+# Entries expire after GEMINI_QUOTA_RESET_SECS so recovered quotas are retried.
+_gemini_exhausted: dict = {}  # {model_name: exhausted_timestamp}
+GEMINI_QUOTA_RESET_SECS = 3600  # 1 hour
+
+def _is_gemini_exhausted(model_name: str) -> bool:
+    """Check if a Gemini model is quota-exhausted (with 1-hour expiry)."""
+    ts = _gemini_exhausted.get(model_name)
+    if ts is None:
+        return False
+    if time.time() - ts > GEMINI_QUOTA_RESET_SECS:
+        _gemini_exhausted.pop(model_name, None)
+        return False
+    return True
+
+def _mark_gemini_exhausted(model_name: str) -> None:
+    """Mark a Gemini model as quota-exhausted (auto-expires after 1 hour)."""
+    _gemini_exhausted[model_name] = time.time()
+
+# Singleton Gemini client — reuse across calls to avoid connection overhead
+_gemini_client = None
+_gemini_client_key = None
+
+def _get_gemini_client(api_key: str):
+    """Get or create a cached Gemini SDK client."""
+    global _gemini_client, _gemini_client_key
+    if _gemini_client is not None and _gemini_client_key == api_key:
+        return _gemini_client
+    from google import genai
+    _gemini_client = genai.Client(api_key=api_key)
+    _gemini_client_key = api_key
+    return _gemini_client
 
 
 # Provider cascade — cheapest working first
@@ -215,7 +244,7 @@ def _call_gemini(
                              success=False, error="google-genai not installed")
 
     try:
-        client = genai.Client(api_key=api_key)
+        client = _get_gemini_client(api_key)
     except (ValueError, Exception) as e:
         return ProviderResult(text="", provider=config.name, model=config.model,
                              success=False, error=f"Gemini client init failed: {e}")
@@ -223,8 +252,8 @@ def _call_gemini(
 
     last_error = ""
     for model_name in GEMINI_TEXT_MODELS:
-        # Skip models we already know are exhausted this session
-        if model_name in _gemini_exhausted:
+        # Skip models we already know are exhausted (with 1-hour expiry)
+        if _is_gemini_exhausted(model_name):
             continue
 
         try:
@@ -234,13 +263,21 @@ def _call_gemini(
                 config=types.GenerateContentConfig(
                     max_output_tokens=max_tokens,
                     temperature=temperature,
+                    http_options={"timeout": 60_000},  # 60s timeout (ms)
                 ),
             )
 
             text = resp.text.strip() if resp.text else ""
             if text:
-                # Estimate tokens (Gemini doesn't always return usage)
+                # Use actual token count from SDK when available, else estimate
                 est_tokens = len(text.split()) * 1.3
+                try:
+                    if hasattr(resp, 'usage_metadata') and resp.usage_metadata:
+                        actual = getattr(resp.usage_metadata, 'candidates_token_count', 0)
+                        if actual:
+                            est_tokens = actual
+                except Exception:
+                    pass
                 return ProviderResult(
                     text=text,
                     provider=config.name,
@@ -258,10 +295,11 @@ def _call_gemini(
                 "resource_exhausted" in err_str
                 or "429" in err_str
                 or "quota" in err_str
-                or "rate" in err_str
+                or "rate limit" in err_str
+                or "rate_limit" in err_str
             )
             if is_quota:
-                _gemini_exhausted.add(model_name)
+                _mark_gemini_exhausted(model_name)
                 print(f"  [LLM] Gemini/{model_name} — quota exhausted, cascading…")
                 last_error = f"{model_name}: quota exhausted"
                 continue
@@ -307,7 +345,16 @@ def _call_openai_compatible(
         "temperature": temperature,
     }
     
-    r = httpx.post(config.base_url, headers=headers, json=payload, timeout=60)
+    # Retry once on 429 with exponential backoff
+    for _attempt in range(2):
+        r = httpx.post(config.base_url, headers=headers, json=payload, timeout=60)
+        if r.status_code == 429:
+            retry_after = int(r.headers.get("retry-after", "10"))
+            wait = min(retry_after, 30)
+            print(f"  [LLM] {config.name} rate-limited (429) — waiting {wait}s...")
+            time.sleep(wait)
+            continue
+        break
     
     if r.status_code != 200:
         return ProviderResult(
@@ -427,8 +474,12 @@ def generate_ai_image(
             try:
                 url = (
                     f"https://generativelanguage.googleapis.com/v1beta/"
-                    f"models/{model}:generateContent?key={api_key}"
+                    f"models/{model}:generateContent"
                 )
+                img_headers = {
+                    "x-goog-api-key": api_key,
+                    "Content-Type": "application/json",
+                }
                 payload = {
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
@@ -438,7 +489,7 @@ def generate_ai_image(
                 
                 print(f"  [IMAGE] Calling {model} (attempt {attempt + 1})...")
                 t0 = time.time()
-                r = httpx.post(url, json=payload, timeout=90)
+                r = httpx.post(url, headers=img_headers, json=payload, timeout=90)
                 elapsed = time.time() - t0
                 
                 if r.status_code == 429:
@@ -573,9 +624,9 @@ def generate_image_for_pack(
 # ═══════════════════════════════════════════════════════════════
 
 # System prompt for content generation (CTO Agent role)
-CONTENT_SYSTEM = """You are a TikTok content specialist for plant-based, homesteading, and urban farming micro-niches.
+CONTENT_SYSTEM = f"""You are a TikTok content specialist for plant-based, homesteading, and urban farming micro-niches.
 Target audience: US-based 18-45, apartment/small-space dwellers, budget-conscious.
-Channels: @therikerootstories (plant-based), @agrinomadsvietnam (farming), @therikecom (AI/tech).
+Channels: {os.environ.get('TIKTOK_CHANNELS', '@therikerootstories (plant-based), @agrinomadsvietnam (farming), @therikecom (AI/tech)')}.
 
 RULES:
 - Content MUST be educational + actionable (steps people can follow TODAY)
@@ -911,14 +962,7 @@ Return the TRIMMED answer as plain text (3800-4200 chars). No JSON wrapper."""
         pack["_content_chars"] = len(pack.get("content_formatted", ""))
         
         # Convert colors
-        if "colors" in pack:
-            colors = pack["colors"]
-            if isinstance(colors, list) and len(colors) == 2:
-                pack["colors"] = (tuple(colors[0]), tuple(colors[1]))
-            else:
-                pack["colors"] = ((60, 80, 40), (120, 160, 80))
-        else:
-            pack["colors"] = ((60, 80, 40), (120, 160, 80))
+        _normalize_colors(pack)
         
         print(f"  [QUALITY] Title: {pack.get('title', '?')}")
         print(f"  [QUALITY] Provider: {result.provider}/{result.model}")
@@ -1027,7 +1071,7 @@ Output ONLY valid JSON:
         review_providers.remove(gen_provider)
         review_providers.append(gen_provider)
     
-    result = call_llm(review_prompt, system=REVIEW_SYSTEM, max_tokens=600, temperature=0.2, providers=review_providers)
+    result = call_llm(review_prompt, system=QUALITY_REVIEW_SYSTEM, max_tokens=600, temperature=0.2, providers=review_providers)
     
     if not result.success:
         return None
@@ -1092,7 +1136,23 @@ def get_unused_topics(top_n: int = 10) -> List[Tuple[str, float, str, str]]:
     
     return unused
 
-# System prompt for self-review (ReconcileGPT role)
+
+def _normalize_colors(pack: dict) -> None:
+    """Normalize color data from JSON list to tuple format."""
+    if "colors" in pack:
+        colors = pack["colors"]
+        if isinstance(colors, list) and len(colors) == 2:
+            try:
+                pack["colors"] = (tuple(colors[0]), tuple(colors[1]))
+            except (TypeError, IndexError):
+                pack["colors"] = ((60, 80, 40), (120, 160, 80))
+        else:
+            pack["colors"] = ((60, 80, 40), (120, 160, 80))
+    else:
+        pack["colors"] = ((60, 80, 40), (120, 160, 80))
+
+
+# System prompt for basic review (5 criteria, threshold 7.0)
 REVIEW_SYSTEM = """You are ReconcileGPT — a content quality review agent.
 Your job: analyze content for quality, accuracy, and TikTok fitness.
 
@@ -1105,6 +1165,24 @@ Score 1-10 on each criteria:
 
 Output JSON: {"scores": {"uniqueness": N, "actionability": N, "accuracy": N, "hook": N, "niche_fit": N}, "avg": N.N, "pass": true/false, "feedback": "...", "improved_title": "..."}
 Pass threshold: avg >= 7.0"""
+
+# System prompt for quality review (7 criteria, threshold 9.0) — used by _review_quality_content()
+QUALITY_REVIEW_SYSTEM = """You are ReconcileGPT — a STRICT content quality review agent for premium TikTok posts.
+Your job: analyze content for depth, specificity, tone, and publishing readiness.
+Score HONESTLY — 9 or 10 means EXCELLENT professional-grade content.
+
+Score 1-10 on each criteria:
+1. ANSWER_QUALITY — Does the content actually answer the topic like a Perplexity AI expert? Specific facts, not fluff?
+2. CONTENT_DEPTH — 3500-4200 chars of REAL value? Every sentence teaches something?
+3. TONE — Casual, witty, personality-driven? Dry humor? NOT corporate, NOT generic blog-speak?
+4. HOOK — Would the first 2 sentences stop someone scrolling? Surprising claim or bold statement?
+5. SPECIFICITY — Concrete numbers ($prices, timeframes, quantities, temperatures)? Or vague advice?
+6. ACTIONABILITY — Reader can do this TODAY with what they have?
+7. FORMATTING — Uses emoji section headers? ### numbered sections? **bold** key facts?
+
+Output ONLY valid JSON:
+{"scores": {"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix", "improved_title": "better title if current is weak, else same title"}
+Pass threshold: avg >= 9.0"""
 
 
 def generate_content_pack(topic: str, score: float = 0.0) -> Optional[Dict[str, Any]]:
@@ -1203,15 +1281,7 @@ IMPORTANT:
             pack["_needs_improvement"] = True
     
     # ── Step 3: COO Agent — Format for publishing ──
-    # Convert colors from list to tuple if needed
-    if "colors" in pack:
-        colors = pack["colors"]
-        if isinstance(colors, list) and len(colors) == 2:
-            pack["colors"] = (tuple(colors[0]), tuple(colors[1]))
-        else:
-            pack["colors"] = ((60, 80, 40), (120, 160, 80))
-    else:
-        pack["colors"] = ((60, 80, 40), (120, 160, 80))
+    _normalize_colors(pack)
     
     return pack
 
@@ -2236,7 +2306,3 @@ if __name__ == "__main__":
     else:
         # No args → show interactive menu
         interactive_menu()
-        print("  publish [file]    Publish a saved quality post")
-        print("  genimage [file]   Generate AI realistic image for existing post")
-        print("  generate [topic]  Legacy: generate basic pack")
-        print("  niche             Legacy: generate from niche_hunter")
