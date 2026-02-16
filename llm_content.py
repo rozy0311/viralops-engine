@@ -441,115 +441,163 @@ def generate_ai_image(
     max_retries: int = 2,
 ) -> Optional[str]:
     """
-    Generate a realistic 9:16 image using Gemini's image generation models.
+    Generate a realistic 9:16 image.
     
-    User's workflow: "create realistic image for the answer (image size 9:16)"
+    Cascade order (cost-optimised):
+      1. Pollinations Flux (FREE — primary)
+      2. Gemini image models (quota-limited)
+      3. Imagen models (quota-limited)
+      ↳ None → caller falls back to PIL gradient
     
     Returns:
         Path to saved image file, or None if all attempts fail.
     """
     import base64
     
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        print("  [IMAGE] No GEMINI_API_KEY — skipping AI image generation")
-        return None
-    
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     
-    # Track quota exhaustion per pool (Gemini vs Imagen)
-    gemini_img_exhausted = False
-    imagen_exhausted = False
-    for model in IMAGE_MODELS:
-        # Check per-pool quota skip
-        is_gemini_model = model in IMAGE_MODELS_GEMINI
-        is_imagen_model = model in IMAGE_MODELS_IMAGEN
-        if is_gemini_model and gemini_img_exhausted:
-            print(f"  [IMAGE] Skipping {model} — Gemini image quota exhausted")
-            continue
-        if is_imagen_model and imagen_exhausted:
-            print(f"  [IMAGE] Skipping {model} — Imagen quota exhausted")
-            continue
-        for attempt in range(max_retries):
-            try:
-                url = (
-                    f"https://generativelanguage.googleapis.com/v1beta/"
-                    f"models/{model}:generateContent"
-                )
-                img_headers = {
-                    "x-goog-api-key": api_key,
-                    "Content-Type": "application/json",
-                }
-                payload = {
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "responseModalities": ["TEXT", "IMAGE"],
-                    },
-                }
-                
-                print(f"  [IMAGE] Calling {model} (attempt {attempt + 1})...")
-                t0 = time.time()
-                r = httpx.post(url, headers=img_headers, json=payload, timeout=90)
-                elapsed = time.time() - t0
-                
-                if r.status_code == 429:
-                    # Mark the correct pool as exhausted
-                    if "RESOURCE_EXHAUSTED" in r.text or attempt == 0:
-                        if is_gemini_model:
-                            print(f"  [IMAGE] Gemini image quota exhausted — trying Imagen models…")
-                            gemini_img_exhausted = True
-                        else:
-                            print(f"  [IMAGE] Imagen quota exhausted — trying Pollinations…")
-                            imagen_exhausted = True
-                        break
-                    wait = min(30 * (attempt + 1), 90)
-                    print(f"  [IMAGE] Rate limited — waiting {wait}s...")
-                    time.sleep(wait)
-                    continue
-                
-                if r.status_code != 200:
-                    print(f"  [IMAGE] {model} error {r.status_code}: {r.text[:200]}")
-                    break  # Try next model
-                
-                data = r.json()
-                for candidate in data.get("candidates", []):
-                    for part in candidate.get("content", {}).get("parts", []):
-                        if "inlineData" in part:
-                            mime = part["inlineData"].get("mimeType", "image/png")
-                            img_b64 = part["inlineData"].get("data", "")
-                            if img_b64:
-                                # Determine extension
-                                ext = "png" if "png" in mime else "jpg"
-                                if not output_path.endswith(f".{ext}"):
-                                    output_path = output_path.rsplit(".", 1)[0] + f".{ext}"
-                                
-                                img_bytes = base64.b64decode(img_b64)
-                                with open(output_path, "wb") as f:
-                                    f.write(img_bytes)
-                                
-                                fsize = os.path.getsize(output_path)
-                                print(f"  [IMAGE] ✓ Generated! {fsize:,} bytes in {elapsed:.1f}s")
-                                print(f"  [IMAGE] Saved: {output_path}")
-                                return output_path
-                
-                print(f"  [IMAGE] {model}: No image data in response")
-                break  # Try next model
-                
-            except Exception as e:
-                print(f"  [IMAGE] {model} error: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(5)
+    # ── PRIMARY: Pollinations API (Flux model, free) ──────────────────────
+    result = _try_pollinations(prompt, output_path, max_retries=max_retries)
+    if result:
+        return result
     
-    # ── Fallback: Pollinations API (Flux model, free tier) ──
-    pollinations_url = os.environ.get("GET_POLLINATIONS_URL", "")
+    # ── FALLBACK 1: Gemini / Imagen cascade ───────────────────────────────
+    # Dual API key rotation: primary → fallback
+    api_keys = []
+    pk = os.environ.get("GEMINI_API_KEY", "")
+    fk = os.environ.get("FALLBACK_GEMINI_API_KEY", "") or os.environ.get("FALLBACK_GOOGLE_AI_STUDIO_API_KEY", "")
+    if pk:
+        api_keys.append(("primary", pk))
+    if fk and fk != pk:
+        api_keys.append(("fallback", fk))
+    
+    if not api_keys:
+        print("  [IMAGE] No GEMINI_API_KEY — skipping Gemini/Imagen fallback")
+        print("  [IMAGE] All AI image providers failed — will use PIL gradient fallback")
+        return None
+    
+    for key_label, api_key in api_keys:
+        # Track quota exhaustion per pool (Gemini vs Imagen) — reset per key
+        gemini_img_exhausted = False
+        imagen_exhausted = False
+        print(f"  [IMAGE] Trying Gemini/Imagen with {key_label} API key...")
+        for model in IMAGE_MODELS:
+            # Check per-pool quota skip
+            is_gemini_model = model in IMAGE_MODELS_GEMINI
+            is_imagen_model = model in IMAGE_MODELS_IMAGEN
+            if is_gemini_model and gemini_img_exhausted:
+                print(f"  [IMAGE] Skipping {model} — Gemini image quota exhausted")
+                continue
+            if is_imagen_model and imagen_exhausted:
+                print(f"  [IMAGE] Skipping {model} — Imagen quota exhausted")
+                continue
+            for attempt in range(max_retries):
+                try:
+                    url = (
+                        f"https://generativelanguage.googleapis.com/v1beta/"
+                        f"models/{model}:generateContent"
+                    )
+                    img_headers = {
+                        "x-goog-api-key": api_key,
+                        "Content-Type": "application/json",
+                    }
+                    payload = {
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "responseModalities": ["TEXT", "IMAGE"],
+                        },
+                    }
+                    
+                    print(f"  [IMAGE] Calling {model} [{key_label}] (attempt {attempt + 1})...")
+                    t0 = time.time()
+                    r = httpx.post(url, headers=img_headers, json=payload, timeout=90)
+                    elapsed = time.time() - t0
+                    
+                    if r.status_code == 429:
+                        # Mark the correct pool as exhausted
+                        if "RESOURCE_EXHAUSTED" in r.text or attempt == 0:
+                            if is_gemini_model:
+                                print(f"  [IMAGE] Gemini image quota exhausted — trying Imagen models…")
+                                gemini_img_exhausted = True
+                            else:
+                                print(f"  [IMAGE] Imagen quota exhausted")
+                                imagen_exhausted = True
+                            break
+                        wait = min(30 * (attempt + 1), 90)
+                        print(f"  [IMAGE] Rate limited — waiting {wait}s...")
+                        time.sleep(wait)
+                        continue
+                    
+                    if r.status_code != 200:
+                        print(f"  [IMAGE] {model} error {r.status_code}: {r.text[:200]}")
+                        break  # Try next model
+                    
+                    data = r.json()
+                    for candidate in data.get("candidates", []):
+                        for part in candidate.get("content", {}).get("parts", []):
+                            if "inlineData" in part:
+                                mime = part["inlineData"].get("mimeType", "image/png")
+                                img_b64 = part["inlineData"].get("data", "")
+                                if img_b64:
+                                    # Determine extension
+                                    ext = "png" if "png" in mime else "jpg"
+                                    if not output_path.endswith(f".{ext}"):
+                                        output_path = output_path.rsplit(".", 1)[0] + f".{ext}"
+                                    
+                                    img_bytes = base64.b64decode(img_b64)
+                                    with open(output_path, "wb") as f:
+                                        f.write(img_bytes)
+                                    
+                                    fsize = os.path.getsize(output_path)
+                                    print(f"  [IMAGE] ✓ Generated via {model} [{key_label}]! {fsize:,} bytes in {elapsed:.1f}s")
+                                    print(f"  [IMAGE] Saved: {output_path}")
+                                    return output_path
+                    
+                    print(f"  [IMAGE] {model}: No image data in response")
+                    break  # Try next model
+                    
+                except Exception as e:
+                    print(f"  [IMAGE] {model} error: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(5)
+        
+        # If both pools exhausted for this key, try next key
+        if gemini_img_exhausted and imagen_exhausted:
+            print(f"  [IMAGE] All models exhausted for {key_label} key — trying next key...")
+            continue
+    
+    print("  [IMAGE] All AI image providers failed — will use PIL gradient fallback")
+    return None
+
+
+def _try_pollinations(
+    prompt: str,
+    output_path: str,
+    max_retries: int = 2,
+) -> Optional[str]:
+    """
+    Try generating an image via Pollinations API (Flux model).
+    
+    Primary provider — FREE unlimited with API key.
+    Endpoints:
+      - GET  https://image.pollinations.ai/prompt/{encoded}  (legacy)
+      - GET  https://gen.pollinations.ai/image/{encoded}      (v2)
+    """
+    import urllib.parse
+    
+    pollinations_url = os.environ.get(
+        "GET_POLLINATIONS_URL",
+        "https://image.pollinations.ai/prompt/",
+    )
     pollinations_key = os.environ.get("POLLINATIONS_API_KEY", "")
-    if pollinations_url:
+    model_name = os.environ.get("POLLINATIONS_MODEL", "flux")
+    
+    if not pollinations_url:
+        return None
+    
+    for attempt in range(max_retries):
         try:
-            import urllib.parse
-            print(f"  [IMAGE] Trying Pollinations (Flux model)...")
-            # Pollinations uses URL-encoded prompt in path
-            encoded = urllib.parse.quote(prompt)
-            model_name = os.environ.get("POLLINATIONS_MODEL", "flux")
+            encoded = urllib.parse.quote(prompt[:1500])  # URL limit safety
             img_url = (
                 f"{pollinations_url.rstrip('/')}/{encoded}"
                 f"?width=768&height=1365&model={model_name}&nologo=true&enhance=true"
@@ -558,6 +606,7 @@ def generate_ai_image(
             if pollinations_key:
                 headers["Authorization"] = f"Bearer {pollinations_key}"
             
+            print(f"  [IMAGE] Trying Pollinations ({model_name}, attempt {attempt + 1})...")
             t0 = time.time()
             r = httpx.get(img_url, headers=headers, timeout=120, follow_redirects=True)
             elapsed = time.time() - t0
@@ -578,10 +627,14 @@ def generate_ai_image(
                 return output_path
             else:
                 print(f"  [IMAGE] Pollinations: status={r.status_code}, size={len(r.content)}")
+                if attempt < max_retries - 1:
+                    time.sleep(3)
         except Exception as e:
-            print(f"  [IMAGE] Pollinations error: {e}")
+            print(f"  [IMAGE] Pollinations error (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(3)
     
-    print("  [IMAGE] All AI image models failed — will use PIL gradient fallback")
+    print("  [IMAGE] Pollinations failed — trying Gemini/Imagen fallback...")
     return None
 
 
