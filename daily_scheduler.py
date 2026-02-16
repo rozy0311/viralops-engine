@@ -165,7 +165,7 @@ def pick_topic(force_id: int | None = None) -> tuple[int, str, float, str, str] 
 def _is_rate_limited_error(exc: Exception) -> bool:
     """Check if the error is a TikTok 24h rate limit."""
     msg = str(exc).lower()
-    return "too many posts" in msg or "rate" in msg or "429" in msg
+    return "too many posts" in msg or "rate limit" in msg or "rate_limit" in msg or "ratelimit" in msg or "429" in msg or "openapi" in msg
 
 
 # ── Main pipeline ─────────────────────────────────────────────────

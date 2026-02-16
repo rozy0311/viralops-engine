@@ -8,6 +8,7 @@ Content Pack format:
   3) Universal Caption — [LOCATION] [SEASON] [PAIN POINT] | [AUDIENCE] | Steps + CTA + Hashtags
   4) 9:16 Image — clean, minimal text overlay
 """
+import shutil
 import sys, os, json, random, tempfile, time
 
 sys.path.insert(0, ".")
@@ -1192,8 +1193,21 @@ def main(content_pack_override: dict = None, tiktok_account_id: str = ""):
 
     api_key = os.environ["PUBLER_API_KEY"]
     ws_id = os.environ.get("PUBLER_WORKSPACE_ID", "")
-    # Use provided account ID or fall back to legacy hardcoded
-    tiktok_id = tiktok_account_id or "698c95e5b1ab790def1352c1"
+    # Use provided account ID, or auto-pick via round-robin, or env fallback
+    tiktok_id = tiktok_account_id
+    if not tiktok_id:
+        try:
+            from core.tiktok_accounts import get_account_manager
+            _mgr = get_account_manager()
+            _next = _mgr.next_account()
+            if _next:
+                tiktok_id = _next.id
+                print(f"  Auto-selected account: {_next.label} ({tiktok_id})")
+        except Exception as _e:
+            print(f"  ⚠ Account manager unavailable: {_e}")
+    if not tiktok_id:
+        tiktok_id = os.environ.get("PUBLER_TIKTOK_ACCOUNT_ID", "698c95e5b1ab790def1352c1")
+        print(f"  ⚠ Using env/legacy fallback account")
     print(f"  Target account: {tiktok_id}")
 
     auth_headers = {"Authorization": f"Bearer-API {api_key}"}
@@ -1288,7 +1302,7 @@ def main(content_pack_override: dict = None, tiktok_account_id: str = ""):
                             print(f"\n  FAILED: {publish_error}")
                             # Detect TikTok rate limit
                             err_lower = publish_error.lower()
-                            if "too many posts" in err_lower or "rate" in err_lower or "openapi" in err_lower:
+                            if "too many posts" in err_lower or "rate limit" in err_lower or "rate_limit" in err_lower or "ratelimit" in err_lower or "openapi" in err_lower or "429" in err_lower:
                                 is_rate_limited = True
                         elif post_info.get("state") in ("live", "published"):
                             post_link = post_info.get("post_link", "")
@@ -1402,6 +1416,13 @@ def main(content_pack_override: dict = None, tiktok_account_id: str = ""):
     except Exception as e:
         print(f"  DB save failed (non-critical): {e}")
 
+    # ── Cleanup temp directory ──
+    try:
+        if tmpdir and os.path.isdir(tmpdir):
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    except Exception:
+        pass
+
     print("\n" + "=" * 60)
     if publish_success:
         print("DONE! Micro-niche content published to TikTok.")
@@ -1427,12 +1448,15 @@ def main(content_pack_override: dict = None, tiktok_account_id: str = ""):
 
 
 def batch_publish(count=3, gap_minutes=2):
-    """Publish multiple posts with proper gaps. Waits between each post."""
-    import httpx  # noqa: F811
+    """Publish multiple posts with multi-account round-robin and proper gaps."""
+    from core.tiktok_accounts import get_account_manager  # noqa: E402
 
+    mgr = get_account_manager()
+    stats = mgr.get_stats()
     modes = ["hunter_prewritten", "prewritten"]
     print("=" * 60)
     print(f"VIRALOPS BATCH PUBLISHER — {count} posts, {gap_minutes}min gap")
+    print(f"  Accounts: {stats['enabled_accounts']} | Capacity: {stats['daily_capacity']}/day")
     print("=" * 60)
 
     results = []
@@ -1442,25 +1466,44 @@ def batch_publish(count=3, gap_minutes=2):
         print(f"Post {i + 1}/{count} (mode={mode})")
         print(f"{'─' * 40}")
 
+        # Pick next available account via round-robin
+        acct = mgr.next_account()
+        account_id = ""
+        if acct:
+            account_id = acct.id
+            print(f"  Account: {acct.label} ({account_id}) [{acct.posts_today}/{acct.max_daily} today]")
+        else:
+            print("  ⚠ All accounts at daily limit — skipping remaining posts")
+            for j in range(i, count):
+                results.append(("SKIPPED", modes[j % len(modes)], "daily limit"))
+            break
+
         try:
-            # Run a single publish
             sys.argv = ["publish_microniche.py", mode]
-            success = main()
-            results.append(("OK" if success else "FAIL", mode))
+            result = main(tiktok_account_id=account_id)
+            if result == "published":
+                mgr.record_post(account_id)
+                results.append(("PUBLISHED", mode, acct.label))
+            elif result == "draft":
+                mgr.record_draft(account_id)
+                results.append(("DRAFT", mode, acct.label))
+            else:
+                results.append(("FAIL", mode, acct.label))
         except SystemExit:
-            results.append(("EXIT", mode))
+            results.append(("EXIT", mode, account_id[:8]))
         except Exception as e:
-            results.append(("ERROR", str(e)))
+            results.append(("ERROR", mode, str(e)[:60]))
 
         if i < count - 1:
-            wait_secs = gap_minutes * 60 + 15  # extra 15s safety margin
+            jitter = mgr.get_jitter_seconds()
+            wait_secs = max(gap_minutes * 60, jitter)
             print(f"\n  Waiting {wait_secs}s before next post...")
             time.sleep(wait_secs)
 
     print("\n" + "=" * 60)
     print("BATCH COMPLETE")
-    for idx, (status, mode) in enumerate(results, 1):
-        print(f"  Post {idx}: {status} ({mode})")
+    for idx, (status, mode, info) in enumerate(results, 1):
+        print(f"  Post {idx}: {status} ({mode}) — {info}")
     print("=" * 60)
 
 
