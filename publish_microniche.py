@@ -643,11 +643,11 @@ def overlay_text_on_image(image_path: str, pack: dict) -> str:
         hook_text = hook_text[:57].rsplit(" ", 1)[0] + "..."
     
     # NO hashtags on image — keep it clean, hashtags go in caption only
-    brand_text = "@TheRikeRootStories"
+    # Brand removed — cleaner image without watermark
     
     tag_font = brand_font  # 28pt
     
-    # ── MINIMAL overlay — short hook + brand only, NO hashtags ──
+    # ── MINIMAL overlay — short hook only, NO brand/hashtags ──
     padding = 30
     line_spacing = 6
     
@@ -655,9 +655,8 @@ def overlay_text_on_image(image_path: str, pack: dict) -> str:
     hook_lines = wrap_text(hook_text, hook_font, w - padding * 2, draw)
     hook_height = len(hook_lines) * (28 + line_spacing)
     
-    # Total text block height — very compact
-    brand_h = 22 + line_spacing
-    total_text_h = hook_height + brand_h + padding * 2 + 10
+    # Total text block height — very compact (no brand line)
+    total_text_h = hook_height + padding * 2 + 10
     
     # Subtle semi-transparent gradient band at very bottom (narrow)
     band_top = h - total_text_h - 20
@@ -673,10 +672,7 @@ def overlay_text_on_image(image_path: str, pack: dict) -> str:
                   font=hook_font, anchor="mt")
         y_cursor += 28 + line_spacing
     
-    # ── Draw brand (centered, very subtle) ──
-    y_cursor += 8
-    draw.text((w // 2, y_cursor), brand_text, fill=(200, 200, 200, 120),
-              font=brand_font, anchor="mt")
+    # Brand watermark removed — cleaner image
     
     # Composite overlay onto image
     result = Image.alpha_composite(img, overlay)
@@ -695,12 +691,8 @@ def generate_post_image(pack: dict, tmpdir: str) -> str:
     img = make_gradient(W, H, colors[0], colors[1])
     draw = ImageDraw.Draw(img)
 
-    # ── Brand watermark at top ──
-    draw.text((W // 2, 160), "THE RIKE ROOT STORIES", fill=(255, 255, 255, 180),
-              font=fonts["brand"], anchor="mm")
-
-    # ── Decorative line ──
-    line_y = 220
+    # ── Decorative line at top (no brand watermark) ──
+    line_y = 180
     draw.line([(W // 2 - 200, line_y), (W // 2 + 200, line_y)],
               fill=(255, 255, 255, 100), width=2)
 
@@ -735,9 +727,7 @@ def generate_post_image(pack: dict, tmpdir: str) -> str:
     draw.text((W // 2, H - 300), "Full tutorial on profile!", fill=(255, 255, 200),
               font=fonts["small"], anchor="mm")
 
-    # ── Bottom brand ──
-    draw.text((W // 2, H - 120), "@TheRikeRootStories", fill=(180, 180, 180),
-              font=fonts["brand"], anchor="mm")
+    # Bottom brand removed — cleaner image
 
     path = os.path.join(tmpdir, "microniche_post.jpg")
     img.save(path, "JPEG", quality=95)
