@@ -2459,7 +2459,7 @@ async def health():
         content={
             "status": "ok" if all_healthy else "degraded",
             "checks": checks,
-            "version": "2.14.0",
+            "version": "2.15.0",
             "engine": "ViralOps Engine — EMADS-PR v1.0",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         },

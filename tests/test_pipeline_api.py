@@ -322,7 +322,7 @@ class TestHealthCheck:
     def test_health_returns_version(self):
         r = client.get("/api/health")
         data = r.json()
-        assert data["version"] == "2.14.0"
+        assert data["version"] == "2.15.0"
 
 
 # ════════════════════════════════════════════════════════════════

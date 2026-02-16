@@ -449,6 +449,24 @@
         <div id="publish-log" class="space-y-2 max-h-80 overflow-y-auto"></div>
       </div>
     </div>
+    <!-- ─── Best Posting Times + Top Hashtags (v2.15.0) ─── -->
+    <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">🕐 Best Posting Times</h3>
+        <p class="text-xs text-gray-400 mb-3">Hours with highest success rate (last 30 days)</p>
+        <div id="best-times-grid" class="grid grid-cols-6 gap-1">
+          <p class="col-span-6 text-gray-400 text-sm text-center py-4">Loading...</p>
+        </div>
+        <div id="best-times-rec" class="mt-3 p-2 bg-brand-50 rounded text-xs text-brand-700 hidden"></div>
+      </div>
+      <div class="bg-white rounded-xl p-5 shadow-sm border">
+        <h3 class="font-semibold mb-3">🏷️ Top Hashtags</h3>
+        <p class="text-xs text-gray-400 mb-3">By engagement across all platforms</p>
+        <div id="top-hashtags" class="space-y-2 max-h-72 overflow-y-auto">
+          <p class="text-gray-400 text-sm text-center py-4">Loading...</p>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ SETTINGS PAGE ═══ -->
@@ -2130,7 +2148,78 @@ async function loadAnalytics() {
       <span class="${l.success?'text-green-600':'text-red-600'}">${l.success?'✅':'❌'} ${l.post_url?`<a href="${l.post_url}" target="_blank" class="text-brand-500">Link</a>`:l.error||'Failed'}</span>
       <span class="text-gray-400">${l.published_at?.slice(0,16)||''}</span>
     </div>`).join('') || '<p class="text-gray-400 text-sm">No publish history</p>';
+
+    // ── Best Posting Times (v2.15.0) ──
+    loadBestTimesSection();
+    loadTopHashtagsSection();
   } catch(e) { toast('Analytics error', 'error'); }
+}
+
+async function loadBestTimesSection() {
+  try {
+    const data = await fetch('/api/analytics/best-times?days=30').then(r=>r.json());
+    const grid = document.getElementById('best-times-grid');
+    const hours = data.best_hours_overall || [];
+    if(!hours.length) {
+      grid.innerHTML = '<p class="col-span-6 text-gray-400 text-sm text-center py-4">No posting data yet</p>';
+      return;
+    }
+    const maxCount = Math.max(...hours.map(h=>h.count||0), 1);
+    grid.innerHTML = hours.slice(0,24).map(h => {
+      const intensity = Math.round((h.count||0)/maxCount*100);
+      const bg = intensity>75?'bg-brand-500 text-white':intensity>50?'bg-brand-300 text-white':intensity>25?'bg-brand-100 text-brand-700':'bg-gray-100 text-gray-500';
+      const rate = h.success_rate!=null ? Math.round(h.success_rate) : '-';
+      return `<div class="${bg} rounded p-1.5 text-center text-xs font-medium" title="Hour ${h.hour}: ${h.count} posts, ${rate}% success">
+        <div class="font-bold">${String(h.hour).padStart(2,'0')}h</div>
+        <div class="text-[10px] opacity-75">${h.count}</div>
+      </div>`;
+    }).join('');
+    // Recommendation
+    const recEl = document.getElementById('best-times-rec');
+    if(data.recommendation) {
+      recEl.textContent = '💡 ' + data.recommendation;
+      recEl.classList.remove('hidden');
+    }
+    // Best days
+    if(data.best_days?.length) {
+      const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const dayInfo = data.best_days.slice(0,3).map(d => `${dayNames[d.day_of_week]||d.day_of_week} (${d.count})`).join(', ');
+      const dayEl = document.createElement('div');
+      dayEl.className = 'mt-2 text-xs text-gray-500';
+      dayEl.textContent = '📅 Best days: ' + dayInfo;
+      grid.parentNode.appendChild(dayEl);
+    }
+  } catch(e) {
+    document.getElementById('best-times-grid').innerHTML = '<p class="col-span-6 text-gray-400 text-sm text-center py-4">Unable to load</p>';
+  }
+}
+
+async function loadTopHashtagsSection() {
+  try {
+    const tags = await fetch('/api/analytics/hashtags?limit=15').then(r=>r.json());
+    const el = document.getElementById('top-hashtags');
+    if(!tags?.length) {
+      el.innerHTML = '<p class="text-gray-400 text-sm text-center py-4">No hashtag data yet</p>';
+      return;
+    }
+    const maxEng = Math.max(...tags.map(t=>t.avg_engagement||0), 1);
+    el.innerHTML = tags.map((t,i) => {
+      const pct = Math.round((t.avg_engagement||0)/maxEng*100);
+      const platIcon = PLAT_ICONS[t.platform]||'🔗';
+      return `<div class="flex items-center gap-2 text-xs p-1.5 rounded hover:bg-gray-50">
+        <span class="text-gray-400 w-4 text-right">${i+1}</span>
+        <span class="font-mono text-brand-600 min-w-[100px]">${t.hashtag}</span>
+        <span title="${t.platform}">${platIcon}</span>
+        <div class="flex-1 bg-gray-200 rounded-full h-1.5">
+          <div class="bg-brand-400 h-1.5 rounded-full" style="width:${pct}%"></div>
+        </div>
+        <span class="text-gray-500 w-12 text-right" title="Uses">${t.uses}×</span>
+        <span class="text-brand-600 w-14 text-right font-medium" title="Avg engagement">${(t.avg_engagement||0).toFixed(1)}</span>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('top-hashtags').innerHTML = '<p class="text-gray-400 text-sm text-center py-4">Unable to load</p>';
+  }
 }
 
 

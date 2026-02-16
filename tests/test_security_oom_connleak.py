@@ -1,8 +1,11 @@
 """
 Tests for v3.2 hardening:
 - API key authentication middleware
-- OOM prevention (deque caps on AlertManager, Dashboard, EngagementTracker)
+- OOM prevention (deque caps on AlertManager)
 - SQLite connection leak prevention (get_db_safe context manager)
+
+Note: Dashboard and EngagementTracker OOM tests removed in v2.15.0
+(those modules were dead code — never imported by web app).
 """
 import os
 import sys
@@ -116,32 +119,9 @@ class TestOomPrevention:
             mgr._history.append({"event": i})
         assert len(mgr._history) == maxlen
 
-    def test_dashboard_publish_history_bounded(self):
-        """Dashboard._publish_history should be a deque."""
-        from monitoring.dashboard import Dashboard
-        dash = Dashboard()
-        assert isinstance(dash._publish_history, deque)
-        assert dash._publish_history.maxlen is not None
-        assert dash._publish_history.maxlen <= 10_000
-
-    def test_dashboard_error_history_bounded(self):
-        """Dashboard._error_history should be a deque."""
-        from monitoring.dashboard import Dashboard
-        dash = Dashboard()
-        assert isinstance(dash._error_history, deque)
-        assert dash._error_history.maxlen is not None
-        assert dash._error_history.maxlen <= 5_000
-
-    def test_engagement_tracker_trim(self):
-        """EngagementTracker should trim after MAX_PER_PLATFORM entries."""
-        from monitoring.engagement_tracker import EngagementTracker
-        tracker = EngagementTracker()
-        cap = tracker.MAX_PER_PLATFORM
-        assert cap > 0
-        # Fill beyond cap
-        for i in range(cap + 500):
-            tracker.record("test_platform", post_id=f"post-{i}", likes=i)
-        assert len(tracker._metrics["test_platform"]) <= cap
+    # NOTE: test_dashboard_* and test_engagement_tracker_* removed in v2.15.0
+    # monitoring/dashboard.py and monitoring/engagement_tracker.py were dead code
+    # (never imported by web app) — deleted to reduce codebase noise.
 
 
 # ════════════════════════════════════════════════════════════════
