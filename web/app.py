@@ -425,16 +425,50 @@ async def autopilot_loop():
 
             publish_results = []
             if publish_mode == "immediate" and content_pack.get("title"):
-                # Attempt to publish
+                # Attempt to publish via platform-specific publisher
+                import inspect
+
                 for plat in platforms:
                     try:
                         pub = _get_publisher(plat)
-                        if pub:
-                            pub_result = await asyncio.to_thread(
-                                pub.publish if not asyncio.iscoroutinefunction(pub.publish) else None,
-                                content_pack,
-                            ) if not asyncio.iscoroutinefunction(pub.publish) else await pub.publish(content_pack)
-                            publish_results.append({"platform": plat, **pub_result})
+                        if not pub:
+                            continue
+
+                        # Detect publisher signature — Publer uses publish(content: dict),
+                        # direct publishers use publish(item: QueueItem, content: dict)
+                        sig = inspect.signature(pub.publish)
+                        param_count = len([
+                            p for p in sig.parameters.values()
+                            if p.default is inspect.Parameter.empty
+                            and p.name != "self"
+                        ])
+
+                        if param_count >= 2:
+                            # Direct publisher: needs (item, content)
+                            item = _SimpleQueueItem(
+                                id=f"autopilot-{plat}",
+                                platform=plat,
+                                platform_content=content_pack,
+                            )
+                            pub_result = await pub.publish(item, content_pack)
+                            publish_results.append({
+                                "platform": plat,
+                                "success": getattr(pub_result, "success", False),
+                                "post_url": getattr(pub_result, "post_url", ""),
+                                "error": getattr(pub_result, "error", ""),
+                            })
+                        else:
+                            # Publer-style: publish(content: dict)
+                            pub_result = await pub.publish(content_pack)
+                            if isinstance(pub_result, dict):
+                                publish_results.append({"platform": plat, **pub_result})
+                            else:
+                                publish_results.append({
+                                    "platform": plat,
+                                    "success": getattr(pub_result, "success", False),
+                                    "post_url": getattr(pub_result, "post_url", ""),
+                                    "error": getattr(pub_result, "error", ""),
+                                })
                     except Exception as pub_err:
                         publish_results.append({
                             "platform": plat,
@@ -1438,25 +1472,48 @@ async def api_publish_post(post_id: int, request: Request):
         )
 
     results = []
+    import inspect
 
     for platform in platforms:
         try:
             pub = _get_publisher(platform)
-            item = _SimpleQueueItem(
-                id=f"web-{post_id}-{platform}",
-                platform=platform,
-                platform_content={
-                    "title": post["title"],
-                    "body": post["body"],
-                    "caption": post["body"][:2000],
-                    **extra.get(platform, {}),
-                    **{k: v for k, v in extra.items() if not isinstance(v, dict)},
-                },
-            )
-            result = await pub.publish(item)
-            success = result.success
-            post_url = result.post_url
-            error = result.error
+            content_dict = {
+                "title": post["title"],
+                "body": post["body"],
+                "caption": post["body"][:2000],
+                **extra.get(platform, {}),
+                **{k: v for k, v in extra.items() if not isinstance(v, dict)},
+            }
+
+            # Detect publisher signature — Publer uses publish(content: dict),
+            # direct publishers use publish(item: QueueItem, content: dict)
+            sig = inspect.signature(pub.publish)
+            param_count = len([
+                p for p in sig.parameters.values()
+                if p.default is inspect.Parameter.empty
+                and p.name != "self"
+            ])
+
+            if param_count >= 2:
+                # Direct publisher: needs (item, content)
+                item = _SimpleQueueItem(
+                    id=f"web-{post_id}-{platform}",
+                    platform=platform,
+                    platform_content=content_dict,
+                )
+                result = await pub.publish(item, content_dict)
+            else:
+                # Publer-style: publish(content: dict)
+                result = await pub.publish(content_dict)
+
+            if isinstance(result, dict):
+                success = result.get("success", False)
+                post_url = result.get("post_url", "")
+                error = result.get("error", "")
+            else:
+                success = getattr(result, "success", False)
+                post_url = getattr(result, "post_url", "")
+                error = getattr(result, "error", "")
         except Exception as e:
             success = False
             post_url = ""

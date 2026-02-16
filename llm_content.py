@@ -1154,18 +1154,17 @@ def get_unused_topics(top_n: int = 10) -> List[Tuple[str, float, str, str]]:
     if not os.path.exists(db_path):
         return []
     
-    # Get published titles
+    # Get published titles (direct sqlite3 — avoids circular import from web.app)
     published_titles = set()
-    try:
-        import sys
-        sys.path.insert(0, os.path.dirname(__file__))
-        from web.app import get_db_safe, init_db
-        init_db()
-        with get_db_safe() as conn:
-            rows = conn.execute("SELECT title FROM posts WHERE status = 'published'").fetchall()
+    viralops_db = os.path.join(os.path.dirname(__file__), "web", "viralops.db")
+    if os.path.exists(viralops_db):
+        try:
+            _vconn = sqlite3.connect(viralops_db)
+            rows = _vconn.execute("SELECT title FROM posts WHERE status = 'published'").fetchall()
             published_titles = {r[0].lower() for r in rows}
-    except Exception:
-        pass
+            _vconn.close()
+        except Exception as e:
+            print(f"  [DEDUP] Warning: could not load published titles: {e}")
     
     conn = sqlite3.connect(db_path)
     all_topics = conn.execute(
@@ -1401,18 +1400,17 @@ def generate_from_niche_hunter(top_n: int = 5) -> Optional[Dict[str, Any]]:
         print(f"  [NICHE] No niche_hunter.db found")
         return None
     
-    # Get already-published titles for dedup
+    # Get already-published titles for dedup (direct sqlite3 — avoids circular import from web.app)
     published_titles = set()
-    try:
-        import sys
-        sys.path.insert(0, os.path.dirname(__file__))
-        from web.app import get_db_safe, init_db
-        init_db()
-        with get_db_safe() as conn:
-            rows = conn.execute("SELECT title FROM posts WHERE status = 'published'").fetchall()
+    viralops_db = os.path.join(os.path.dirname(__file__), "web", "viralops.db")
+    if os.path.exists(viralops_db):
+        try:
+            _vconn = sqlite3.connect(viralops_db)
+            rows = _vconn.execute("SELECT title FROM posts WHERE status = 'published'").fetchall()
             published_titles = {r[0] for r in rows}
-    except Exception:
-        pass
+            _vconn.close()
+        except Exception as e:
+            print(f"  [DEDUP] Warning: could not load published titles: {e}")
     
     conn = sqlite3.connect(db_path)
     rows = conn.execute(
