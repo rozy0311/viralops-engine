@@ -69,6 +69,9 @@
     <a href="/time-slots" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'timeslots' %}bg-brand-600 text-white{% endif %}">
       <span>🕐</span> Time Slots
     </a>
+    <a href="/studio" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'studio' %}bg-brand-600 text-white{% endif %}">
+      <span>🎨</span> Content Studio
+    </a>
     <a href="/autopilot" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-dark-800 transition {% if page == 'autopilot' %}bg-brand-600 text-white{% endif %}">
       <span>🤖</span> Auto-Pilot
     </a>
@@ -667,6 +670,154 @@
           </thead>
           <tbody id="schedule-table"></tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CONTENT STUDIO PAGE ═══ -->
+  <div class="page {% if page == 'studio' %}active{% endif %}" id="page-studio">
+    <h2 class="text-2xl font-bold text-gray-800 mb-1">🎨 Content Studio</h2>
+    <p class="text-gray-500 text-sm mb-6">Chọn phương pháp → chọn niche → hoặc paste ý tưởng của bạn → AI tạo content.</p>
+
+    <div class="grid grid-cols-3 gap-6">
+      <!-- ══ LEFT COLUMN: Selection Panel ══ -->
+      <div class="col-span-1 space-y-4 overflow-y-auto" style="max-height:calc(100vh - 120px)">
+
+        <!-- ① Content Method -->
+        <div class="bg-white rounded-xl p-5 shadow-sm border">
+          <h3 class="font-semibold mb-3">① Phương pháp tạo Content</h3>
+          <div id="studio-methods" class="grid grid-cols-2 gap-2">
+            <!-- populated by JS -->
+          </div>
+        </div>
+
+        <!-- ② Niche Selector (tabs) -->
+        <div class="bg-white rounded-xl p-5 shadow-sm border">
+          <h3 class="font-semibold mb-3">② Chọn Niche <span class="text-xs text-gray-400 font-normal">(optional)</span></h3>
+          <div class="flex gap-1 mb-3 border-b">
+            <button onclick="studioNicheTab('micro')" id="st-tab-micro" class="px-3 py-1.5 text-xs font-medium border-b-2 border-brand-500 text-brand-600">🌱 Micro (20)</button>
+            <button onclick="studioNicheTab('nano')" id="st-tab-nano" class="px-3 py-1.5 text-xs font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-600">🔬 Nano (10)</button>
+            <button onclick="studioNicheTab('real_life')" id="st-tab-real_life" class="px-3 py-1.5 text-xs font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-600">🏡 Real-Life (10)</button>
+            <button onclick="studioNicheTab('db')" id="st-tab-db" class="px-3 py-1.5 text-xs font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-600">📊 DB Scores</button>
+          </div>
+          <div id="studio-niches" class="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
+            <!-- populated by JS -->
+          </div>
+          <button onclick="studioClearNiche()" class="text-xs text-gray-400 hover:text-red-500 mt-2">✕ Clear selection</button>
+        </div>
+
+        <!-- ③ Content Packs -->
+        <div class="bg-white rounded-xl p-5 shadow-sm border">
+          <h3 class="font-semibold mb-3">③ Content Packs <span class="text-xs text-gray-400 font-normal">(optional — chọn 1 pack cụ thể)</span></h3>
+          <div id="studio-packs" class="space-y-2 max-h-56 overflow-y-auto">
+            <!-- populated by JS -->
+          </div>
+        </div>
+
+        <!-- ④ Custom Idea -->
+        <div class="bg-white rounded-xl p-5 shadow-sm border">
+          <h3 class="font-semibold mb-3">④ Ý tưởng của bạn <span class="text-xs text-gray-400 font-normal">(optional)</span></h3>
+          <textarea id="studio-custom-idea" rows="4" placeholder="Paste bất kỳ ý tưởng, topic, câu quote, tip mà bạn sưu tầm được vào đây...&#10;&#10;Ví dụ: 'Cách trồng nấm trong apartment tối'&#10;hoặc: 'Chia sẻ từ bạn bè cách làm giấm từ strawberry tops'" class="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400"></textarea>
+          <div class="text-xs text-gray-400 mt-1">AI sẽ biến ý tưởng này thành content hoàn chỉnh với hook, steps, CTA, hashtags.</div>
+        </div>
+
+        <!-- ⑤ Generate Button -->
+        <button onclick="studioGenerate()" id="studio-gen-btn" class="w-full py-3 bg-gradient-to-r from-brand-500 to-purple-500 text-white rounded-xl font-bold text-lg hover:from-brand-600 hover:to-purple-600 shadow-lg transition">
+          🚀 Generate Content
+        </button>
+      </div>
+
+      <!-- ══ RIGHT COLUMN: Preview & Result ══ -->
+      <div class="col-span-2 space-y-4">
+
+        <!-- Loading spinner -->
+        <div id="studio-loading" class="hidden">
+          <div class="bg-white rounded-xl p-8 shadow-sm border text-center">
+            <div class="inline-block w-12 h-12 border-4 border-brand-400 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p class="text-gray-600 font-medium">Đang tạo content...</p>
+            <p class="text-gray-400 text-sm mt-1" id="studio-loading-detail">AI đang phân tích và viết bài</p>
+          </div>
+        </div>
+
+        <!-- Generated Result -->
+        <div id="studio-result" class="hidden space-y-4">
+          <!-- Source badge -->
+          <div class="flex items-center gap-3">
+            <span id="studio-res-source" class="px-3 py-1 rounded-full text-xs font-medium bg-brand-100 text-brand-700"></span>
+            <span id="studio-res-score" class="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700"></span>
+            <span id="studio-res-niche" class="px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700"></span>
+          </div>
+
+          <!-- Content Card -->
+          <div class="bg-white rounded-xl p-6 shadow-sm border">
+            <h3 class="text-lg font-bold text-gray-800 mb-3" id="studio-res-title"></h3>
+
+            <div class="space-y-3">
+              <div id="studio-res-hook-wrap">
+                <label class="text-xs font-medium text-brand-600 uppercase tracking-wider">Hook</label>
+                <p class="text-sm font-medium text-gray-700 mt-1" id="studio-res-hook"></p>
+              </div>
+
+              <div id="studio-res-fact-wrap">
+                <label class="text-xs font-medium text-orange-600 uppercase tracking-wider">Key Fact</label>
+                <p class="text-sm text-gray-600 mt-1" id="studio-res-fact"></p>
+              </div>
+
+              <div id="studio-res-steps-wrap">
+                <label class="text-xs font-medium text-blue-600 uppercase tracking-wider">Steps</label>
+                <ol class="list-decimal list-inside text-sm text-gray-600 mt-1 space-y-1" id="studio-res-steps"></ol>
+              </div>
+
+              <div id="studio-res-result-wrap">
+                <label class="text-xs font-medium text-green-600 uppercase tracking-wider">Result</label>
+                <p class="text-sm text-gray-600 mt-1" id="studio-res-result"></p>
+              </div>
+
+              <div id="studio-res-cta-wrap">
+                <label class="text-xs font-medium text-pink-600 uppercase tracking-wider">CTA</label>
+                <p class="text-sm font-medium text-gray-700 mt-1" id="studio-res-cta"></p>
+              </div>
+
+              <div id="studio-res-body-wrap" class="hidden">
+                <label class="text-xs font-medium text-gray-500 uppercase tracking-wider">Full Body</label>
+                <p class="text-sm text-gray-600 mt-1 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto" id="studio-res-body"></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Hashtags -->
+          <div class="bg-white rounded-xl p-5 shadow-sm border">
+            <label class="text-xs font-medium text-gray-500 uppercase tracking-wider">Hashtags</label>
+            <div class="flex flex-wrap gap-1.5 mt-2" id="studio-res-tags"></div>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex gap-3">
+            <button onclick="studioPublishNow()" class="px-6 py-2.5 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition">✅ Publish Now</button>
+            <button onclick="studioSaveDraft()" class="px-6 py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition">💾 Save as Draft</button>
+            <button onclick="studioEditInCompose()" class="px-6 py-2.5 bg-yellow-500 text-white rounded-lg font-medium hover:bg-yellow-600 transition">✏️ Edit in Compose</button>
+            <button onclick="studioGenerate()" class="px-6 py-2.5 bg-gray-500 text-white rounded-lg font-medium hover:bg-gray-600 transition">🔄 Regenerate</button>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div id="studio-empty" class="bg-white rounded-xl p-12 shadow-sm border text-center">
+          <div class="text-6xl mb-4">🎨</div>
+          <h3 class="text-xl font-bold text-gray-700 mb-2">Content Studio</h3>
+          <p class="text-gray-400">Chọn phương pháp + niche ở bên trái, hoặc paste ý tưởng của bạn.</p>
+          <p class="text-gray-400 text-sm mt-2">Bấm <strong>Generate Content</strong> để AI tạo bài viết hoàn chỉnh.</p>
+          <div class="mt-6 text-left max-w-md mx-auto text-sm text-gray-500 space-y-2">
+            <p>💡 <strong>Tip:</strong> Bạn có thể:</p>
+            <ul class="list-disc list-inside space-y-1 ml-4">
+              <li>Chọn 1 phương pháp cụ thể hoặc để <strong>Auto</strong></li>
+              <li>Click 1 niche chip để focus vào topic đó</li>
+              <li>Click 1 content pack để dùng lại bài đã viết sẵn</li>
+              <li>Paste bất kỳ câu nói / ý tưởng / quote vào ô trống</li>
+              <li>Hoặc kết hợp tất cả — AI sẽ tự xử lý!</li>
+            </ul>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -1353,6 +1504,7 @@ document.addEventListener('DOMContentLoaded', () => {
     else if(page.id==='page-timeslots') loadBestHours();
     else if(page.id==='page-preview') updatePreviews();
     else if(page.id==='page-autopilot') loadAutoPilotPlatforms();
+    else if(page.id==='page-studio') loadStudioOptions();
     else if(page.id==='page-publer') { loadPublerStatus(); loadTikTokAccounts(); }
     else if(page.id==='page-blog-share') loadBlogShareStatus();
   }
@@ -1811,6 +1963,310 @@ async function loadAnalytics() {
       <span class="text-gray-400">${l.published_at?.slice(0,16)||''}</span>
     </div>`).join('') || '<p class="text-gray-400 text-sm">No publish history</p>';
   } catch(e) { toast('Analytics error', 'error'); }
+}
+
+
+// ═══════════════════════════════════════════════════
+// CONTENT STUDIO
+// ═══════════════════════════════════════════════════
+
+let studioData = null;          // cached /api/studio/options
+let studioSelectedMethod = 'auto';
+let studioSelectedNiche = null;
+let studioSelectedPack = null;
+let studioCurrentTab = 'micro';
+let studioGenResult = null;
+
+async function loadStudioOptions() {
+  try {
+    const r = await fetch('/api/studio/options');
+    studioData = await r.json();
+    renderStudioMethods();
+    renderStudioNiches('micro');
+    renderStudioPacks();
+  } catch(e) { console.error('loadStudioOptions', e); }
+}
+
+function renderStudioMethods() {
+  const el = document.getElementById('studio-methods');
+  if (!el || !studioData) return;
+  el.innerHTML = studioData.methods.map(m => {
+    const active = m.id === studioSelectedMethod;
+    return `<button onclick="studioSelectMethod('${m.id}')" title="${m.desc}"
+      class="flex flex-col items-center gap-1 p-2.5 rounded-lg border-2 text-xs font-medium transition
+      ${active ? 'border-brand-500 bg-brand-50 text-brand-700 shadow-sm' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}">
+      <span class="text-lg">${m.icon}</span>
+      <span class="text-center leading-tight">${m.label}</span>
+    </button>`;
+  }).join('');
+}
+
+function studioSelectMethod(id) {
+  studioSelectedMethod = id;
+  renderStudioMethods();
+}
+
+function studioNicheTab(tab) {
+  studioCurrentTab = tab;
+  ['micro','nano','real_life','db'].forEach(t => {
+    const btn = document.getElementById('st-tab-' + t);
+    if (btn) {
+      btn.className = t === tab
+        ? 'px-3 py-1.5 text-xs font-medium border-b-2 border-brand-500 text-brand-600'
+        : 'px-3 py-1.5 text-xs font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-600';
+    }
+  });
+  renderStudioNiches(tab);
+}
+
+function renderStudioNiches(tab) {
+  const el = document.getElementById('studio-niches');
+  if (!el || !studioData) return;
+
+  if (tab === 'db') {
+    // Show niche scores from DB
+    el.innerHTML = (studioData.niche_scores || []).map(n => {
+      const active = studioSelectedNiche === n.topic;
+      const riskColors = {green:'bg-green-100 text-green-700', yellow:'bg-yellow-100 text-yellow-700', red:'bg-red-100 text-red-700'};
+      return `<button onclick="studioSelectNiche('${n.topic.replace(/'/g,"\\'")}')"
+        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition
+        ${active ? 'bg-brand-500 text-white shadow-sm' : riskColors[n.risk_level] || 'bg-gray-100 text-gray-600'} hover:opacity-80">
+        ${n.topic} <span class="opacity-60">${n.final_score?.toFixed(1) || ''}</span>
+      </button>`;
+    }).join('');
+    return;
+  }
+
+  const items = studioData.niches?.[tab] || [];
+  el.innerHTML = items.map(n => {
+    const active = studioSelectedNiche === n.id;
+    return `<button onclick="studioSelectNiche('${n.id.replace(/'/g,"\\'")}')"
+      class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium transition
+      ${active ? 'bg-brand-500 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+      ${n.label}
+    </button>`;
+  }).join('');
+}
+
+function studioSelectNiche(id) {
+  studioSelectedNiche = studioSelectedNiche === id ? null : id;
+  renderStudioNiches(studioCurrentTab);
+}
+
+function studioClearNiche() {
+  studioSelectedNiche = null;
+  renderStudioNiches(studioCurrentTab);
+}
+
+function renderStudioPacks() {
+  const el = document.getElementById('studio-packs');
+  if (!el || !studioData) return;
+  const packs = studioData.packs || [];
+  el.innerHTML = packs.map(p => {
+    const active = studioSelectedPack === p.title;
+    const badge = p.score ? `<span class="text-xs text-green-600 font-mono">${p.score.toFixed(1)}</span>` : '';
+    const srcBadge = p.source === 'niche_hunter' ? '🏆' : '✍️';
+    return `<button onclick="studioSelectPack('${p.title.replace(/'/g,"\\'")}')"
+      class="w-full text-left p-2.5 rounded-lg border transition text-sm
+      ${active ? 'border-brand-500 bg-brand-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'}">
+      <div class="flex items-center justify-between">
+        <span class="font-medium text-gray-700">${srcBadge} ${p.title}</span>
+        ${badge}
+      </div>
+      ${p.hook ? `<p class="text-xs text-gray-400 mt-0.5 truncate">${p.hook}</p>` : ''}
+    </button>`;
+  }).join('');
+}
+
+function studioSelectPack(title) {
+  studioSelectedPack = studioSelectedPack === title ? null : title;
+  renderStudioPacks();
+}
+
+async function studioGenerate() {
+  const customIdea = document.getElementById('studio-custom-idea')?.value?.trim() || '';
+  const btn = document.getElementById('studio-gen-btn');
+
+  // Build request
+  const body = { method: studioSelectedMethod };
+  if (studioSelectedNiche) body.niche = studioSelectedNiche;
+  if (studioSelectedPack) body.pack_title = studioSelectedPack;
+  if (customIdea) body.custom_idea = customIdea;
+
+  // UI state
+  btn.disabled = true;
+  btn.textContent = '⏳ Generating...';
+  document.getElementById('studio-empty').classList.add('hidden');
+  document.getElementById('studio-result').classList.add('hidden');
+  document.getElementById('studio-loading').classList.remove('hidden');
+
+  // Loading detail
+  const detail = document.getElementById('studio-loading-detail');
+  if (customIdea) detail.textContent = 'Đang phân tích ý tưởng: "' + customIdea.substring(0, 60) + '..."';
+  else if (studioSelectedPack) detail.textContent = 'Đang load pack: ' + studioSelectedPack;
+  else detail.textContent = 'Method: ' + studioSelectedMethod + (studioSelectedNiche ? ' | Niche: ' + studioSelectedNiche : '');
+
+  try {
+    const r = await fetch('/api/studio/generate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (data.error) { toast(data.error, 'error'); return; }
+
+    studioGenResult = data;
+    renderStudioResult(data);
+    toast('Content generated! ✅', 'success');
+  } catch(e) {
+    toast('Generate error: ' + e.message, 'error');
+    document.getElementById('studio-empty').classList.remove('hidden');
+  } finally {
+    document.getElementById('studio-loading').classList.add('hidden');
+    btn.disabled = false;
+    btn.textContent = '🚀 Generate Content';
+  }
+}
+
+function renderStudioResult(d) {
+  document.getElementById('studio-result').classList.remove('hidden');
+  document.getElementById('studio-empty').classList.add('hidden');
+
+  // Source badge
+  const srcLabels = {
+    studio_custom_idea:'💡 Custom Idea', studio_pack_select:'📦 Pack Selected',
+    hunter_prewritten:'🏆 Hunter Pre-written', prewritten:'✍️ Pre-written',
+    ai_generate:'🤖 AI Generated', ai_niche:'🔬 AI + Niche', gemini:'✨ Gemini',
+    niche_hunter:'🎯 Niche Hunter', pain_point:'😤 Pain Point',
+  };
+  document.getElementById('studio-res-source').textContent = srcLabels[d.source] || d.source;
+  document.getElementById('studio-res-score').textContent = d.score ? 'Score: ' + (typeof d.score === 'number' ? d.score.toFixed(1) : d.score) : '';
+  document.getElementById('studio-res-score').style.display = d.score ? '' : 'none';
+  document.getElementById('studio-res-niche').textContent = d.niche || '';
+  document.getElementById('studio-res-niche').style.display = d.niche ? '' : 'none';
+
+  // Title
+  document.getElementById('studio-res-title').textContent = d.title || 'Untitled';
+
+  // Hook
+  const hookWrap = document.getElementById('studio-res-hook-wrap');
+  const hookEl = document.getElementById('studio-res-hook');
+  if (d.hook) { hookWrap.classList.remove('hidden'); hookEl.textContent = d.hook; }
+  else hookWrap.classList.add('hidden');
+
+  // Key Fact
+  const factWrap = document.getElementById('studio-res-fact-wrap');
+  const factEl = document.getElementById('studio-res-fact');
+  if (d.key_fact) { factWrap.classList.remove('hidden'); factEl.textContent = d.key_fact; }
+  else factWrap.classList.add('hidden');
+
+  // Steps
+  const stepsWrap = document.getElementById('studio-res-steps-wrap');
+  const stepsEl = document.getElementById('studio-res-steps');
+  if (d.three_steps && d.three_steps.length > 0) {
+    stepsWrap.classList.remove('hidden');
+    stepsEl.innerHTML = d.three_steps.map(s => `<li>${s}</li>`).join('');
+  } else stepsWrap.classList.add('hidden');
+
+  // Result
+  const resultWrap = document.getElementById('studio-res-result-wrap');
+  const resultEl = document.getElementById('studio-res-result');
+  if (d.result) { resultWrap.classList.remove('hidden'); resultEl.textContent = d.result; }
+  else resultWrap.classList.add('hidden');
+
+  // CTA
+  const ctaWrap = document.getElementById('studio-res-cta-wrap');
+  const ctaEl = document.getElementById('studio-res-cta');
+  if (d.cta) { ctaWrap.classList.remove('hidden'); ctaEl.textContent = d.cta; }
+  else ctaWrap.classList.add('hidden');
+
+  // Body (show if no structured fields)
+  const bodyWrap = document.getElementById('studio-res-body-wrap');
+  const bodyEl = document.getElementById('studio-res-body');
+  if (d.body && !d.hook && !d.three_steps?.length) {
+    bodyWrap.classList.remove('hidden'); bodyEl.textContent = d.body;
+  } else if (d.body) {
+    bodyWrap.classList.remove('hidden'); bodyEl.textContent = d.body;
+  } else bodyWrap.classList.add('hidden');
+
+  // Hashtags
+  const tagsEl = document.getElementById('studio-res-tags');
+  tagsEl.innerHTML = (d.hashtags || []).map(t =>
+    `<span class="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs">${t.startsWith('#') ? t : '#' + t}</span>`
+  ).join('');
+}
+
+function _studioBuildBody() {
+  if (!studioGenResult) return '';
+  const d = studioGenResult;
+  let body = '';
+  if (d.hook) body += d.hook + '\n\n';
+  if (d.key_fact) body += '💡 ' + d.key_fact + '\n\n';
+  if (d.three_steps?.length) {
+    d.three_steps.forEach((s, i) => body += `${i+1}️⃣ ${s}\n`);
+    body += '\n';
+  }
+  if (d.result) body += '✅ ' + d.result + '\n\n';
+  if (d.cta) body += d.cta + '\n\n';
+  if (d.body && !d.hook) body = d.body + '\n\n';
+  if (d.hashtags?.length) body += d.hashtags.map(t => t.startsWith('#') ? t : '#' + t).join(' ');
+  return body.trim();
+}
+
+async function studioPublishNow() {
+  if (!studioGenResult) return;
+  const body = _studioBuildBody();
+  try {
+    const r = await fetch('/api/posts', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        title: studioGenResult.title || 'Studio Post',
+        body: body,
+        category: 'general',
+        platforms: [],
+        status: 'draft',
+        extra_fields: { source: studioGenResult.source, hashtags: studioGenResult.hashtags },
+      })
+    }).then(r=>r.json());
+    if (r.success) {
+      const pub = await fetch(`/api/publish/${r.post_id}`, {method:'POST'}).then(r=>r.json());
+      if (pub.results) {
+        pub.results.forEach(res => toast(`${res.platform}: ${res.success?'✅':'❌ '+res.error}`, res.success?'success':'error'));
+      } else {
+        toast('Published! ✅', 'success');
+      }
+    }
+  } catch(e) { toast('Publish error: ' + e.message, 'error'); }
+}
+
+async function studioSaveDraft() {
+  if (!studioGenResult) return;
+  const body = _studioBuildBody();
+  try {
+    const r = await fetch('/api/posts', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        title: studioGenResult.title || 'Studio Draft',
+        body: body,
+        category: 'general',
+        platforms: [],
+        status: 'draft',
+        extra_fields: { source: studioGenResult.source, hashtags: studioGenResult.hashtags },
+      })
+    }).then(r=>r.json());
+    if (r.success) toast('Saved as draft! 💾', 'success');
+  } catch(e) { toast('Save error: ' + e.message, 'error'); }
+}
+
+function studioEditInCompose() {
+  if (!studioGenResult) return;
+  const body = _studioBuildBody();
+  window.location.href = '/compose';
+  setTimeout(() => {
+    const titleEl = document.getElementById('post-title');
+    const bodyEl = document.getElementById('post-body');
+    if (titleEl) titleEl.value = studioGenResult.title || '';
+    if (bodyEl) bodyEl.value = body;
+  }, 500);
 }
 
 

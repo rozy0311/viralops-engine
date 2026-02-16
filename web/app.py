@@ -584,6 +584,164 @@ async def publer_page(request: Request):
 async def blog_share_page(request: Request):
     return templates.TemplateResponse(request, "app.html", {"page": "blog-share"})
 
+@app.get("/studio", response_class=HTMLResponse)
+async def studio_page(request: Request):
+    return templates.TemplateResponse(request, "app.html", {"page": "studio"})
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Content Studio
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/studio/options")
+async def api_studio_options():
+    """Return all available content creation methods, niches, and content packs."""
+    from publish_microniche import (
+        MICRO_NICHES, NANO_NICHES, REAL_LIFE_NICHES,
+        PRE_WRITTEN_PACKS, NICHE_HUNTER_PACKS,
+    )
+
+    methods = [
+        {"id": "auto", "label": "Auto (Weighted)", "icon": "🎲", "desc": "35% AI + 25% Hunter + 20% AI-Niche + 15% Pre-written + 5% Gemini"},
+        {"id": "ai_generate", "label": "AI Generate", "icon": "🤖", "desc": "LLM Cascade (GitHub Models → Perplexity) + self-review"},
+        {"id": "hunter_prewritten", "label": "Hunter Pre-written", "icon": "🏆", "desc": "Top-scored packs from Niche Hunter DB"},
+        {"id": "ai_niche", "label": "AI + Niche DB", "icon": "🔬", "desc": "Top niche scores from DB + LLM content generation"},
+        {"id": "prewritten", "label": "Pre-written Packs", "icon": "✍️", "desc": "24 curated content packs (8 manual + 16 scored)"},
+        {"id": "gemini", "label": "Gemini Direct", "icon": "✨", "desc": "Gemini 2.5 Flash direct generation"},
+        {"id": "niche_hunter", "label": "Niche Hunter", "icon": "🎯", "desc": "Scored questions from niche_hunter.db + Gemini"},
+        {"id": "pain_point", "label": "Pain Point", "icon": "😤", "desc": "Urgent pain points with emotional triggers"},
+    ]
+
+    niches = {
+        "micro": [{"id": n, "label": n.title()} for n in MICRO_NICHES],
+        "nano": [{"id": n, "label": n.title()} for n in NANO_NICHES],
+        "real_life": [{"id": n, "label": n.replace("_", " ").title()} for n in REAL_LIFE_NICHES],
+    }
+
+    # Niche scores from DB
+    niche_scores = []
+    try:
+        import sqlite3
+        db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "niche_hunter.db")
+        if os.path.exists(db_path):
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT topic, niche, final_score, risk_level, hook, source FROM niche_scores ORDER BY final_score DESC LIMIT 30"
+                ).fetchall()
+                niche_scores = [dict(r) for r in rows]
+    except Exception:
+        pass
+
+    packs = []
+    for p in PRE_WRITTEN_PACKS:
+        packs.append({
+            "title": p.get("title", ""),
+            "hook": p.get("hook", ""),
+            "niche": p.get("_niche_key", ""),
+            "score": None,
+            "source": "pre_written",
+        })
+    for p in NICHE_HUNTER_PACKS:
+        packs.append({
+            "title": p.get("title", ""),
+            "hook": p.get("hook", ""),
+            "niche": p.get("_niche_key", ""),
+            "score": p.get("_niche_score"),
+            "source": "niche_hunter",
+        })
+
+    return {
+        "methods": methods,
+        "niches": niches,
+        "niche_scores": niche_scores,
+        "packs": packs,
+    }
+
+
+@app.post("/api/studio/generate")
+async def api_studio_generate(request: Request):
+    """
+    Generate content from Content Studio.
+    Body: {method, niche?, topic?, custom_idea?, pack_title?}
+    """
+    data = await request.json()
+    method = data.get("method", "auto")
+    niche = data.get("niche")
+    topic = data.get("topic")
+    custom_idea = data.get("custom_idea", "").strip()
+    pack_title = data.get("pack_title")
+
+    try:
+        from publish_microniche import get_content_pack, ALL_PACKS
+
+        # If a specific pack was selected, use it directly
+        if pack_title:
+            for p in ALL_PACKS:
+                if p.get("title") == pack_title:
+                    pack = dict(p)
+                    pack["_source"] = "studio_pack_select"
+                    return _studio_pack_response(pack)
+
+        # If custom idea provided, use AI to generate from it
+        if custom_idea:
+            try:
+                from llm_content import generate_content_pack as llm_gen
+                pack = llm_gen(custom_idea, score=7.5)
+                if pack:
+                    pack["_source"] = "studio_custom_idea"
+                    return _studio_pack_response(pack)
+            except Exception as e:
+                logger.warning("studio_custom_idea_fallback", error=str(e))
+
+            # Fallback: use AI-generate with custom_idea as topic override
+            import publish_microniche as pm
+            old_niches = pm.MICRO_NICHES
+            pm.MICRO_NICHES = [custom_idea]
+            try:
+                pack = get_content_pack("ai_generate")
+                return _studio_pack_response(pack)
+            finally:
+                pm.MICRO_NICHES = old_niches
+
+        # If niche selected, inject it as topic for the method
+        if niche and method in ("ai_generate", "ai_niche", "gemini", "niche_hunter", "pain_point"):
+            import publish_microniche as pm
+            old_niches = pm.MICRO_NICHES
+            pm.MICRO_NICHES = [niche]
+            try:
+                pack = get_content_pack(method)
+                return _studio_pack_response(pack)
+            finally:
+                pm.MICRO_NICHES = old_niches
+
+        # Default: use the selected method as-is
+        pack = get_content_pack(method)
+        return _studio_pack_response(pack)
+
+    except Exception as e:
+        logger.error("studio_generate_error", error=str(e))
+        return {"error": str(e)}
+
+
+def _studio_pack_response(pack: dict) -> dict:
+    """Normalize a content pack into a consistent API response."""
+    return {
+        "title": pack.get("title", "Untitled"),
+        "hook": pack.get("hook", ""),
+        "body": pack.get("body", ""),
+        "key_fact": pack.get("key_fact", ""),
+        "three_steps": pack.get("three_steps", []),
+        "result": pack.get("result", ""),
+        "cta": pack.get("cta", ""),
+        "hashtags": pack.get("hashtags", []),
+        "source": pack.get("_source", "unknown"),
+        "niche": pack.get("_niche_key", ""),
+        "score": pack.get("_niche_score") or pack.get("_review_score"),
+        "location": pack.get("_location", ""),
+        "season": pack.get("_season", ""),
+    }
+
 
 # ════════════════════════════════════════════════════════════════
 # API — Posts
