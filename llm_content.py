@@ -391,9 +391,11 @@ def _call_openai_compatible(
 
 # Cascade of image-generation models (try in order, skip quota-exhausted)
 # Gemini models share one quota pool; Imagen models have a separate quota pool.
+# 3 Gemini models × 2 keys = 6 attempts; 2 Imagen models × 2 keys = 4 attempts → 10 total cloud
 IMAGE_MODELS_GEMINI = [
     "gemini-2.0-flash-exp-image-generation",
     "gemini-2.5-flash-image",
+    "gemini-3-pro-image-preview",   # Gemini 3 Pro image generation
 ]
 IMAGE_MODELS_IMAGEN = [
     "imagen-4-fast-generate",     # Imagen 4 Fast (25 RPD free)
