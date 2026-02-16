@@ -822,6 +822,75 @@
       </div>
     </div>
 
+    <!-- ═══ TikTok Multi-Account Management ═══ -->
+    <div class="bg-dark-900 rounded-xl p-6 border border-dark-700 mb-8">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="font-semibold text-white">🎵 TikTok Multi-Account Round-Robin</h3>
+          <p class="text-sm text-gray-500 mt-1">Max 3 posts/account/day · Random jitter · Zero spam detection</p>
+        </div>
+        <button onclick="loadTikTokAccounts()" class="bg-dark-700 hover:bg-dark-600 text-white py-1.5 px-4 rounded-lg text-sm transition">
+          🔄 Refresh
+        </button>
+      </div>
+
+      <!-- Stats Summary -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div class="bg-dark-800 rounded-lg p-3 text-center">
+          <p class="text-2xl font-bold text-brand-400" id="tk-stat-accounts">-</p>
+          <p class="text-xs text-gray-500">Accounts</p>
+        </div>
+        <div class="bg-dark-800 rounded-lg p-3 text-center">
+          <p class="text-2xl font-bold text-green-400" id="tk-stat-capacity">-</p>
+          <p class="text-xs text-gray-500">Daily Capacity</p>
+        </div>
+        <div class="bg-dark-800 rounded-lg p-3 text-center">
+          <p class="text-2xl font-bold text-yellow-400" id="tk-stat-today">-</p>
+          <p class="text-xs text-gray-500">Posted Today</p>
+        </div>
+        <div class="bg-dark-800 rounded-lg p-3 text-center">
+          <p class="text-2xl font-bold text-blue-400" id="tk-stat-remaining">-</p>
+          <p class="text-xs text-gray-500">Remaining</p>
+        </div>
+      </div>
+
+      <!-- Account List -->
+      <div id="tk-accounts-list" class="space-y-3 mb-6">
+        <p class="text-gray-500 text-sm">Loading accounts...</p>
+      </div>
+
+      <!-- Add Account Form -->
+      <div class="bg-dark-800 rounded-lg p-4 border border-dark-600">
+        <h4 class="text-sm font-medium text-white mb-3">➕ Add TikTok Account</h4>
+        <p class="text-xs text-gray-500 mb-3">Get the Account ID from the Connected Accounts grid above (click 🔄 Refresh on that section first).</p>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Publer Account ID *</label>
+            <input id="tk-add-id" class="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white text-sm" placeholder="e.g. 698c95e5b1ab790def">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Label</label>
+            <input id="tk-add-label" class="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white text-sm" placeholder="e.g. Rike Root Stories">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Max Posts/Day</label>
+            <select id="tk-add-max" class="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white text-sm">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3" selected>3 (recommended)</option>
+              <option value="4">4</option>
+              <option value="5">5 (risky)</option>
+            </select>
+          </div>
+          <div class="flex items-end">
+            <button onclick="addTikTokAccount()" class="w-full bg-brand-600 hover:bg-brand-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition">
+              ➕ Add Account
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Quick Publish via Publer -->
     <div class="bg-dark-900 rounded-xl p-6 border border-dark-700 mb-8">
       <h3 class="font-semibold text-white mb-4">📝 Quick Publish via Publer</h3>
@@ -1284,7 +1353,7 @@ document.addEventListener('DOMContentLoaded', () => {
     else if(page.id==='page-timeslots') loadBestHours();
     else if(page.id==='page-preview') updatePreviews();
     else if(page.id==='page-autopilot') loadAutoPilotPlatforms();
-    else if(page.id==='page-publer') loadPublerStatus();
+    else if(page.id==='page-publer') { loadPublerStatus(); loadTikTokAccounts(); }
     else if(page.id==='page-blog-share') loadBlogShareStatus();
   }
   // Always load sidebar channels
@@ -2526,6 +2595,135 @@ async function loadPublerWorkspaces() {
     }
   } catch (e) {
     el.innerHTML = `<p class="text-red-400 text-sm">Error: ${e.message}</p>`;
+  }
+}
+
+// ── TikTok Multi-Account Management ──
+async function loadTikTokAccounts() {
+  const listEl = document.getElementById('tk-accounts-list');
+  listEl.innerHTML = '<p class="text-yellow-400 text-sm">Loading...</p>';
+
+  try {
+    const resp = await fetch('/api/tiktok/accounts');
+    const data = await resp.json();
+    const stats = data.stats || {};
+    const accounts = data.accounts || [];
+
+    // Update stats cards
+    document.getElementById('tk-stat-accounts').textContent = stats.enabled_accounts || 0;
+    document.getElementById('tk-stat-capacity').textContent = stats.daily_capacity || 0;
+    document.getElementById('tk-stat-today').textContent = stats.posts_today || 0;
+    document.getElementById('tk-stat-remaining').textContent = stats.remaining_today || 0;
+
+    if (accounts.length === 0) {
+      listEl.innerHTML = '<p class="text-gray-500 text-sm">No TikTok accounts configured. Add one below.</p>';
+      return;
+    }
+
+    listEl.innerHTML = accounts.map((a, i) => {
+      const statusColor = !a.enabled ? 'gray' : a.posts_today >= a.max_daily ? 'red' : 'green';
+      const statusText = !a.enabled ? 'Disabled' : a.posts_today >= a.max_daily ? 'Daily Limit' : 'Active';
+      const pctUsed = a.max_daily > 0 ? Math.round((a.posts_today / a.max_daily) * 100) : 0;
+      const lastPost = a.last_post_at ? new Date(a.last_post_at).toLocaleTimeString() : 'Never';
+      return `<div class="bg-dark-800 border border-dark-600 rounded-lg p-4 flex items-center gap-4">
+        <div class="flex items-center gap-3 flex-1 min-w-0">
+          <span class="text-xl">🎵</span>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <p class="text-sm font-medium text-white truncate">${a.label || 'TikTok #' + (i+1)}</p>
+              <span class="px-2 py-0.5 rounded-full text-xs bg-${statusColor}-900/40 text-${statusColor}-400">${statusText}</span>
+            </div>
+            <p class="text-xs text-gray-500 mt-0.5">ID: ${a.id} · Last: ${lastPost}${a.niche_filter ? ' · Niche: ' + a.niche_filter : ''}</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <!-- Usage bar -->
+          <div class="w-20">
+            <div class="flex justify-between text-xs text-gray-400 mb-0.5">
+              <span>${a.posts_today}/${a.max_daily}</span>
+              <span>${pctUsed}%</span>
+            </div>
+            <div class="h-1.5 bg-dark-600 rounded-full overflow-hidden">
+              <div class="h-full rounded-full ${pctUsed >= 100 ? 'bg-red-500' : pctUsed > 50 ? 'bg-yellow-500' : 'bg-green-500'}" style="width:${Math.min(pctUsed,100)}%"></div>
+            </div>
+          </div>
+          <!-- Toggle -->
+          <button onclick="toggleTikTokAccount('${a.id}', ${!a.enabled})" title="${a.enabled ? 'Disable' : 'Enable'}"
+            class="p-1.5 rounded-lg text-sm ${a.enabled ? 'bg-green-900/30 text-green-400 hover:bg-green-900/50' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'} transition">
+            ${a.enabled ? '✅' : '⏸️'}
+          </button>
+          <!-- Remove -->
+          <button onclick="removeTikTokAccount('${a.id}', '${(a.label||'').replace(/'/g,"\\'")}')" title="Remove account"
+            class="p-1.5 rounded-lg text-sm bg-red-900/30 text-red-400 hover:bg-red-900/50 transition">
+            🗑️
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    listEl.innerHTML = `<p class="text-red-400 text-sm">Error: ${e.message}</p>`;
+  }
+}
+
+async function addTikTokAccount() {
+  const id = document.getElementById('tk-add-id').value.trim();
+  const label = document.getElementById('tk-add-label').value.trim();
+  const maxDaily = document.getElementById('tk-add-max').value;
+
+  if (!id) { showToast('Account ID is required', 'error'); return; }
+
+  try {
+    const resp = await fetch('/api/tiktok/accounts', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ id, label, max_daily: parseInt(maxDaily) }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      showToast(`Added: ${label || id} ✅`);
+      document.getElementById('tk-add-id').value = '';
+      document.getElementById('tk-add-label').value = '';
+      loadTikTokAccounts();
+    } else {
+      showToast(data.error || 'Failed to add account', 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
+async function toggleTikTokAccount(accountId, enabled) {
+  try {
+    const resp = await fetch(`/api/tiktok/accounts/${accountId}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ enabled }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      showToast(`Account ${enabled ? 'enabled ✅' : 'disabled ⏸️'}`);
+      loadTikTokAccounts();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
+async function removeTikTokAccount(accountId, label) {
+  if (!confirm(`Remove "${label || accountId}" from round-robin? This won't delete the Publer account.`)) return;
+  try {
+    const resp = await fetch(`/api/tiktok/accounts/${accountId}`, { method: 'DELETE' });
+    const data = await resp.json();
+    if (data.success) {
+      showToast(`Removed: ${label || accountId} 🗑️`);
+      loadTikTokAccounts();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
   }
 }
 

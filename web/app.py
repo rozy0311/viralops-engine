@@ -2002,6 +2002,92 @@ async def api_blog_share_watcher_reset(request: Request):
 
 
 # ════════════════════════════════════════════════════════════════
+# API — TikTok Multi-Account Management
+# Round-robin posting: 3 posts/account/day, N accounts
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/tiktok/accounts")
+async def api_tiktok_accounts():
+    """List all TikTok accounts with daily stats."""
+    try:
+        from core.tiktok_accounts import get_account_manager
+        mgr = get_account_manager()
+        return {"accounts": mgr.get_all(), "stats": mgr.get_stats()}
+    except Exception as e:
+        return {"accounts": [], "error": str(e)}
+
+
+@app.post("/api/tiktok/accounts")
+async def api_tiktok_accounts_add(request: Request):
+    """Add a new TikTok account for round-robin posting."""
+    try:
+        body = await request.json()
+        account_id = body.get("id", "").strip()
+        if not account_id:
+            return {"success": False, "error": "Account ID is required"}
+        from core.tiktok_accounts import get_account_manager
+        mgr = get_account_manager()
+        result = mgr.add_account(
+            account_id=account_id,
+            label=body.get("label", ""),
+            max_daily=int(body.get("max_daily", 3)),
+            niche_filter=body.get("niche_filter", ""),
+        )
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.put("/api/tiktok/accounts/{account_id}")
+async def api_tiktok_accounts_update(account_id: str, request: Request):
+    """Update a TikTok account (label, enabled, max_daily, niche_filter)."""
+    try:
+        body = await request.json()
+        from core.tiktok_accounts import get_account_manager
+        mgr = get_account_manager()
+        return mgr.update_account(account_id, body)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.delete("/api/tiktok/accounts/{account_id}")
+async def api_tiktok_accounts_delete(account_id: str):
+    """Remove a TikTok account from round-robin."""
+    try:
+        from core.tiktok_accounts import get_account_manager
+        mgr = get_account_manager()
+        return mgr.remove_account(account_id)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/tiktok/accounts/stats")
+async def api_tiktok_accounts_stats():
+    """Get multi-account posting stats."""
+    try:
+        from core.tiktok_accounts import get_account_manager
+        mgr = get_account_manager()
+        return mgr.get_stats()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/tiktok/accounts/reorder")
+async def api_tiktok_accounts_reorder(request: Request):
+    """Reorder accounts (affects round-robin sequence)."""
+    try:
+        body = await request.json()
+        ordered_ids = body.get("ordered_ids", [])
+        if not ordered_ids:
+            return {"success": False, "error": "ordered_ids array required"}
+        from core.tiktok_accounts import get_account_manager
+        mgr = get_account_manager()
+        return mgr.reorder_accounts(ordered_ids)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════
 # API — Publer Bridge (REST API → TikTok/IG/FB/Pinterest/etc.)
 # ~$10/mo per social account (Business plan)
 # ════════════════════════════════════════════════════════════════
