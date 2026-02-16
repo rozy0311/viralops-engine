@@ -504,6 +504,20 @@ NICHE_HUNTER_PACKS = [
 ALL_PACKS = PRE_WRITTEN_PACKS + NICHE_HUNTER_PACKS
 
 
+def _load_packs_from_db(source_filter: str = None, enabled_only: bool = True) -> list[dict]:
+    """Load content packs from viralops.db. Falls back to hardcoded on any error."""
+    try:
+        from web.app import get_all_db_packs
+        return get_all_db_packs(source_filter=source_filter, enabled_only=enabled_only)
+    except Exception:
+        # DB unavailable — use hardcoded data
+        if source_filter == "niche_hunter":
+            return NICHE_HUNTER_PACKS
+        elif source_filter == "pre_written":
+            return PRE_WRITTEN_PACKS
+        return ALL_PACKS
+
+
 # ═══════════════════════════════════════════════════════════════
 # Gemini prompt template for generating NEW micro-niche content
 # ═══════════════════════════════════════════════════════════════
@@ -909,7 +923,8 @@ def get_content_pack(mode: str = "auto") -> dict:
 
     if mode == "hunter_prewritten":
         # Pick from niche_hunter scored packs — sorted by score descending
-        sorted_packs = sorted(NICHE_HUNTER_PACKS, key=lambda p: p.get("_niche_score", 0), reverse=True)
+        db_packs = _load_packs_from_db(source_filter="niche_hunter")
+        sorted_packs = sorted(db_packs, key=lambda p: p.get("_niche_score", 0), reverse=True)
         pack = _pick_unseen(sorted_packs, top_n=8)
         pack["_location"] = location
         pack["_season"] = season
@@ -919,7 +934,8 @@ def get_content_pack(mode: str = "auto") -> dict:
         return pack
 
     if mode == "prewritten":
-        pack = _pick_unseen(ALL_PACKS)
+        db_packs = _load_packs_from_db()
+        pack = _pick_unseen(db_packs)
         pack["_location"] = location
         pack["_season"] = season
         pack["_source"] = "prewritten"

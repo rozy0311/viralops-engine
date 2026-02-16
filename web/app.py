@@ -125,6 +125,28 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
+            CREATE TABLE IF NOT EXISTS content_packs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                hook TEXT DEFAULT '',
+                pain_point TEXT DEFAULT '',
+                key_fact TEXT DEFAULT '',
+                audiences TEXT DEFAULT '[]',
+                steps TEXT DEFAULT '[]',
+                result TEXT DEFAULT '',
+                cta TEXT DEFAULT '',
+                hashtags TEXT DEFAULT '[]',
+                image_title TEXT DEFAULT '',
+                image_subtitle TEXT DEFAULT '',
+                image_steps TEXT DEFAULT '',
+                colors TEXT DEFAULT '',
+                niche_key TEXT DEFAULT '',
+                niche_score REAL,
+                source TEXT DEFAULT 'manual',
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
         """)
 
         # Seed categories
@@ -136,6 +158,110 @@ def init_db():
             conn.execute("INSERT OR IGNORE INTO categories (name, color, icon) VALUES (?, ?, ?)", (name, color, icon))
 
         conn.commit()
+
+        # ── Auto-seed content_packs from hardcoded packs (once) ──
+        pack_count = conn.execute("SELECT COUNT(*) FROM content_packs").fetchone()[0]
+        if pack_count == 0:
+            _seed_content_packs(conn)
+
+
+def _seed_content_packs(conn):
+    """Migrate hardcoded packs from publish_microniche.py into content_packs table."""
+    try:
+        from publish_microniche import PRE_WRITTEN_PACKS, NICHE_HUNTER_PACKS
+        all_packs = [
+            (p, "pre_written") for p in PRE_WRITTEN_PACKS
+        ] + [
+            (p, "niche_hunter") for p in NICHE_HUNTER_PACKS
+        ]
+        for pack, source in all_packs:
+            conn.execute(
+                """INSERT INTO content_packs
+                   (title, hook, pain_point, key_fact, audiences, steps, result, cta,
+                    hashtags, image_title, image_subtitle, image_steps, colors,
+                    niche_key, niche_score, source)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    pack.get("title", ""),
+                    pack.get("hook", ""),
+                    pack.get("pain_point", ""),
+                    pack.get("key_fact", ""),
+                    json.dumps(pack.get("audiences", [])),
+                    json.dumps(pack.get("steps", pack.get("three_steps", []))),
+                    pack.get("result", ""),
+                    pack.get("cta", ""),
+                    json.dumps(pack.get("hashtags", [])),
+                    pack.get("image_title", ""),
+                    pack.get("image_subtitle", ""),
+                    pack.get("image_steps", ""),
+                    json.dumps(pack.get("colors", "")),
+                    pack.get("_niche_key", ""),
+                    pack.get("_niche_score"),
+                    source,
+                ),
+            )
+        conn.commit()
+        logger.info("seed_content_packs", count=len(all_packs))
+    except Exception as e:
+        logger.error("seed_content_packs_error", error=str(e))
+
+
+def _pack_row_to_dict(row) -> dict:
+    """Convert a content_packs DB row to a dict suitable for API responses."""
+    d = dict(row)
+    for field in ("audiences", "steps", "hashtags"):
+        if isinstance(d.get(field), str):
+            try:
+                d[field] = json.loads(d[field])
+            except (json.JSONDecodeError, TypeError):
+                d[field] = []
+    if isinstance(d.get("colors"), str):
+        try:
+            d["colors"] = json.loads(d["colors"]) if d["colors"] else ""
+        except (json.JSONDecodeError, TypeError):
+            d["colors"] = ""
+    return d
+
+
+def _pack_row_to_publish_format(row) -> dict:
+    """Convert a content_packs DB row to the format publish_microniche.py expects."""
+    d = _pack_row_to_dict(row)
+    pack = {
+        "title": d["title"],
+        "hook": d.get("hook", ""),
+        "pain_point": d.get("pain_point", ""),
+        "key_fact": d.get("key_fact", ""),
+        "audiences": d.get("audiences", []),
+        "steps": d.get("steps", []),
+        "three_steps": d.get("steps", []),
+        "result": d.get("result", ""),
+        "cta": d.get("cta", ""),
+        "hashtags": d.get("hashtags", []),
+        "image_title": d.get("image_title", ""),
+        "image_subtitle": d.get("image_subtitle", ""),
+        "image_steps": d.get("image_steps", ""),
+        "colors": d.get("colors", ""),
+        "_niche_key": d.get("niche_key", ""),
+        "_niche_score": d.get("niche_score"),
+        "_source": d.get("source", "db"),
+        "_db_id": d.get("id"),
+    }
+    return pack
+
+
+def get_all_db_packs(source_filter: str = None, enabled_only: bool = True) -> list[dict]:
+    """Read content packs from DB, returning publish_microniche-compatible dicts."""
+    with get_db_safe() as conn:
+        if source_filter:
+            rows = conn.execute(
+                "SELECT * FROM content_packs WHERE source = ?" + (" AND enabled = 1" if enabled_only else "") + " ORDER BY niche_score DESC NULLS LAST, id ASC",
+                (source_filter,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM content_packs" + (" WHERE enabled = 1" if enabled_only else "") + " ORDER BY niche_score DESC NULLS LAST, id ASC"
+            ).fetchall()
+    return [_pack_row_to_publish_format(r) for r in rows]
 
 
 # ── Scheduler background task ──
@@ -595,10 +721,9 @@ async def studio_page(request: Request):
 
 @app.get("/api/studio/options")
 async def api_studio_options():
-    """Return all available content creation methods, niches, and content packs."""
+    """Return all available content creation methods, niches, and content packs (from DB)."""
     from publish_microniche import (
         MICRO_NICHES, NANO_NICHES, REAL_LIFE_NICHES,
-        PRE_WRITTEN_PACKS, NICHE_HUNTER_PACKS,
     )
 
     methods = [
@@ -606,7 +731,7 @@ async def api_studio_options():
         {"id": "ai_generate", "label": "AI Generate", "icon": "🤖", "desc": "LLM Cascade (GitHub Models → Perplexity) + self-review"},
         {"id": "hunter_prewritten", "label": "Hunter Pre-written", "icon": "🏆", "desc": "Top-scored packs from Niche Hunter DB"},
         {"id": "ai_niche", "label": "AI + Niche DB", "icon": "🔬", "desc": "Top niche scores from DB + LLM content generation"},
-        {"id": "prewritten", "label": "Pre-written Packs", "icon": "✍️", "desc": "24 curated content packs (8 manual + 16 scored)"},
+        {"id": "prewritten", "label": "Pre-written Packs", "icon": "✍️", "desc": "Content packs from database"},
         {"id": "gemini", "label": "Gemini Direct", "icon": "✨", "desc": "Gemini 2.5 Flash direct generation"},
         {"id": "niche_hunter", "label": "Niche Hunter", "icon": "🎯", "desc": "Scored questions from niche_hunter.db + Gemini"},
         {"id": "pain_point", "label": "Pain Point", "icon": "😤", "desc": "Urgent pain points with emotional triggers"},
@@ -618,38 +743,37 @@ async def api_studio_options():
         "real_life": [{"id": n, "label": n.replace("_", " ").title()} for n in REAL_LIFE_NICHES],
     }
 
-    # Niche scores from DB
+    # Niche scores from niche_hunter.db
     niche_scores = []
     try:
-        import sqlite3
         db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "niche_hunter.db")
         if os.path.exists(db_path):
-            with sqlite3.connect(db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
+            with sqlite3.connect(db_path) as nh_conn:
+                nh_conn.row_factory = sqlite3.Row
+                rows = nh_conn.execute(
                     "SELECT topic, niche, final_score, risk_level, hook, source FROM niche_scores ORDER BY final_score DESC LIMIT 30"
                 ).fetchall()
                 niche_scores = [dict(r) for r in rows]
     except Exception:
         pass
 
+    # Content packs from viralops.db
     packs = []
-    for p in PRE_WRITTEN_PACKS:
-        packs.append({
-            "title": p.get("title", ""),
-            "hook": p.get("hook", ""),
-            "niche": p.get("_niche_key", ""),
-            "score": None,
-            "source": "pre_written",
-        })
-    for p in NICHE_HUNTER_PACKS:
-        packs.append({
-            "title": p.get("title", ""),
-            "hook": p.get("hook", ""),
-            "niche": p.get("_niche_key", ""),
-            "score": p.get("_niche_score"),
-            "source": "niche_hunter",
-        })
+    with get_db_safe() as conn:
+        rows = conn.execute(
+            "SELECT id, title, hook, pain_point, niche_key, niche_score, source, enabled "
+            "FROM content_packs ORDER BY niche_score DESC NULLS LAST, id ASC"
+        ).fetchall()
+        for r in rows:
+            packs.append({
+                "id": r["id"],
+                "title": r["title"],
+                "hook": r["hook"] or r["pain_point"] or "",
+                "niche": r["niche_key"] or "",
+                "score": r["niche_score"],
+                "source": r["source"],
+                "enabled": bool(r["enabled"]),
+            })
 
     return {
         "methods": methods,
@@ -663,7 +787,7 @@ async def api_studio_options():
 async def api_studio_generate(request: Request):
     """
     Generate content from Content Studio.
-    Body: {method, niche?, topic?, custom_idea?, pack_title?}
+    Body: {method, niche?, topic?, custom_idea?, pack_title?, pack_id?}
     """
     data = await request.json()
     method = data.get("method", "auto")
@@ -671,15 +795,26 @@ async def api_studio_generate(request: Request):
     topic = data.get("topic")
     custom_idea = data.get("custom_idea", "").strip()
     pack_title = data.get("pack_title")
+    pack_id = data.get("pack_id")
 
     try:
-        from publish_microniche import get_content_pack, ALL_PACKS
+        from publish_microniche import get_content_pack
 
-        # If a specific pack was selected, use it directly
+        # If a specific pack was selected by ID (DB), use it directly
+        if pack_id:
+            with get_db_safe() as conn:
+                row = conn.execute("SELECT * FROM content_packs WHERE id = ?", (pack_id,)).fetchone()
+                if row:
+                    pack = _pack_row_to_publish_format(row)
+                    pack["_source"] = "studio_pack_select"
+                    return _studio_pack_response(pack)
+
+        # Fallback: find by title in DB
         if pack_title:
-            for p in ALL_PACKS:
-                if p.get("title") == pack_title:
-                    pack = dict(p)
+            with get_db_safe() as conn:
+                row = conn.execute("SELECT * FROM content_packs WHERE title = ?", (pack_title,)).fetchone()
+                if row:
+                    pack = _pack_row_to_publish_format(row)
                     pack["_source"] = "studio_pack_select"
                     return _studio_pack_response(pack)
 
@@ -741,6 +876,188 @@ def _studio_pack_response(pack: dict) -> dict:
         "location": pack.get("_location", ""),
         "season": pack.get("_season", ""),
     }
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Content Packs CRUD
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/studio/packs")
+async def api_list_packs(source: Optional[str] = None, include_disabled: bool = False):
+    """List all content packs. Optionally filter by source. Returns full pack data."""
+    with get_db_safe() as conn:
+        clauses, params = [], []
+        if source:
+            clauses.append("source = ?")
+            params.append(source)
+        if not include_disabled:
+            clauses.append("enabled = 1")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = conn.execute(
+            f"SELECT * FROM content_packs{where} ORDER BY niche_score DESC NULLS LAST, id ASC",
+            params,
+        ).fetchall()
+    return [_pack_row_to_dict(r) for r in rows]
+
+
+@app.get("/api/studio/packs/{pack_id}")
+async def api_get_pack(pack_id: int):
+    """Get a single content pack by ID."""
+    with get_db_safe() as conn:
+        row = conn.execute("SELECT * FROM content_packs WHERE id = ?", (pack_id,)).fetchone()
+    if not row:
+        return JSONResponse(status_code=404, content={"error": "Pack not found"})
+    return _pack_row_to_dict(row)
+
+
+@app.post("/api/studio/packs")
+async def api_create_pack(request: Request):
+    """Create a new content pack."""
+    data = await request.json()
+    with get_db_safe() as conn:
+        conn.execute(
+            """INSERT INTO content_packs
+               (title, hook, pain_point, key_fact, audiences, steps, result, cta,
+                hashtags, image_title, image_subtitle, image_steps, colors,
+                niche_key, niche_score, source, enabled)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                data.get("title", ""),
+                data.get("hook", ""),
+                data.get("pain_point", ""),
+                data.get("key_fact", ""),
+                json.dumps(data.get("audiences", [])),
+                json.dumps(data.get("steps", [])),
+                data.get("result", ""),
+                data.get("cta", ""),
+                json.dumps(data.get("hashtags", [])),
+                data.get("image_title", ""),
+                data.get("image_subtitle", ""),
+                data.get("image_steps", ""),
+                json.dumps(data.get("colors", "")),
+                data.get("niche_key", ""),
+                data.get("niche_score"),
+                data.get("source", "manual"),
+                1 if data.get("enabled", True) else 0,
+            ),
+        )
+        conn.commit()
+        new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    return {"success": True, "id": new_id}
+
+
+@app.put("/api/studio/packs/{pack_id}")
+async def api_update_pack(pack_id: int, request: Request):
+    """Update an existing content pack."""
+    data = await request.json()
+    with get_db_safe() as conn:
+        existing = conn.execute("SELECT id FROM content_packs WHERE id = ?", (pack_id,)).fetchone()
+        if not existing:
+            return JSONResponse(status_code=404, content={"error": "Pack not found"})
+        fields, values = [], []
+        col_map = {
+            "title": "title", "hook": "hook", "pain_point": "pain_point",
+            "key_fact": "key_fact", "result": "result", "cta": "cta",
+            "image_title": "image_title", "image_subtitle": "image_subtitle",
+            "image_steps": "image_steps", "niche_key": "niche_key",
+            "niche_score": "niche_score", "source": "source",
+        }
+        json_cols = {"audiences", "steps", "hashtags", "colors"}
+        for key, col in col_map.items():
+            if key in data:
+                fields.append(f"{col} = ?")
+                values.append(data[key])
+        for jc in json_cols:
+            if jc in data:
+                fields.append(f"{jc} = ?")
+                values.append(json.dumps(data[jc]))
+        if "enabled" in data:
+            fields.append("enabled = ?")
+            values.append(1 if data["enabled"] else 0)
+        if fields:
+            fields.append("updated_at = datetime('now')")
+            values.append(pack_id)
+            conn.execute(
+                f"UPDATE content_packs SET {', '.join(fields)} WHERE id = ?",
+                values,
+            )
+            conn.commit()
+    return {"success": True}
+
+
+@app.delete("/api/studio/packs/{pack_id}")
+async def api_delete_pack(pack_id: int):
+    """Delete a content pack."""
+    with get_db_safe() as conn:
+        conn.execute("DELETE FROM content_packs WHERE id = ?", (pack_id,))
+        conn.commit()
+    return {"success": True}
+
+
+@app.post("/api/studio/packs/{pack_id}/toggle")
+async def api_toggle_pack(pack_id: int):
+    """Toggle a pack's enabled state."""
+    with get_db_safe() as conn:
+        row = conn.execute("SELECT enabled FROM content_packs WHERE id = ?", (pack_id,)).fetchone()
+        if not row:
+            return JSONResponse(status_code=404, content={"error": "Pack not found"})
+        new_state = 0 if row["enabled"] else 1
+        conn.execute(
+            "UPDATE content_packs SET enabled = ?, updated_at = datetime('now') WHERE id = ?",
+            (new_state, pack_id),
+        )
+        conn.commit()
+    return {"success": True, "enabled": bool(new_state)}
+
+
+@app.post("/api/studio/packs/reseed")
+async def api_reseed_packs():
+    """Re-seed content packs from hardcoded data. Only adds packs whose titles don't already exist."""
+    try:
+        from publish_microniche import PRE_WRITTEN_PACKS, NICHE_HUNTER_PACKS
+        added = 0
+        with get_db_safe() as conn:
+            existing_titles = {
+                r[0] for r in conn.execute("SELECT title FROM content_packs").fetchall()
+            }
+            all_packs = [
+                (p, "pre_written") for p in PRE_WRITTEN_PACKS
+            ] + [
+                (p, "niche_hunter") for p in NICHE_HUNTER_PACKS
+            ]
+            for pack, source in all_packs:
+                if pack.get("title", "") in existing_titles:
+                    continue
+                conn.execute(
+                    """INSERT INTO content_packs
+                       (title, hook, pain_point, key_fact, audiences, steps, result, cta,
+                        hashtags, image_title, image_subtitle, image_steps, colors,
+                        niche_key, niche_score, source)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        pack.get("title", ""),
+                        pack.get("hook", ""),
+                        pack.get("pain_point", ""),
+                        pack.get("key_fact", ""),
+                        json.dumps(pack.get("audiences", [])),
+                        json.dumps(pack.get("steps", pack.get("three_steps", []))),
+                        pack.get("result", ""),
+                        pack.get("cta", ""),
+                        json.dumps(pack.get("hashtags", [])),
+                        pack.get("image_title", ""),
+                        pack.get("image_subtitle", ""),
+                        pack.get("image_steps", ""),
+                        json.dumps(pack.get("colors", "")),
+                        pack.get("_niche_key", ""),
+                        pack.get("_niche_score"),
+                        source,
+                    ),
+                )
+                added += 1
+            conn.commit()
+        return {"success": True, "added": added}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ════════════════════════════════════════════════════════════════

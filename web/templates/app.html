@@ -708,7 +708,19 @@
 
         <!-- ③ Content Packs -->
         <div class="bg-white rounded-xl p-5 shadow-sm border">
-          <h3 class="font-semibold mb-3">③ Content Packs <span class="text-xs text-gray-400 font-normal">(optional — chọn 1 pack cụ thể)</span></h3>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold">③ Content Packs <span class="text-xs text-gray-400 font-normal">(optional — chọn 1 pack)</span></h3>
+            <div class="flex gap-1">
+              <button onclick="studioOpenPackModal()" class="px-2 py-1 text-xs bg-brand-500 text-white rounded hover:bg-brand-600" title="Add Pack">＋</button>
+              <button onclick="studioReseed()" class="px-2 py-1 text-xs bg-gray-200 text-gray-600 rounded hover:bg-gray-300" title="Re-sync from code">🔄</button>
+            </div>
+          </div>
+          <div class="flex gap-1 mb-2">
+            <button onclick="studioPackFilter('all')" id="st-pf-all" class="px-2 py-1 text-xs rounded bg-brand-100 text-brand-700 font-medium">All</button>
+            <button onclick="studioPackFilter('niche_hunter')" id="st-pf-niche_hunter" class="px-2 py-1 text-xs rounded bg-gray-100 text-gray-500">Hunter</button>
+            <button onclick="studioPackFilter('pre_written')" id="st-pf-pre_written" class="px-2 py-1 text-xs rounded bg-gray-100 text-gray-500">Pre-written</button>
+            <button onclick="studioPackFilter('manual')" id="st-pf-manual" class="px-2 py-1 text-xs rounded bg-gray-100 text-gray-500">Manual</button>
+          </div>
           <div id="studio-packs" class="space-y-2 max-h-56 overflow-y-auto">
             <!-- populated by JS -->
           </div>
@@ -818,6 +830,81 @@
           </div>
         </div>
 
+      </div>
+    </div>
+
+    <!-- ══ Pack CRUD Modal ══ -->
+    <div id="studio-pack-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold" id="pack-modal-title">New Content Pack</h3>
+          <button onclick="studioClosePackModal()" class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+        </div>
+        <input type="hidden" id="pack-modal-id">
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-medium text-gray-600">Title *</label>
+            <input id="pm-title" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g. Zero-Waste Morning Routine">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs font-medium text-gray-600">Hook</label>
+              <input id="pm-hook" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Attention grabber">
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-600">Pain Point</label>
+              <input id="pm-pain" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Problem statement">
+            </div>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-600">Steps (one per line)</label>
+            <textarea id="pm-steps" rows="3" class="w-full border rounded-lg px-3 py-2 text-sm resize-none" placeholder="Step 1&#10;Step 2&#10;Step 3"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-600">Result</label>
+            <input id="pm-result" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Expected outcome">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-600">Hashtags (comma separated)</label>
+            <input id="pm-hashtags" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="#zerowaste, #plantbased, #budgetvegan">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs font-medium text-gray-600">Niche Key</label>
+              <input id="pm-niche" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g. zero_waste">
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-600">Niche Score</label>
+              <input id="pm-score" type="number" step="0.01" min="0" max="10" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="0-10">
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="text-xs font-medium text-gray-600">Image Title</label>
+              <input id="pm-img-title" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-600">Image Subtitle</label>
+              <input id="pm-img-sub" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-600">Image Steps</label>
+              <input id="pm-img-steps" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-600">Source</label>
+            <select id="pm-source" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="manual">Manual</option>
+              <option value="pre_written">Pre-written</option>
+              <option value="niche_hunter">Niche Hunter</option>
+            </select>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-5">
+          <button onclick="studioSavePack()" class="flex-1 py-2.5 bg-brand-500 text-white rounded-lg font-medium hover:bg-brand-600">💾 Save Pack</button>
+          <button onclick="studioClosePackModal()" class="px-6 py-2.5 bg-gray-200 text-gray-600 rounded-lg font-medium hover:bg-gray-300">Cancel</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1974,7 +2061,9 @@ let studioData = null;          // cached /api/studio/options
 let studioSelectedMethod = 'auto';
 let studioSelectedNiche = null;
 let studioSelectedPack = null;
+let studioSelectedPackId = null;
 let studioCurrentTab = 'micro';
+let studioPackFilterVal = 'all';
 let studioGenResult = null;
 
 async function loadStudioOptions() {
@@ -2061,26 +2150,153 @@ function studioClearNiche() {
 function renderStudioPacks() {
   const el = document.getElementById('studio-packs');
   if (!el || !studioData) return;
-  const packs = studioData.packs || [];
+  let packs = studioData.packs || [];
+  if (studioPackFilterVal !== 'all') packs = packs.filter(p => p.source === studioPackFilterVal);
+  if (packs.length === 0) {
+    el.innerHTML = '<p class="text-xs text-gray-400 text-center py-3">No packs for this filter.</p>';
+    return;
+  }
   el.innerHTML = packs.map(p => {
-    const active = studioSelectedPack === p.title;
+    const active = studioSelectedPackId === p.id;
     const badge = p.score ? `<span class="text-xs text-green-600 font-mono">${p.score.toFixed(1)}</span>` : '';
-    const srcBadge = p.source === 'niche_hunter' ? '🏆' : '✍️';
-    return `<button onclick="studioSelectPack('${p.title.replace(/'/g,"\\'")}')"
-      class="w-full text-left p-2.5 rounded-lg border transition text-sm
-      ${active ? 'border-brand-500 bg-brand-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'}">
-      <div class="flex items-center justify-between">
-        <span class="font-medium text-gray-700">${srcBadge} ${p.title}</span>
-        ${badge}
+    const srcBadge = p.source === 'niche_hunter' ? '🏆' : p.source === 'manual' ? '✏️' : '✍️';
+    const disabledClass = p.enabled === false ? 'opacity-40' : '';
+    return `<div class="relative group ${disabledClass}">
+      <button onclick="studioSelectPack(${p.id}, '${p.title.replace(/'/g,"\\'")}')"
+        class="w-full text-left p-2.5 rounded-lg border transition text-sm
+        ${active ? 'border-brand-500 bg-brand-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'}">
+        <div class="flex items-center justify-between">
+          <span class="font-medium text-gray-700 truncate pr-14">${srcBadge} ${p.title}</span>
+          ${badge}
+        </div>
+        ${p.hook ? `<p class="text-xs text-gray-400 mt-0.5 truncate">${p.hook}</p>` : ''}
+      </button>
+      <div class="absolute top-1 right-1 hidden group-hover:flex gap-0.5">
+        <button onclick="studioEditPack(${p.id})" class="p-1 bg-blue-100 text-blue-600 rounded text-xs hover:bg-blue-200" title="Edit">✏️</button>
+        <button onclick="studioTogglePack(${p.id})" class="p-1 ${p.enabled === false ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'} rounded text-xs hover:opacity-80" title="${p.enabled === false ? 'Enable' : 'Disable'}">${p.enabled === false ? '✅' : '⏸️'}</button>
+        <button onclick="studioDeletePack(${p.id})" class="p-1 bg-red-100 text-red-600 rounded text-xs hover:bg-red-200" title="Delete">🗑️</button>
       </div>
-      ${p.hook ? `<p class="text-xs text-gray-400 mt-0.5 truncate">${p.hook}</p>` : ''}
-    </button>`;
+    </div>`;
   }).join('');
 }
 
-function studioSelectPack(title) {
-  studioSelectedPack = studioSelectedPack === title ? null : title;
+function studioPackFilter(val) {
+  studioPackFilterVal = val;
+  ['all','niche_hunter','pre_written','manual'].forEach(f => {
+    const b = document.getElementById('st-pf-' + f);
+    if (b) b.className = f === val
+      ? 'px-2 py-1 text-xs rounded bg-brand-100 text-brand-700 font-medium'
+      : 'px-2 py-1 text-xs rounded bg-gray-100 text-gray-500';
+  });
   renderStudioPacks();
+}
+
+function studioSelectPack(id, title) {
+  if (studioSelectedPackId === id) { studioSelectedPack = null; studioSelectedPackId = null; }
+  else { studioSelectedPack = title; studioSelectedPackId = id; }
+  renderStudioPacks();
+}
+
+// ── Pack CRUD ──
+function studioOpenPackModal(packData) {
+  const modal = document.getElementById('studio-pack-modal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.getElementById('pack-modal-id').value = packData?.id || '';
+  document.getElementById('pack-modal-title').textContent = packData?.id ? 'Edit Content Pack' : 'New Content Pack';
+  document.getElementById('pm-title').value = packData?.title || '';
+  document.getElementById('pm-hook').value = packData?.hook || '';
+  document.getElementById('pm-pain').value = packData?.pain_point || '';
+  document.getElementById('pm-steps').value = (packData?.steps || []).join('\n');
+  document.getElementById('pm-result').value = packData?.result || '';
+  document.getElementById('pm-hashtags').value = (packData?.hashtags || []).join(', ');
+  document.getElementById('pm-niche').value = packData?.niche_key || '';
+  document.getElementById('pm-score').value = packData?.niche_score || '';
+  document.getElementById('pm-img-title').value = packData?.image_title || '';
+  document.getElementById('pm-img-sub').value = packData?.image_subtitle || '';
+  document.getElementById('pm-img-steps').value = packData?.image_steps || '';
+  document.getElementById('pm-source').value = packData?.source || 'manual';
+}
+
+function studioClosePackModal() {
+  const modal = document.getElementById('studio-pack-modal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+
+async function studioSavePack() {
+  const id = document.getElementById('pack-modal-id').value;
+  const title = document.getElementById('pm-title').value.trim();
+  if (!title) { toast('Title is required', 'error'); return; }
+
+  const stepsRaw = document.getElementById('pm-steps').value.trim();
+  const hashtagsRaw = document.getElementById('pm-hashtags').value.trim();
+  const payload = {
+    title,
+    hook: document.getElementById('pm-hook').value.trim(),
+    pain_point: document.getElementById('pm-pain').value.trim(),
+    steps: stepsRaw ? stepsRaw.split('\n').map(s => s.trim()).filter(Boolean) : [],
+    result: document.getElementById('pm-result').value.trim(),
+    hashtags: hashtagsRaw ? hashtagsRaw.split(',').map(s => s.trim()).filter(Boolean) : [],
+    niche_key: document.getElementById('pm-niche').value.trim(),
+    niche_score: parseFloat(document.getElementById('pm-score').value) || null,
+    image_title: document.getElementById('pm-img-title').value.trim(),
+    image_subtitle: document.getElementById('pm-img-sub').value.trim(),
+    image_steps: document.getElementById('pm-img-steps').value.trim(),
+    source: document.getElementById('pm-source').value,
+  };
+
+  try {
+    const url = id ? `/api/studio/packs/${id}` : '/api/studio/packs';
+    const method = id ? 'PUT' : 'POST';
+    const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) }).then(r=>r.json());
+    if (r.success) {
+      toast(id ? 'Pack updated! ✅' : 'Pack created! ✅', 'success');
+      studioClosePackModal();
+      await loadStudioOptions();
+    } else { toast(r.error || 'Save failed', 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function studioEditPack(packId) {
+  try {
+    const r = await fetch(`/api/studio/packs/${packId}`).then(r=>r.json());
+    if (r.error) { toast(r.error, 'error'); return; }
+    studioOpenPackModal(r);
+  } catch(e) { toast('Load error: ' + e.message, 'error'); }
+}
+
+async function studioTogglePack(packId) {
+  try {
+    const r = await fetch(`/api/studio/packs/${packId}/toggle`, {method:'POST'}).then(r=>r.json());
+    if (r.success) {
+      toast(r.enabled ? 'Pack enabled ✅' : 'Pack disabled ⏸️', 'success');
+      await loadStudioOptions();
+    }
+  } catch(e) { toast('Toggle error: ' + e.message, 'error'); }
+}
+
+async function studioDeletePack(packId) {
+  if (!confirm('Delete this content pack? This cannot be undone.')) return;
+  try {
+    const r = await fetch(`/api/studio/packs/${packId}`, {method:'DELETE'}).then(r=>r.json());
+    if (r.success) {
+      toast('Pack deleted 🗑️', 'success');
+      if (studioSelectedPackId === packId) { studioSelectedPack = null; studioSelectedPackId = null; }
+      await loadStudioOptions();
+    }
+  } catch(e) { toast('Delete error: ' + e.message, 'error'); }
+}
+
+async function studioReseed() {
+  if (!confirm('Re-sync packs from code? (Only adds missing packs — existing ones are kept)')) return;
+  try {
+    const r = await fetch('/api/studio/packs/reseed', {method:'POST'}).then(r=>r.json());
+    if (r.success) {
+      toast(`Reseed done! ${r.added} new packs added.`, 'success');
+      await loadStudioOptions();
+    } else { toast(r.error || 'Reseed failed', 'error'); }
+  } catch(e) { toast('Reseed error: ' + e.message, 'error'); }
 }
 
 async function studioGenerate() {
@@ -2090,6 +2306,7 @@ async function studioGenerate() {
   // Build request
   const body = { method: studioSelectedMethod };
   if (studioSelectedNiche) body.niche = studioSelectedNiche;
+  if (studioSelectedPackId) body.pack_id = studioSelectedPackId;
   if (studioSelectedPack) body.pack_title = studioSelectedPack;
   if (customIdea) body.custom_idea = customIdea;
 
