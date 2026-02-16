@@ -1009,6 +1009,73 @@
         </div>
       </div>
     </div>
+
+    <!-- ═══ RUN HISTORY & STATS ═══ -->
+    <div class="mt-8">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-bold text-gray-800">📊 Run History & Stats</h3>
+        <div class="flex gap-2">
+          <select id="ap-runs-filter" onchange="loadAutopilotRuns()" class="border rounded-lg px-3 py-1.5 text-sm">
+            <option value="">All runs</option>
+            <option value="published">Published</option>
+            <option value="draft">Draft</option>
+            <option value="error">Error</option>
+            <option value="skip">Skipped</option>
+          </select>
+          <button onclick="loadAutopilotRuns()" class="px-3 py-1.5 bg-brand-100 text-brand-700 rounded-lg text-sm font-medium hover:bg-brand-200">Refresh</button>
+        </div>
+      </div>
+
+      <!-- Stats Cards -->
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6" id="ap-stats-cards">
+        <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+          <div class="text-2xl font-bold text-brand-600" id="ap-stat-total">-</div>
+          <div class="text-xs text-gray-500 mt-1">Total Runs</div>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+          <div class="text-2xl font-bold text-green-600" id="ap-stat-published">-</div>
+          <div class="text-xs text-gray-500 mt-1">Published</div>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+          <div class="text-2xl font-bold text-yellow-600" id="ap-stat-drafts">-</div>
+          <div class="text-xs text-gray-500 mt-1">Drafts</div>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+          <div class="text-2xl font-bold text-red-600" id="ap-stat-errors">-</div>
+          <div class="text-xs text-gray-500 mt-1">Errors</div>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border text-center">
+          <div class="text-2xl font-bold text-purple-600" id="ap-stat-rate">-</div>
+          <div class="text-xs text-gray-500 mt-1">Success Rate</div>
+        </div>
+      </div>
+
+      <!-- Run History Table -->
+      <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b">
+            <tr>
+              <th class="px-4 py-3 text-left font-medium text-gray-600">Time</th>
+              <th class="px-4 py-3 text-left font-medium text-gray-600">Niche</th>
+              <th class="px-4 py-3 text-left font-medium text-gray-600">Title</th>
+              <th class="px-4 py-3 text-center font-medium text-gray-600">Risk</th>
+              <th class="px-4 py-3 text-center font-medium text-gray-600">Action</th>
+              <th class="px-4 py-3 text-right font-medium text-gray-600">Duration</th>
+            </tr>
+          </thead>
+          <tbody id="ap-runs-tbody" class="divide-y">
+            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No runs yet — start Auto-Pilot to see history here.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="flex justify-between items-center mt-3">
+        <span class="text-xs text-gray-400" id="ap-runs-info">Showing 0 of 0 runs</span>
+        <div class="flex gap-2">
+          <button onclick="apRunsPrev()" id="ap-runs-prev" disabled class="px-3 py-1 bg-gray-100 rounded text-sm disabled:opacity-40">← Prev</button>
+          <button onclick="apRunsNext()" id="ap-runs-next" disabled class="px-3 py-1 bg-gray-100 rounded text-sm disabled:opacity-40">Next →</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ PUBLER BRIDGE PAGE ═══ -->
@@ -1590,7 +1657,7 @@ document.addEventListener('DOMContentLoaded', () => {
     else if(page.id==='page-engagement') loadEngagement();
     else if(page.id==='page-timeslots') loadBestHours();
     else if(page.id==='page-preview') updatePreviews();
-    else if(page.id==='page-autopilot') loadAutoPilotPlatforms();
+    else if(page.id==='page-autopilot') { loadAutoPilotPlatforms(); loadAutopilotRuns(); }
     else if(page.id==='page-studio') loadStudioOptions();
     else if(page.id==='page-publer') { loadPublerStatus(); loadTikTokAccounts(); }
     else if(page.id==='page-blog-share') loadBlogShareStatus();
@@ -2665,6 +2732,64 @@ function apRegenerate() {
   apGeneratedData = null;
   runAutoPilot();
 }
+
+
+// ═══════════════════════════════════════════════════
+// AUTOPILOT RUN HISTORY
+// ═══════════════════════════════════════════════════
+
+let _apRunsOffset = 0;
+const _apRunsLimit = 15;
+
+async function loadAutopilotRuns() {
+  const filter = document.getElementById('ap-runs-filter')?.value || '';
+  try {
+    const [runsResp, statsResp] = await Promise.all([
+      fetch(`/api/autopilot/runs?limit=${_apRunsLimit}&offset=${_apRunsOffset}&action=${filter}`).then(r => r.json()),
+      fetch('/api/autopilot/stats?days=7').then(r => r.json()),
+    ]);
+
+    // Stats cards
+    const s = statsResp.summary || {};
+    document.getElementById('ap-stat-total').textContent = s.total_runs || 0;
+    document.getElementById('ap-stat-published').textContent = s.published || 0;
+    document.getElementById('ap-stat-drafts').textContent = s.drafts || 0;
+    document.getElementById('ap-stat-errors').textContent = s.errors || 0;
+    document.getElementById('ap-stat-rate').textContent = (s.success_rate || 0) + '%';
+
+    // Table
+    const tbody = document.getElementById('ap-runs-tbody');
+    const runs = runsResp.runs || [];
+    if (runs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No runs yet — start Auto-Pilot to see history here.</td></tr>';
+    } else {
+      tbody.innerHTML = runs.map(r => {
+        const actionColors = {published:'bg-green-100 text-green-700', draft:'bg-yellow-100 text-yellow-700', error:'bg-red-100 text-red-700', skip:'bg-gray-100 text-gray-600'};
+        const riskBadge = r.risk_score >= 4 ? 'text-red-600 font-bold' : r.risk_score >= 2 ? 'text-yellow-600' : 'text-green-600';
+        const dur = r.duration_ms >= 1000 ? (r.duration_ms / 1000).toFixed(1) + 's' : r.duration_ms + 'ms';
+        const time = r.finished_at ? new Date(r.finished_at + 'Z').toLocaleString() : '-';
+        const title = r.title ? (r.title.length > 40 ? r.title.slice(0, 40) + '…' : r.title) : (r.error ? '<span class="text-red-500 text-xs">' + r.error.slice(0, 50) + '</span>' : '-');
+        return `<tr class="hover:bg-gray-50">
+          <td class="px-4 py-2.5 text-xs text-gray-500">${time}</td>
+          <td class="px-4 py-2.5"><span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">${r.niche || '-'}</span></td>
+          <td class="px-4 py-2.5 text-sm">${title}</td>
+          <td class="px-4 py-2.5 text-center"><span class="${riskBadge}">${r.risk_score}</span></td>
+          <td class="px-4 py-2.5 text-center"><span class="text-xs px-2 py-0.5 rounded-full ${actionColors[r.action] || 'bg-gray-100'}">${r.action}</span></td>
+          <td class="px-4 py-2.5 text-right text-xs text-gray-500">${dur}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // Pagination
+    const total = runsResp.total || 0;
+    document.getElementById('ap-runs-info').textContent = `Showing ${_apRunsOffset + 1}–${Math.min(_apRunsOffset + runs.length, total)} of ${total} runs`;
+    document.getElementById('ap-runs-prev').disabled = _apRunsOffset <= 0;
+    document.getElementById('ap-runs-next').disabled = _apRunsOffset + _apRunsLimit >= total;
+  } catch(e) { console.error('loadAutopilotRuns', e); }
+}
+
+function apRunsPrev() { _apRunsOffset = Math.max(0, _apRunsOffset - _apRunsLimit); loadAutopilotRuns(); }
+function apRunsNext() { _apRunsOffset += _apRunsLimit; loadAutopilotRuns(); }
 
 
 // ═══════════════════════════════════════════════════

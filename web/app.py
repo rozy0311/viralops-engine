@@ -158,6 +158,21 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
+            CREATE TABLE IF NOT EXISTS autopilot_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT DEFAULT (datetime('now')),
+                finished_at TEXT,
+                niche TEXT DEFAULT '',
+                platforms TEXT DEFAULT '[]',
+                thread_id TEXT DEFAULT '',
+                risk_score REAL DEFAULT 0,
+                action TEXT DEFAULT 'skip',
+                post_id INTEGER,
+                title TEXT DEFAULT '',
+                error TEXT DEFAULT '',
+                duration_ms INTEGER DEFAULT 0,
+                posts_today INTEGER DEFAULT 0
+            );
         """)
 
         # Seed categories
@@ -380,6 +395,17 @@ async def autopilot_loop():
     _niche_index = 0
 
     while True:
+        import time as _time
+        _run_start = _time.monotonic()
+        _run_action = "skip"
+        _run_error = ""
+        _run_post_id = None
+        _run_title = ""
+        _run_risk_score = 0
+        _run_niche = ""
+        _run_platforms: list = []
+        _run_thread_id = ""
+
         try:
             cfg = _get_autopilot_config()
             if not cfg.get("enabled"):
@@ -407,11 +433,15 @@ async def autopilot_loop():
 
             logger.info("autopilot.generating", niche=niche, platforms=platforms)
 
+            _run_niche = niche
+            _run_platforms = platforms
+
             from graph import get_compiled_graph
             import uuid
 
             graph = get_compiled_graph()
             thread_id = f"autopilot-{uuid.uuid4().hex[:8]}"
+            _run_thread_id = thread_id
 
             initial_state = {
                 "niche_config": {"niche": niche, "sub_niche": niche},
@@ -488,6 +518,9 @@ async def autopilot_loop():
                         })
                 status = "published" if publish_results else "draft"
 
+            _run_risk_score = risk_score
+            _run_title = content_pack.get("title", "")
+
             # Save to SQLite — posts + publish_log
             if content_pack.get("title"):
                 with get_db_safe() as conn:
@@ -510,6 +543,8 @@ async def autopilot_loop():
                         ),
                     )
                     new_post_id = cur.lastrowid
+                    _run_post_id = new_post_id
+                    _run_action = status  # "published" or "draft"
                     # Write publish_log entries for each platform result
                     for pr in publish_results:
                         conn.execute(
@@ -524,6 +559,8 @@ async def autopilot_loop():
                         )
                     conn.commit()
                 _autopilot_posts_today += 1
+            else:
+                _run_action = "skip"
 
             _autopilot_last_run = datetime.now(timezone.utc).isoformat()
             logger.info("autopilot.completed",
@@ -533,8 +570,49 @@ async def autopilot_loop():
                         status=status,
                         posts_today=_autopilot_posts_today)
 
+            # ── Record autopilot run ──
+            _run_duration = int((_time.monotonic() - _run_start) * 1000)
+            try:
+                with get_db_safe() as conn:
+                    conn.execute(
+                        """INSERT INTO autopilot_runs
+                           (finished_at, niche, platforms, thread_id, risk_score,
+                            action, post_id, title, error, duration_ms, posts_today)
+                           VALUES (datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            niche, json.dumps(platforms), thread_id,
+                            _run_risk_score, _run_action, _run_post_id,
+                            _run_title, _run_error, _run_duration,
+                            _autopilot_posts_today,
+                        ),
+                    )
+                    conn.commit()
+            except Exception as rec_err:
+                logger.warning("autopilot.record_run_failed", error=str(rec_err))
+
         except Exception as e:
             logger.error("autopilot.error", error=str(e))
+            # Record failed run
+            try:
+                _run_duration = int((_time.monotonic() - _run_start) * 1000)
+                with get_db_safe() as conn:
+                    conn.execute(
+                        """INSERT INTO autopilot_runs
+                           (finished_at, niche, platforms, thread_id, risk_score,
+                            action, post_id, title, error, duration_ms, posts_today)
+                           VALUES (datetime('now'), ?, ?, ?, ?, 'error', NULL, ?, ?, ?, ?)""",
+                        (
+                            _run_niche,
+                            json.dumps(_run_platforms),
+                            _run_thread_id,
+                            0, str(e), str(e),
+                            _run_duration,
+                            _autopilot_posts_today,
+                        ),
+                    )
+                    conn.commit()
+            except Exception:
+                pass
             try:
                 await _alert_manager.send(
                     f"Autopilot error: {e}",
@@ -1384,6 +1462,122 @@ async def api_autopilot_status():
         "posts_today": _autopilot_posts_today,
         "posts_today_date": _autopilot_posts_today_date,
         "config": cfg,
+    }
+
+
+@app.get("/api/autopilot/runs")
+async def api_autopilot_runs(limit: int = 50, offset: int = 0, action: str = ""):
+    """Return paginated autopilot run history (newest first)."""
+    with get_db_safe() as conn:
+        where = ""
+        params: list = []
+        if action:
+            where = "WHERE action = ?"
+            params.append(action)
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM autopilot_runs {where}", params
+        ).fetchone()[0]
+        rows = conn.execute(
+            f"""SELECT id, started_at, finished_at, niche, platforms, thread_id,
+                       risk_score, action, post_id, title, error, duration_ms, posts_today
+                FROM autopilot_runs {where}
+                ORDER BY id DESC LIMIT ? OFFSET ?""",
+            params + [limit, offset],
+        ).fetchall()
+        runs = []
+        for r in rows:
+            runs.append({
+                "id": r["id"],
+                "started_at": r["started_at"],
+                "finished_at": r["finished_at"],
+                "niche": r["niche"],
+                "platforms": json.loads(r["platforms"] or "[]"),
+                "thread_id": r["thread_id"],
+                "risk_score": r["risk_score"],
+                "action": r["action"],
+                "post_id": r["post_id"],
+                "title": r["title"],
+                "error": r["error"],
+                "duration_ms": r["duration_ms"],
+                "posts_today": r["posts_today"],
+            })
+    return {"runs": runs, "total": total, "limit": limit, "offset": offset}
+
+
+@app.get("/api/autopilot/stats")
+async def api_autopilot_stats(days: int = 7):
+    """Return aggregated autopilot statistics for the last N days."""
+    with get_db_safe() as conn:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        row = conn.execute(
+            """SELECT COUNT(*) as total_runs,
+                      SUM(CASE WHEN action = 'published' THEN 1 ELSE 0 END) as published,
+                      SUM(CASE WHEN action = 'draft' THEN 1 ELSE 0 END) as drafts,
+                      SUM(CASE WHEN action = 'error' THEN 1 ELSE 0 END) as errors,
+                      SUM(CASE WHEN action = 'skip' THEN 1 ELSE 0 END) as skipped,
+                      AVG(duration_ms) as avg_duration_ms,
+                      AVG(risk_score) as avg_risk_score,
+                      MAX(duration_ms) as max_duration_ms
+               FROM autopilot_runs WHERE started_at >= ?""",
+            (cutoff,),
+        ).fetchone()
+
+        # Per-niche breakdown
+        niche_rows = conn.execute(
+            """SELECT niche, COUNT(*) as runs,
+                      SUM(CASE WHEN action = 'published' THEN 1 ELSE 0 END) as published,
+                      SUM(CASE WHEN action = 'error' THEN 1 ELSE 0 END) as errors,
+                      AVG(risk_score) as avg_risk
+               FROM autopilot_runs WHERE started_at >= ?
+               GROUP BY niche ORDER BY runs DESC""",
+            (cutoff,),
+        ).fetchall()
+
+        # Daily trend (last N days)
+        daily_rows = conn.execute(
+            """SELECT DATE(started_at) as day, COUNT(*) as runs,
+                      SUM(CASE WHEN action = 'published' THEN 1 ELSE 0 END) as published,
+                      SUM(CASE WHEN action = 'error' THEN 1 ELSE 0 END) as errors
+               FROM autopilot_runs WHERE started_at >= ?
+               GROUP BY DATE(started_at) ORDER BY day DESC""",
+            (cutoff,),
+        ).fetchall()
+
+    return {
+        "days": days,
+        "summary": {
+            "total_runs": row["total_runs"] or 0,
+            "published": row["published"] or 0,
+            "drafts": row["drafts"] or 0,
+            "errors": row["errors"] or 0,
+            "skipped": row["skipped"] or 0,
+            "avg_duration_ms": int(row["avg_duration_ms"] or 0),
+            "avg_risk_score": round(row["avg_risk_score"] or 0, 2),
+            "max_duration_ms": row["max_duration_ms"] or 0,
+            "success_rate": round(
+                ((row["published"] or 0) + (row["drafts"] or 0))
+                / max(row["total_runs"] or 1, 1) * 100, 1
+            ),
+        },
+        "by_niche": [
+            {
+                "niche": nr["niche"],
+                "runs": nr["runs"],
+                "published": nr["published"],
+                "errors": nr["errors"],
+                "avg_risk": round(nr["avg_risk"] or 0, 2),
+            }
+            for nr in niche_rows
+        ],
+        "daily_trend": [
+            {
+                "day": dr["day"],
+                "runs": dr["runs"],
+                "published": dr["published"],
+                "errors": dr["errors"],
+            }
+            for dr in daily_rows
+        ],
     }
 
 
