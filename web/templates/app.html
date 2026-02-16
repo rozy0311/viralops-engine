@@ -1010,6 +1010,19 @@
       </div>
     </div>
 
+    <!-- ═══ ACCOUNT HEALTH ═══ -->
+    <div class="mt-8">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-bold text-gray-800">🛡️ Account Health</h3>
+        <button onclick="loadAccountHealth()" class="px-3 py-1.5 bg-brand-100 text-brand-700 rounded-lg text-sm font-medium hover:bg-brand-200">Refresh</button>
+      </div>
+      <div id="ah-cards" class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-white rounded-xl p-4 shadow-sm border text-center text-gray-400 text-sm col-span-full">
+          No account health data yet. Accounts are tracked automatically during publishing.
+        </div>
+      </div>
+    </div>
+
     <!-- ═══ RUN HISTORY & STATS ═══ -->
     <div class="mt-8">
       <div class="flex items-center justify-between mb-4">
@@ -1021,6 +1034,7 @@
             <option value="draft">Draft</option>
             <option value="error">Error</option>
             <option value="skip">Skipped</option>
+            <option value="health_blocked">Health Blocked</option>
           </select>
           <button onclick="loadAutopilotRuns()" class="px-3 py-1.5 bg-brand-100 text-brand-700 rounded-lg text-sm font-medium hover:bg-brand-200">Refresh</button>
         </div>
@@ -1657,7 +1671,7 @@ document.addEventListener('DOMContentLoaded', () => {
     else if(page.id==='page-engagement') loadEngagement();
     else if(page.id==='page-timeslots') loadBestHours();
     else if(page.id==='page-preview') updatePreviews();
-    else if(page.id==='page-autopilot') { loadAutoPilotPlatforms(); loadAutopilotRuns(); }
+    else if(page.id==='page-autopilot') { loadAutoPilotPlatforms(); loadAutopilotRuns(); loadAccountHealth(); }
     else if(page.id==='page-studio') loadStudioOptions();
     else if(page.id==='page-publer') { loadPublerStatus(); loadTikTokAccounts(); }
     else if(page.id==='page-blog-share') loadBlogShareStatus();
@@ -2764,7 +2778,7 @@ async function loadAutopilotRuns() {
       tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No runs yet — start Auto-Pilot to see history here.</td></tr>';
     } else {
       tbody.innerHTML = runs.map(r => {
-        const actionColors = {published:'bg-green-100 text-green-700', draft:'bg-yellow-100 text-yellow-700', error:'bg-red-100 text-red-700', skip:'bg-gray-100 text-gray-600'};
+        const actionColors = {published:'bg-green-100 text-green-700', draft:'bg-yellow-100 text-yellow-700', error:'bg-red-100 text-red-700', skip:'bg-gray-100 text-gray-600', health_blocked:'bg-orange-100 text-orange-700'};
         const riskBadge = r.risk_score >= 4 ? 'text-red-600 font-bold' : r.risk_score >= 2 ? 'text-yellow-600' : 'text-green-600';
         const dur = r.duration_ms >= 1000 ? (r.duration_ms / 1000).toFixed(1) + 's' : r.duration_ms + 'ms';
         const time = r.finished_at ? new Date(r.finished_at + 'Z').toLocaleString() : '-';
@@ -2790,6 +2804,49 @@ async function loadAutopilotRuns() {
 
 function apRunsPrev() { _apRunsOffset = Math.max(0, _apRunsOffset - _apRunsLimit); loadAutopilotRuns(); }
 function apRunsNext() { _apRunsOffset += _apRunsLimit; loadAutopilotRuns(); }
+
+
+// ═══════════════════════════════════════════════════
+// ACCOUNT HEALTH
+// ═══════════════════════════════════════════════════
+
+async function loadAccountHealth() {
+  try {
+    const resp = await fetch('/api/account-health').then(r => r.json());
+    const el = document.getElementById('ah-cards');
+    const accounts = resp.accounts || {};
+    const keys = Object.keys(accounts);
+    if (keys.length === 0) {
+      el.innerHTML = '<div class="bg-white rounded-xl p-4 shadow-sm border text-center text-gray-400 text-sm col-span-full">No account health data yet. Accounts are tracked automatically during publishing.</div>';
+      return;
+    }
+    el.innerHTML = keys.map(k => {
+      const a = accounts[k];
+      const icon = PLAT_ICONS[a.platform] || '🔗';
+      const statusColor = a.is_shadow_banned ? 'border-red-400 bg-red-50' :
+                          a.is_flagged ? 'border-orange-400 bg-orange-50' :
+                          a.warning_count >= 3 ? 'border-yellow-400 bg-yellow-50' :
+                          'border-green-400 bg-green-50';
+      const badge = a.is_shadow_banned ? '<span class="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full">SHADOW BANNED</span>' :
+                    a.is_flagged ? '<span class="text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full">FLAGGED</span>' :
+                    a.warning_count >= 3 ? '<span class="text-xs bg-yellow-500 text-white px-2 py-0.5 rounded-full">WARNING (' + a.warning_count + ')</span>' :
+                    '<span class="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">HEALTHY</span>';
+      const safe = a.safe ? '✅ Safe to post' : '🚫 Posting paused';
+      return `<div class="bg-white rounded-xl p-4 shadow-sm border-2 ${statusColor}">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-xl">${icon}</span>
+          <span class="font-semibold text-sm">${a.platform}</span>
+          ${badge}
+        </div>
+        <div class="text-xs text-gray-500 space-y-1">
+          <div>Warnings: <span class="font-medium">${a.warning_count}</span></div>
+          <div>Engagement: <span class="font-medium">${(a.engagement_rate * 100).toFixed(1)}%</span></div>
+          <div class="font-medium ${a.safe ? 'text-green-600' : 'text-red-600'}">${safe}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { console.error('loadAccountHealth', e); }
+}
 
 
 // ═══════════════════════════════════════════════════

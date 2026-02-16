@@ -39,11 +39,13 @@ if PROJECT_ROOT not in sys.path:
 
 from core.models import PublishResult
 from monitoring.alerting import AlertManager, AlertLevel
+from monitoring.account_health import AccountHealthMonitor
 
 logger = structlog.get_logger()
 
-# ── Global AlertManager singleton ──
+# ── Global singletons ──
 _alert_manager = AlertManager()
+_account_health = AccountHealthMonitor()
 
 # ── Database ──
 DB_PATH = os.path.join(os.path.dirname(__file__), "viralops.db")
@@ -436,6 +438,47 @@ async def autopilot_loop():
             _run_niche = niche
             _run_platforms = platforms
 
+            # ── Account health safety gate — skip unsafe platforms ──
+            safe_platforms = []
+            for plat in platforms:
+                safe, reason = _account_health.is_safe_to_post(plat)
+                if safe:
+                    safe_platforms.append(plat)
+                else:
+                    logger.warning("autopilot.health_blocked",
+                                   platform=plat, reason=reason)
+            if not safe_platforms:
+                _run_action = "health_blocked"
+                _run_error = "All platforms blocked by health check"
+                logger.warning("autopilot.all_platforms_blocked",
+                               platforms=platforms)
+                # Record blocked run, then sleep and continue
+                _run_duration = int((_time.monotonic() - _run_start) * 1000)
+                try:
+                    with get_db_safe() as conn:
+                        conn.execute(
+                            """INSERT INTO autopilot_runs
+                               (finished_at, niche, platforms, thread_id, risk_score,
+                                action, post_id, title, error, duration_ms, posts_today)
+                               VALUES (datetime('now'), ?, ?, ?, 0, 'health_blocked', NULL, '', ?, ?, ?)""",
+                            (_run_niche, json.dumps(_run_platforms), '',
+                             _run_error, _run_duration, _autopilot_posts_today),
+                        )
+                        conn.commit()
+                except Exception:
+                    pass
+                # Fall through to sleep
+                try:
+                    cfg = _get_autopilot_config()
+                    interval_sec = max(1800, cfg.get("interval_hours", 4) * 3600)
+                    await asyncio.sleep(interval_sec)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    await asyncio.sleep(14400)
+                continue
+            platforms = safe_platforms  # Use only safe platforms
+
             from graph import get_compiled_graph
             import uuid
 
@@ -516,6 +559,25 @@ async def autopilot_loop():
                             "success": False,
                             "error": str(pub_err),
                         })
+
+                # ── Feed publish results into account health ──
+                for pr in publish_results:
+                    plat_name = pr.get("platform", "")
+                    health = _account_health.get_health(plat_name)
+                    cur_warnings = health.warning_count if health else 0
+                    if pr.get("success"):
+                        # Success: reset warnings (recovery)
+                        _account_health.update(
+                            plat_name,
+                            warning_count=max(0, cur_warnings - 1),
+                        )
+                    else:
+                        # Failure: increment warnings
+                        _account_health.update(
+                            plat_name,
+                            warning_count=cur_warnings + 1,
+                        )
+
                 status = "published" if publish_results else "draft"
 
             _run_risk_score = risk_score
@@ -1515,6 +1577,7 @@ async def api_autopilot_stats(days: int = 7):
                       SUM(CASE WHEN action = 'draft' THEN 1 ELSE 0 END) as drafts,
                       SUM(CASE WHEN action = 'error' THEN 1 ELSE 0 END) as errors,
                       SUM(CASE WHEN action = 'skip' THEN 1 ELSE 0 END) as skipped,
+                      SUM(CASE WHEN action = 'health_blocked' THEN 1 ELSE 0 END) as health_blocked,
                       AVG(duration_ms) as avg_duration_ms,
                       AVG(risk_score) as avg_risk_score,
                       MAX(duration_ms) as max_duration_ms
@@ -1551,6 +1614,7 @@ async def api_autopilot_stats(days: int = 7):
             "drafts": row["drafts"] or 0,
             "errors": row["errors"] or 0,
             "skipped": row["skipped"] or 0,
+            "health_blocked": row["health_blocked"] or 0,
             "avg_duration_ms": int(row["avg_duration_ms"] or 0),
             "avg_risk_score": round(row["avg_risk_score"] or 0, 2),
             "max_duration_ms": row["max_duration_ms"] or 0,
@@ -1591,6 +1655,81 @@ async def api_alerts_history(limit: int = 50):
     """Return recent alert history from the in-memory AlertManager."""
     history = list(_alert_manager._history)[-limit:]
     return {"alerts": list(reversed(history)), "total": len(_alert_manager._history)}
+
+
+# ════════════════════════════════════════════════════════════════
+# API — Account Health
+# ════════════════════════════════════════════════════════════════
+
+
+def _health_to_dict(h) -> dict:
+    """Serialize an AccountHealth dataclass to a JSON-safe dict."""
+    return {
+        "platform": h.platform,
+        "account_id": h.account_id,
+        "followers": h.followers,
+        "engagement_rate": h.engagement_rate,
+        "warning_count": h.warning_count,
+        "is_flagged": h.is_flagged,
+        "is_shadow_banned": h.is_shadow_banned,
+        "is_restricted": h.is_restricted,
+        "restriction_type": h.restriction_type,
+        "error_rate_24h": h.error_rate_24h,
+        "last_checked": h.last_checked.isoformat() if h.last_checked else None,
+        "safe": not h.is_flagged and not h.is_shadow_banned and h.warning_count < 3,
+    }
+
+
+@app.get("/api/account-health")
+async def api_account_health_all():
+    """Return health status for all tracked accounts."""
+    all_health = _account_health.get_all()
+    return {
+        "accounts": {k: _health_to_dict(v) for k, v in all_health.items()},
+        "total": len(all_health),
+    }
+
+
+@app.get("/api/account-health/{platform}")
+async def api_account_health_platform(platform: str):
+    """Return health for all accounts on a specific platform."""
+    platform_health = _account_health.get_all_for_platform(platform)
+    return {
+        "platform": platform,
+        "accounts": {k: _health_to_dict(v) for k, v in platform_health.items()},
+    }
+
+
+@app.post("/api/account-health/update")
+async def api_account_health_update(request: Request):
+    """Manually update account health.
+
+    Body: {platform, account_id?, followers?, engagement_rate?,
+           warning_count?, is_flagged?, is_shadow_banned?}
+    """
+    data = await request.json()
+    platform = data.get("platform", "")
+    if not platform:
+        return JSONResponse(status_code=400, content={"error": "platform required"})
+    health = _account_health.update(
+        platform=platform,
+        account_id=data.get("account_id"),
+        followers=data.get("followers", 0),
+        engagement_rate=data.get("engagement_rate", 0.0),
+        warning_count=data.get("warning_count", 0),
+        is_flagged=data.get("is_flagged", False),
+        is_shadow_banned=data.get("is_shadow_banned", False),
+    )
+    return {"updated": _health_to_dict(health)}
+
+
+@app.get("/api/account-health/safe/{platform}")
+async def api_account_health_safe(platform: str, account_id: str = ""):
+    """Check if it's safe to post on a platform/account."""
+    safe, reason = _account_health.is_safe_to_post(
+        platform, account_id or None
+    )
+    return {"safe": safe, "reason": reason, "platform": platform}
 
 
 # ════════════════════════════════════════════════════════════════
@@ -2311,7 +2450,7 @@ async def health():
         checks["database"] = f"FAIL: {e}"
 
     all_healthy = all(
-        v in ("running", "ok") for v in checks.values()
+        v in ("running", "ok", "not_started") for v in checks.values()
     )
     status_code = 200 if all_healthy else 503
 
@@ -2320,7 +2459,7 @@ async def health():
         content={
             "status": "ok" if all_healthy else "degraded",
             "checks": checks,
-            "version": "3.5.0",
+            "version": "2.14.0",
             "engine": "ViralOps Engine — EMADS-PR v1.0",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         },

@@ -1139,7 +1139,7 @@ class TestBackgroundSchedulers:
         result = asyncio.get_event_loop().run_until_complete(_check())
         # Health may return version at top level or nested in body
         version = result.get("version", "")
-        assert version in ("3.4.0", "3.5.0"), f"Expected 3.4.0 or 3.5.0 in health response, got: {result}"
+        assert version == "2.14.0", f"Expected 2.14.0 in health response, got: {result}"
 
 
 # ════════════════════════════════════════════════════════════════
