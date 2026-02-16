@@ -76,13 +76,24 @@ def init_db():
             if info:
                 id_col = next((c for c in info if c["name"] == "id"), None)
                 if id_col and id_col["type"].upper() == "TEXT":
-                    logger.info("init_db.migrating", msg="Fixing posts table: TEXT id → INTEGER AUTOINCREMENT")
+                    logger.warning("init_db.migrating",
+                                   msg="Legacy TEXT-id schema detected — backing up before migration")
+                    # Backup existing data before destructive migration
+                    backup_path = DB_PATH.replace(".db", f"_backup_migration.db") if isinstance(DB_PATH, str) else str(DB_PATH) + ".backup"
+                    try:
+                        import shutil
+                        shutil.copy2(DB_PATH, backup_path)
+                        logger.info("init_db.backup_created", path=backup_path)
+                    except Exception as backup_err:
+                        logger.warning("init_db.backup_failed", error=str(backup_err))
                     conn.executescript("""
                         DROP TABLE IF EXISTS posts;
                         DROP TABLE IF EXISTS publish_log;
                     """)
-        except Exception:
-            pass  # Table may not exist yet
+                    logger.info("init_db.migration_complete",
+                                msg="Legacy tables dropped, will recreate with INTEGER AUTOINCREMENT")
+        except Exception as e:
+            logger.warning("init_db.migration_check", error=str(e))
 
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS posts (
@@ -389,8 +400,8 @@ async def autopilot_loop():
                 continue
 
             # Pick niche from rotation
-            niches = cfg.get("niches", ["general"])
-            niche = niches[_niche_index % len(niches)]
+            niches = cfg.get("niches") or ["general"]
+            niche = niches[_niche_index % len(niches)] if niches else "general"
             _niche_index += 1
             platforms = cfg.get("platforms", ["tiktok", "pinterest"])
 
@@ -532,10 +543,15 @@ async def autopilot_loop():
             except Exception:
                 pass
 
-        # Sleep for configured interval
-        cfg = _get_autopilot_config()
-        interval_sec = cfg.get("interval_hours", 4) * 3600
-        await asyncio.sleep(interval_sec)
+        # Sleep for configured interval (inside its own try/except to prevent loop crash)
+        try:
+            cfg = _get_autopilot_config()
+            interval_sec = max(1800, cfg.get("interval_hours", 4) * 3600)  # min 30 min
+            await asyncio.sleep(interval_sec)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await asyncio.sleep(14400)  # fallback: 4 hours
 
 
 async def _watchdog():
@@ -1331,10 +1347,28 @@ async def api_autopilot_config_put(request: Request):
     """
     data = await request.json()
     current = _get_autopilot_config()
-    # Merge incoming fields over current config
-    for key in ("enabled", "interval_hours", "niches", "platforms", "max_posts_per_day"):
-        if key in data:
-            current[key] = data[key]
+    # Merge incoming fields over current config — with bounds validation
+    if "enabled" in data:
+        current["enabled"] = bool(data["enabled"])
+    if "interval_hours" in data:
+        try:
+            val = float(data["interval_hours"])
+            current["interval_hours"] = max(0.5, min(val, 168))  # 30 min – 7 days
+        except (ValueError, TypeError):
+            pass
+    if "niches" in data:
+        niches = data["niches"]
+        current["niches"] = niches if isinstance(niches, list) and niches else ["general"]
+    if "platforms" in data:
+        platforms = data["platforms"]
+        if isinstance(platforms, list) and platforms:
+            current["platforms"] = platforms
+    if "max_posts_per_day" in data:
+        try:
+            val = int(data["max_posts_per_day"])
+            current["max_posts_per_day"] = max(1, min(val, 100))
+        except (ValueError, TypeError):
+            pass
     _save_autopilot_config(current)
     return current
 

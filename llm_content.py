@@ -349,7 +349,10 @@ def _call_openai_compatible(
     for _attempt in range(2):
         r = httpx.post(config.base_url, headers=headers, json=payload, timeout=60)
         if r.status_code == 429:
-            retry_after = int(r.headers.get("retry-after", "10"))
+            try:
+                retry_after = int(float(r.headers.get("retry-after", "10")))
+            except (ValueError, TypeError):
+                retry_after = 10
             wait = min(retry_after, 30)
             print(f"  [LLM] {config.name} rate-limited (429) — waiting {wait}s...")
             time.sleep(wait)
