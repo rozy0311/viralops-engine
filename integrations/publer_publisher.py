@@ -383,17 +383,23 @@ class PublerPublisher:
             elif file_path:
                 # Direct file upload — multipart/form-data
                 # Publer API: POST /media
-                client = await self._get_client()
-                with open(file_path, "rb") as f:
-                    files = {"file": f}
-                    resp = await client.post(
-                        f"{self.API_URL}/media",
-                        files=files,
-                        headers={
-                            "Authorization": f"Bearer-API {self.api_key}",
-                            "Publer-Workspace-Id": self.workspace_id,
-                        },
-                    )
+                # IMPORTANT: Use a fresh client without Content-Type default.
+                # The shared client has Content-Type: application/json which
+                # conflicts with httpx's auto-set multipart/form-data boundary.
+                upload_headers = {
+                    "Authorization": f"Bearer-API {self.api_key}",
+                    "Accept": "application/json",
+                }
+                if self.workspace_id:
+                    upload_headers["Publer-Workspace-Id"] = self.workspace_id
+                async with httpx.AsyncClient(timeout=60.0) as upload_client:
+                    with open(file_path, "rb") as f:
+                        files = {"file": f}
+                        resp = await upload_client.post(
+                            f"{self.API_URL}/media",
+                            files=files,
+                            headers=upload_headers,
+                        )
             else:
                 return None
 
@@ -564,6 +570,27 @@ class PublerPublisher:
                     # Update content type if media is photo but default was video
                     if actual_media_type == "photo" and networks_content[net_key].get("type") == "video":
                         networks_content[net_key]["type"] = "photo"
+
+        # ── Handle local file upload ──
+        media_local_path = content.get("media_local_path", "")
+        if media_local_path and not content.get("media_ids") and not media_url:
+            if os.path.isfile(media_local_path):
+                logger.info("Publer: uploading local file %s", media_local_path)
+                media_result = await self.upload_media(file_path=media_local_path)
+                if media_result and "id" in media_result:
+                    media_ref = [{
+                        "id": media_result["id"],
+                        "path": media_result.get("path", ""),
+                    }]
+                    actual_media_type = media_result.get("type", "photo")
+                    for net_key in networks_content:
+                        networks_content[net_key]["media"] = media_ref
+                        if actual_media_type == "photo" and networks_content[net_key].get("type") == "video":
+                            networks_content[net_key]["type"] = "photo"
+                else:
+                    logger.warning("Publer: local file upload failed for %s", media_local_path)
+            else:
+                logger.warning("Publer: local file not found: %s", media_local_path)
 
         # ── Build request body ──
         schedule_at = content.get("schedule_at", "")

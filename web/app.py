@@ -25,6 +25,7 @@ from typing import Optional
 import secrets as _secrets
 from contextlib import contextmanager
 
+import httpx
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -518,9 +519,53 @@ async def autopilot_loop():
                         if not pub:
                             continue
 
-                        # ── TikTok: adapt content + pick account ──
+                        # ── TikTok: QUALITY UPGRADE + adapt content + pick account ──
                         if plat == "tiktok":
                             try:
+                                # If content_pack lacks quality content (content_formatted),
+                                # upgrade via generate_quality_post() — full 3500-4000 char
+                                # Perplexity-style content with review loop
+                                if not content_pack.get("content_formatted") or \
+                                   len(content_pack.get("content_formatted", "")) < 500:
+                                    topic = content_pack.get("title", "") or \
+                                            result.get("topic", "") or niche
+                                    logger.info("tiktok.quality_upgrade",
+                                                topic=topic[:60],
+                                                reason="content_formatted missing or short")
+                                    try:
+                                        from llm_content import generate_quality_post
+                                        quality_pack = await asyncio.to_thread(
+                                            generate_quality_post,
+                                            topic=topic,
+                                            score=content_pack.get("_niche_score", 8.0),
+                                        )
+                                        if quality_pack and quality_pack.get("content_formatted") and \
+                                           len(quality_pack["content_formatted"]) >= 2000:
+                                            # Merge quality fields into content_pack
+                                            content_pack["content_formatted"] = quality_pack["content_formatted"]
+                                            content_pack["universal_caption_block"] = quality_pack.get("universal_caption_block", "")
+                                            if quality_pack.get("title"):
+                                                content_pack["title"] = quality_pack["title"]
+                                            if quality_pack.get("hashtags"):
+                                                content_pack["hashtags"] = quality_pack["hashtags"]
+                                            if quality_pack.get("image_prompt"):
+                                                content_pack["image_prompt"] = quality_pack.get("image_prompt", "")
+                                            # Carry over review metadata
+                                            for k in ("_review_score", "_review_pass",
+                                                       "_review_feedback", "_content_chars",
+                                                       "_location", "_season"):
+                                                if k in quality_pack:
+                                                    content_pack[k] = quality_pack[k]
+                                            logger.info("tiktok.quality_upgrade_ok",
+                                                        chars=len(content_pack["content_formatted"]),
+                                                        review_score=quality_pack.get("_review_score", 0))
+                                        else:
+                                            logger.warning("tiktok.quality_upgrade_weak",
+                                                           chars=len(quality_pack.get("content_formatted", "")) if quality_pack else 0)
+                                    except Exception as qe:
+                                        logger.warning("tiktok.quality_upgrade_error",
+                                                       error=str(qe)[:200])
+
                                 publish_content = await _prepare_tiktok_content(
                                     content_pack, plat
                                 )
@@ -1768,43 +1813,76 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
     Adapt a raw content_pack into a Publer/TikTok-ready publish dict.
 
     Handles:
-      1. Build proper caption from body + hashtags (max 2200 chars)
+      1. Build FULL caption from content_formatted / universal_caption_block (3500-4000 chars)
+         — Falls back to basic hook+body+cta if quality content not available
       2. Set platforms filter so Publer only targets TikTok
       3. Pick next TikTok account via TikTokAccountManager (round-robin)
       4. Generate image from image_prompt if no media_url exists
       5. Return Publer-compatible content dict
+
+    TikTok caption limit: 4000 chars (updated 2024).
     """
     import tempfile
     import uuid as _uuid
 
-    # ── 1. Build caption ──
+    # ── 1. Build caption — PREFER quality content fields ──
     title = content_pack.get("title", "")
-    body = content_pack.get("body", "")
-    hook = content_pack.get("hook", "")
-    cta = content_pack.get("cta", "")
+    content_formatted = content_pack.get("content_formatted", "")
+    universal_caption = content_pack.get("universal_caption_block", "")
     hashtags = content_pack.get("hashtags", [])
 
-    # TikTok caption format: hook → body → CTA → hashtags
-    parts = []
-    if hook and hook not in body:
-        parts.append(hook)
-    if body:
-        parts.append(body)
-    elif title:
-        parts.append(title)
-    if cta and cta not in body:
-        parts.append(cta)
+    # Ensure all hashtags have # prefix
+    hashtags = [f"#{t.lstrip('#')}" for t in hashtags if t.strip()]
 
-    caption = "\n\n".join(parts)
+    # PRIORITY 1: universal_caption_block (already includes title + content + hashtags)
+    if universal_caption and len(universal_caption) > 500:
+        caption = universal_caption
+        # Ensure hashtags are included at the end
+        tag_str = " ".join(hashtags[:5])
+        if tag_str and tag_str not in caption:
+            caption = f"{caption}\n\n{tag_str}"
 
-    # Append hashtags
-    if hashtags:
-        tag_str = " ".join(f"#{t.lstrip('#')}" for t in hashtags[:8])
-        caption = f"{caption}\n\n{tag_str}"
+    # PRIORITY 2: content_formatted (full Perplexity-style 3500-4000 char content)
+    elif content_formatted and len(content_formatted) > 500:
+        tag_str = " ".join(hashtags[:5])
+        caption_parts = []
+        if title:
+            caption_parts.append(title)
+        caption_parts.append(content_formatted)
+        if tag_str:
+            caption_parts.append(tag_str)
+        caption = "\n\n".join(caption_parts)
 
-    # Enforce TikTok 2200 char limit
-    if len(caption) > 2200:
-        caption = caption[:2190] + "..."
+    # PRIORITY 3: Fallback to basic fields (hook + body + cta)
+    else:
+        body = content_pack.get("body", "")
+        hook = content_pack.get("hook", "")
+        cta = content_pack.get("cta", "")
+
+        parts = []
+        if hook and hook not in body:
+            parts.append(hook)
+        if body:
+            parts.append(body)
+        elif title:
+            parts.append(title)
+        if cta and cta not in body:
+            parts.append(cta)
+
+        caption = "\n\n".join(parts)
+
+        # Append hashtags
+        if hashtags:
+            tag_str = " ".join(hashtags[:5])
+            caption = f"{caption}\n\n{tag_str}"
+
+    # Enforce TikTok 4000 char limit (updated 2024, was 2200)
+    if len(caption) > 4000:
+        # Smart trim: keep title + as much content as possible + hashtags at end
+        tag_str = " ".join(hashtags[:5])
+        tag_space = len(tag_str) + 4  # +4 for \n\n separator + buffer
+        max_content = 4000 - tag_space - 10
+        caption = caption[:max_content].rsplit("\n", 1)[0] + f"\n\n{tag_str}"
 
     # ── 2. Pick TikTok account (round-robin) ──
     account_ids = []
@@ -1826,6 +1904,7 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
     if not media_url:
         image_prompt = content_pack.get("image_prompt", "")
         if image_prompt:
+            # PRIMARY: AI image generation (Pollinations → Gemini/Imagen cascade)
             try:
                 output_dir = tempfile.mkdtemp(prefix="viralops_tiktok_")
                 output_path = os.path.join(output_dir, f"tiktok_{_uuid.uuid4().hex[:8]}.png")
@@ -1841,6 +1920,51 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
                                    prompt=image_prompt[:80])
             except Exception as e:
                 logger.warning("tiktok.image_gen_error", error=str(e))
+
+            # FALLBACK: Pexels stock photos (free API, high-quality)
+            if not media_url:
+                pexels_key = os.environ.get("PEXELS_API_KEY", "")
+                if pexels_key:
+                    try:
+                        # Extract search keywords from image prompt
+                        search_query = image_prompt[:80].replace('"', "").strip()
+                        async with httpx.AsyncClient(timeout=15.0) as pex_client:
+                            pex_resp = await pex_client.get(
+                                "https://api.pexels.com/v1/search",
+                                params={
+                                    "query": search_query,
+                                    "orientation": "portrait",
+                                    "per_page": 3,
+                                },
+                                headers={"Authorization": pexels_key},
+                            )
+                            if pex_resp.status_code == 200:
+                                photos = pex_resp.json().get("photos", [])
+                                if photos:
+                                    import random as _random
+                                    photo = _random.choice(photos)
+                                    photo_url = photo.get("src", {}).get(
+                                        "large2x",
+                                        photo.get("src", {}).get("large", ""),
+                                    )
+                                    if photo_url:
+                                        # Download to local file for reliable upload
+                                        dl_dir = tempfile.mkdtemp(prefix="viralops_pexels_")
+                                        dl_path = os.path.join(
+                                            dl_dir, f"pexels_{_uuid.uuid4().hex[:8]}.jpg"
+                                        )
+                                        dl_resp = await pex_client.get(photo_url)
+                                        if dl_resp.status_code == 200:
+                                            with open(dl_path, "wb") as df:
+                                                df.write(dl_resp.content)
+                                            media_url = dl_path
+                                            logger.info(
+                                                "tiktok.pexels_fallback_image",
+                                                path=dl_path,
+                                                photo_id=photo.get("id"),
+                                            )
+                    except Exception as pex_err:
+                        logger.warning("tiktok.pexels_fallback_error", error=str(pex_err))
 
     # ── 4. Build Publer-compatible content dict ──
     result = {
@@ -2620,7 +2744,7 @@ async def health():
         content={
             "status": "ok" if all_healthy else "degraded",
             "checks": checks,
-            "version": "2.16.0",
+            "version": "2.17.0",
             "engine": "ViralOps Engine — EMADS-PR v1.0",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         },
