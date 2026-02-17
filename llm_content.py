@@ -17,6 +17,7 @@ Following Training Multi-Agent principles:
 """
 
 import os
+import re
 import json
 import time
 import httpx
@@ -710,19 +711,21 @@ WRITING STYLE (match this EXACTLY):
 - Every sentence TEACHES something new — if it doesn't, cut it
 - Write like Perplexity AI answers: thorough, fact-dense, organized, but with personality
 
-FORMAT RULES (CRITICAL — this shows on TikTok):
-- Use emoji section headers: 🌿 🫙 ❌ ✅ ⚡ for major sections
-- Use ### numbered sections: "### 1) Green onions / scallions (the MVP)"
-- Use **bold** for key facts, prices, timeframes: **$2/lb**, **7-14 days**, **350°F**
-- Use — dashes for quick tips within sections
-- Include a "Quick method" numbered list (1. 2. 3. 4. 5. 6.)
-- Include ❌ section: "What usually doesn't work" (common mistakes)
-- Include ✅ section: "Tiny survival tips so they don't instantly die"
-- End with a punchy one-liner recommendation, NOT a motivation speech
+FORMAT RULES — PLAIN TEXT ONLY (TikTok does NOT render Markdown):
+- ABSOLUTELY NEVER use **bold** markers — TikTok shows them as literal ** characters
+- ABSOLUTELY NEVER use ### or ## headings — TikTok shows them as literal # characters
+- ABSOLUTELY NEVER use Markdown formatting of any kind — no *, no #, no backticks, no [links]()
+- Use emoji as section headers on their own line: "🌿 Section Name"
+- Use ALL CAPS sparingly for key emphasis: "costs about $2/LB", "soak for 8-12 HOURS"
+- Use simple numbered lists: 1. 2. 3. (plain text)
+- Use dashes for bullet points: - item
+- Separate sections with a blank line for readability
+- Required emoji headers: 🌿 main topic, 🫙 quick method, ❌ mistakes, ✅ tips
+- End with a punchy one-liner, NOT a motivation speech
 
-CHARACTER TARGET: 3800-4200 characters MINIMUM. This is for TikTok photo post description.
-Count carefully — too short = thin answer, too long = gets cut off on TikTok (4000 char limit).
-If your answer is under 3500 characters, you have NOT answered thoroughly enough. Add more specific examples, more sections, more facts.
+CHARACTER TARGET: 3500-4000 characters. This is for TikTok caption.
+Count carefully — too short = thin answer, too long = gets cut off (4000 char limit).
+If your answer is under 3200 characters, you have NOT answered thoroughly enough.
 
 BRAND NAMES: NEVER mention specific brand names (Walmart, Goya, Just Egg, Trader Joe's, Whole Foods, etc.).
 Use generic terms instead: "grocery store", "dried black beans", "liquid egg substitute", "budget store".
@@ -769,6 +772,30 @@ _KEYWORD_TO_GROUP = {
     "allergy": "food", "allergic": "food", "nut-free": "food", "lunch": "meal_prep",
     "school": "meal_prep", "kid": "food",
 }
+
+
+def _strip_markdown(text: str) -> str:
+    """Post-processing safety net: strip Markdown that TikTok renders as literal text.
+
+    Even with explicit anti-Markdown instructions, LLMs sometimes slip in **bold**
+    or ### headings.  This function catches them BEFORE the caption reaches Publer.
+    """
+    if not text:
+        return text
+    # Remove **bold** / __bold__  →  keep inner text
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'__(.+?)__', r'\1', text)
+    # Remove *italic* / _italic_  →  keep inner text (single markers)
+    text = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'\1', text)
+    # Remove ### / ## / #  heading markers at start of line
+    text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
+    # Remove leading > blockquote markers
+    text = re.sub(r'^>\s?', '', text, flags=re.MULTILINE)
+    # Remove `inline code` backticks
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    # Collapse 3+ consecutive blank lines → 2
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 
 def _auto_pick_broad_hashtags(topic: str, existing_tags: List[str], n: int = 2) -> List[str]:
@@ -872,40 +899,37 @@ SEASON: {season}
 {feedback_block}
 You are answering someone who asked "{topic}". Give them the REAL, COMPLETE answer with personality.
 
-CONTENT STYLE EXAMPLES (match this tone):
-- "Mint spreads like it's trying to take over your life. Keep it in a pot."
-- "Rosemary is slow and stubborn. It's not you. It's rosemary."
-- "They regrow like they're personally offended you ever threw them away."
-- "your kitchen starts smelling like a swamp experiment"
+EXAMPLE OF THE EXACT FORMAT TO MATCH (real published post — notice NO Markdown):
 
-FORMAT THE CONTENT LIKE THIS:
-🌿 Main topic header
-### 1) First item (the MVP)
-**Key fact:** detail with exact number ($2/lb, 7-14 days, 350°F)
-**How:** step-by-step
-**Pro tip:** insider knowledge
+Do you know banana peels make natural shoe polish that repels water too?
 
-### 2) Second item (basically unkillable)
-...continue pattern...
+Yes, banana peels can serve as a natural DIY shoe polish for leather shoes due to their potassium content and oils, which mimic some commercial polishes for shine.
 
-🫙 Quick Method (numbered steps 1-6)
-❌ What usually doesn't work
-✅ Survival tips so they don't instantly die
-Punchy one-liner ending.
+🌿 How to Use Banana Peels as Polish
+
+Rub the soft inside of a fresh (slightly green) banana peel directly onto clean leather shoes in circular motions, covering all surfaces evenly. Let it sit for 10-15 minutes to allow oils to absorb, then buff with a soft, dry cloth to remove residue and reveal shine. Works on bags or belts too — eat the banana first for zero waste.
+
+🫘 Effectiveness and Limitations
+
+It provides a quick, temporary sheen from natural fats and potassium, outperforming nothing at all but not matching wax-based polishes for durability. No strong evidence supports robust water repellency — test on non-valuable items first, and pair with conditioner for better protection.
+
+(notice: NO ** bold, NO ### headings, just clean plain text with emoji section headers)
+
+FORMAT YOUR CONTENT EXACTLY LIKE THAT EXAMPLE. PLAIN TEXT ONLY.
 
 Output as JSON:
 
 {{
-  "title": "Specific Keyword Title — Practical Subtitle (Fast & Easy)",
-  "content_formatted": "YOUR FULL Perplexity-style ANSWER. 3800-4200 characters.\\n\\nUse emoji section headers (🌿 🫙 ❌ ✅).\\nUse ### numbered sub-sections.\\nUse **bold** for ALL key facts/numbers.\\nInclude exact $prices, exact timeframes, exact quantities.\\nWitty casual tone with dry humor.\\nEnd with punchy one-liner recommendation.",
+  "title": "Do you know [surprising specific claim from the topic with a number or fact]?",
+  "content_formatted": "PLAIN TEXT answer. 3500-4000 chars. NO ** markers. NO ### headings. NO Markdown. Emoji section headers. Exact numbers. Witty tone.",
   "pain_point": "Ultra-specific problem (1 sentence with $ or timeframe)",
-  "audiences": ["Specific persona 1 with age/location", "Specific persona 2", "Specific persona 3"],
+  "audiences": ["Specific persona 1", "Specific persona 2", "Specific persona 3"],
   "steps": [
-    "Step 1: Specific action with exact number/cost",
+    "Step 1: Specific action with exact number",
     "Step 2: Specific result with timeframe"
   ],
   "result": "Specific measurable outcome with numbers",
-  "hashtags": ["#NanoNiche1", "#NanoNiche2", "#NanoNiche3"],
+  "hashtags": ["NanoNiche1", "NanoNiche2", "NanoNiche3"],
   "image_title": "Short Title (max 4 words)",
   "image_subtitle": "Subtitle (max 5 words)",
   "image_steps": "Word1 • Word2 • Word3",
@@ -913,17 +937,18 @@ Output as JSON:
 }}
 
 CRITICAL:
-1. content_formatted = Perplexity-style answer, MINIMUM 3800 characters (target 3800-4200). Shorter = FAIL.
-   If you're at 2500 chars, you need 5-6 MORE sections. If at 3000, add 2-3 MORE sections. COUNT CAREFULLY.
-2. MUST use emoji section headers: 🌿 🫙 ❌ ✅ for major sections.
-3. MUST include EXACT numbers: $2/lb, 7-14 days, 4-6 inches, 350°F — at least 15 specific numbers.
-4. MUST have witty personality — dry humor, real talk, zero corporate tone.
-5. Hashtags: exactly 3 NANO-NICHE tags (ultra-specific, high-search for this topic).
-6. NO generic intro, NO "great question", NO motivation speeches.
-7. NO BRAND NAMES — never mention Walmart, Goya, Just Egg, Trader Joe's, Whole Foods, etc. Use generic terms.
-8. Start answering from the FIRST sentence — jump straight into the content.
-9. Include ALL of these sections: 🌿 Main topic, ### numbered items (3-5), 🫙 Quick method (6 steps), ❌ What doesn't work (3-4 items), ✅ Survival tips (4-5 items), punchy one-liner ending.
-10. Output ONLY valid JSON."""
+1. content_formatted = PLAIN TEXT answer, 3500-4000 characters. NO Markdown. COUNT CAREFULLY.
+2. Title MUST be a natural question: "Do you know [specific claim]?" — NOT generic like "Unlock the Power of..."
+3. ABSOLUTELY NO ** bold markers — TikTok shows them as ugly literal ** characters.
+4. ABSOLUTELY NO ### or ## headings — TikTok shows them as literal # characters.
+5. Use emoji section headers: 🌿 🫘 🫙 ❌ ✅ on their own lines.
+6. Use ALL CAPS for occasional emphasis instead of bold.
+7. MUST include at least 15 EXACT numbers: $2/lb, 7-14 days, 4-6 inches, 350°F.
+8. MUST have witty personality — dry humor, real talk, zero corporate tone.
+9. Hashtags: exactly 3 NANO-NICHE tags (ultra-specific, high-search).
+10. NO generic intro, NO "great question", NO motivation speeches, NO brand names.
+11. Include sections: 🌿 main (2-3 subsections), 🫙 quick method (6 steps), ❌ mistakes (3-4), ✅ tips (4-5), punchy ending.
+12. Output ONLY valid JSON."""
 
         result = call_llm(quality_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=6000, temperature=0.6)
         
@@ -940,25 +965,34 @@ CRITICAL:
             print(f"  [QUALITY] Raw text (last 200): {repr(result.text[-200:])}")
             continue
         
-        # ── Validate content_formatted length ──
-        content = pack.get("content_formatted", "")
+        # ── Strip leftover Markdown (safety net) ──
+        content = _strip_markdown(pack.get("content_formatted", ""))
+        pack["content_formatted"] = content
         content_len = len(content)
-        print(f"  [QUALITY] Content length: {content_len} chars (target: 3800-4200)")
+        print(f"  [QUALITY] Content length: {content_len} chars (target: 3500-4000)")
         
         # ── Iterative expansion (up to 2 passes) ──
         for _exp_pass in range(2):
-            if content_len >= 3500:
+            if content_len >= 3200:
                 break
-            print(f"  [QUALITY] Content short ({content_len} < 3500). Expansion pass {_exp_pass + 1}...")
+            print(f"  [QUALITY] Content short ({content_len} < 3200). Expansion pass {_exp_pass + 1}...")
             
-            needed = 4000 - content_len  # aim for 4000 center of range
-            expand_prompt = f"""Your answer is only {content_len} characters. It MUST be 3800-4200 characters (you need ~{needed} more chars).
+            needed = 3700 - content_len  # aim for 3700 center of 3500-4000 range
+            expand_prompt = f"""Your answer is only {content_len} characters. It MUST be 3500-4000 characters (you need ~{needed} more chars).
 
-Expand this answer by ADDING these concrete sections (don't rewrite what's already good):
-- Add a ### section with 3-4 specific examples/variations with EXACT prices ($), timeframes, quantities
-- Add ❌ "What usually doesn't work" section (3-4 specific mistakes with WHY they fail)
-- Add ✅ "Survival tips so they don't instantly die" section (4-5 tips with exact numbers)
-- Add a "🫙 Quick Method" numbered list (6 steps with specific measurements)
+FORMATTING RULES (CRITICAL — TikTok shows raw text, NOT rendered Markdown):
+- ABSOLUTELY NEVER use **bold** markers
+- ABSOLUTELY NEVER use ### or ## headings
+- Use emoji as section headers: 🌿 Section Name
+- Use ALL CAPS sparingly for emphasis instead of bold
+- Use plain numbered lists: 1. 2. 3.
+- Use plain dashes: - for bullets
+
+Expand this answer by ADDING concrete sections (don't rewrite what's already good):
+- Add an emoji-headed section with 3-4 specific examples/variations with EXACT prices ($), timeframes, quantities
+- Add ❌ What usually doesn't work section (3-4 specific mistakes with WHY they fail)
+- Add ✅ Survival tips section (4-5 tips with exact numbers)
+- Add a 🫙 Quick Method numbered list (6 steps with specific measurements)
 - Add more witty personality — dry humor one-liners between sections
 - Add real-world context: "In Miami during winter..." or "If you live in an apartment..."
 - EVERY new sentence must teach something specific — zero filler
@@ -966,37 +1000,38 @@ Expand this answer by ADDING these concrete sections (don't rewrite what's alrea
 Current answer (EXPAND this, keep everything that's good):
 {content}
 
-Return the FULL expanded answer as plain text (3800-4200 chars). Count carefully. No JSON wrapper."""
+Return the FULL expanded answer as PLAIN TEXT (3500-4000 chars). Count carefully. No JSON wrapper. No markdown."""
             
             expand_result = call_llm(expand_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=6000, temperature=0.5)
             if expand_result.success and len(expand_result.text) > content_len:
-                pack["content_formatted"] = expand_result.text.strip()
+                pack["content_formatted"] = _strip_markdown(expand_result.text.strip())
                 content = pack["content_formatted"]
                 content_len = len(content)
                 print(f"  [QUALITY] Expanded to: {content_len} chars")
             else:
                 break  # expansion failed, don't retry
         
-        if content_len > 4500:
-            # Too long — ask AI to trim to 3800-4200 without losing meaning
-            print(f"  [QUALITY] Content long ({content_len} > 4500). Trimming...")
-            trim_prompt = f"""This answer is {content_len} characters but MUST be 3800-4200 characters.
+        if content_len > 4200:
+            # Too long — ask AI to trim to 3500-4000 without losing meaning
+            print(f"  [QUALITY] Content long ({content_len} > 4200). Trimming...")
+            trim_prompt = f"""This answer is {content_len} characters but MUST be 3500-4000 characters.
 
-TRIM it to 3800-4200 chars by:
+TRIM it to 3500-4000 chars by:
 - Removing redundant sentences and filler words
 - Cutting less important examples (keep the best ones)
 - Making sentences more concise
 - DO NOT remove key facts, specific numbers, or practical steps
 - Keep the MEANING and FLOW intact
+- NEVER add **bold** or ### headings — this is for TikTok (plain text only)
 
 Content to trim:
 {content}
 
-Return the TRIMMED answer as plain text (3800-4200 chars). No JSON wrapper."""
+Return the TRIMMED answer as PLAIN TEXT (3500-4000 chars). No JSON wrapper. No markdown."""
             
             trim_result = call_llm(trim_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=5000, temperature=0.3)
-            if trim_result.success and 3500 < len(trim_result.text) < 4500:
-                pack["content_formatted"] = trim_result.text.strip()
+            if trim_result.success and 3200 < len(trim_result.text) < 4200:
+                pack["content_formatted"] = _strip_markdown(trim_result.text.strip())
                 content_len = len(pack["content_formatted"])
                 print(f"  [QUALITY] Trimmed to: {content_len} chars")
         
@@ -1101,7 +1136,7 @@ def _review_quality_content(pack: Dict[str, Any]) -> Optional[Dict]:
 
 TITLE: {pack.get('title', '')}
 PAIN POINT: {pack.get('pain_point', '')}
-CONTENT LENGTH: {content_len} characters (target: 3500-4200)
+CONTENT LENGTH: {content_len} characters (target: 3200-4000)
 
 FULL CONTENT:
 {content[:3500]}
@@ -1111,17 +1146,18 @@ STEPS: {json.dumps(pack.get('steps', []))}
 
 Score each 1-10 (be STRICT — 10 = professional-grade, 7 = mediocre):
 1. ANSWER_QUALITY — Does the content ACTUALLY answer the topic like a Perplexity AI expert? Specific facts, not fluff?
-2. CONTENT_DEPTH — 3500-4200 chars of REAL value? Every sentence teaches something? (3200+ is acceptable if dense)
+2. CONTENT_DEPTH — 3200-4000 chars of REAL value? Every sentence teaches something? (3000+ is acceptable if dense)
 3. TONE — Casual, witty, personality-driven? Dry humor? NOT corporate, NOT generic blog-speak?
-4. HOOK — Would the first 2 sentences stop someone scrolling? Surprising claim or bold statement?
-5. SPECIFICITY — Concrete numbers ($prices, timeframes, quantities, temperatures)? Or vague advice?
+4. HOOK — Does the title start with "Do you know" or a natural question? Or is it generic clickbait like "Unlock the Power of..."?
+5. SPECIFICITY — Concrete numbers ($prices, timeframes, quantities, temperatures)? At least 15 specific numbers? Or vague advice?
 6. ACTIONABILITY — Reader can do this TODAY with what they have?
-7. FORMATTING — Uses emoji section headers (🌿 🫙 ❌ ✅)? ### numbered sections? **bold** key facts?
+7. FORMATTING — PLAIN TEXT ONLY. NO ** bold? NO ### headings? NO Markdown at all? Uses emoji section headers (🌿 🫙 ❌ ✅)?
+   DEDUCT 2 points if you find ANY ** or ### or ## markers — these show as literal ugly characters on TikTok.
 
 For EACH criterion below 9, explain SPECIFICALLY what's wrong and how to fix it.
 
 Output ONLY valid JSON:
-{{"scores": {{"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix (2-3 sentences, be actionable)", "improved_title": "better title if current is weak, else same title"}}"""
+{{"scores": {{"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix (2-3 sentences, be actionable)", "improved_title": "Do you know [specific claim]? — rewrite if title is generic clickbait, else keep same"}}"""
     
     gen_provider = pack.get("_gen_provider", "")
     review_providers = ["github_models", "perplexity", "gemini", "openai"]
@@ -1230,15 +1266,16 @@ Score HONESTLY — 9 or 10 means EXCELLENT professional-grade content.
 
 Score 1-10 on each criteria:
 1. ANSWER_QUALITY — Does the content actually answer the topic like a Perplexity AI expert? Specific facts, not fluff?
-2. CONTENT_DEPTH — 3500-4200 chars of REAL value? Every sentence teaches something?
+2. CONTENT_DEPTH — 3200-4000 chars of REAL value? Every sentence teaches something?
 3. TONE — Casual, witty, personality-driven? Dry humor? NOT corporate, NOT generic blog-speak?
-4. HOOK — Would the first 2 sentences stop someone scrolling? Surprising claim or bold statement?
-5. SPECIFICITY — Concrete numbers ($prices, timeframes, quantities, temperatures)? Or vague advice?
+4. HOOK — Does the title start with "Do you know" or a natural question? Would the first 2 sentences stop someone scrolling?
+5. SPECIFICITY — Concrete numbers ($prices, timeframes, quantities, temperatures)? At least 15 specific numbers? Or vague advice?
 6. ACTIONABILITY — Reader can do this TODAY with what they have?
-7. FORMATTING — Uses emoji section headers? ### numbered sections? **bold** key facts?
+7. FORMATTING — PLAIN TEXT ONLY for TikTok. Uses emoji section headers (🌿 🫙 ❌ ✅)? NO ** bold markers? NO ### headings? NO Markdown at all? Clean and readable?
+   DEDUCT 2 POINTS if content contains ** or ### or ## — these show as ugly literal characters on TikTok.
 
 Output ONLY valid JSON:
-{"scores": {"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix", "improved_title": "better title if current is weak, else same title"}
+{"scores": {"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix", "improved_title": "Do you know [specific claim]? — rewrite if title is generic clickbait"}
 Pass threshold: avg >= 9.0"""
 
 
