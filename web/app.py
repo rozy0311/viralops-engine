@@ -1879,6 +1879,15 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
             tag_str = " ".join(hashtags[:5])
             caption = f"{caption}\n\n{tag_str}"
 
+    # ── TikTok line-break fix ──────────────────────────────────
+    # TikTok's API STRIPS single \n — it only preserves \n\n (double newlines).
+    # Without this, numbered lists and sections all collapse into one giant
+    # clumped paragraph on the TikTok mobile app.
+    # Strategy: convert every single \n to \n\n, then collapse 3+ back to \n\n.
+    import re as _re
+    caption = _re.sub(r'(?<!\n)\n(?!\n)', '\n\n', caption)   # \n → \n\n
+    caption = _re.sub(r'\n{3,}', '\n\n', caption)             # \n\n\n+ → \n\n
+
     # Enforce TikTok 4000 char limit (updated 2024, was 2200)
     if len(caption) > 4000:
         # Smart trim: keep title + as much content as possible + hashtags at end
