@@ -518,6 +518,22 @@ async def autopilot_loop():
                         if not pub:
                             continue
 
+                        # ── TikTok: adapt content + pick account ──
+                        if plat == "tiktok":
+                            try:
+                                publish_content = await _prepare_tiktok_content(
+                                    content_pack, plat
+                                )
+                            except Exception as tk_err:
+                                publish_results.append({
+                                    "platform": plat,
+                                    "success": False,
+                                    "error": f"TikTok prep failed: {tk_err}",
+                                })
+                                continue
+                        else:
+                            publish_content = content_pack
+
                         # Detect publisher signature — Publer uses publish(content: dict),
                         # direct publishers use publish(item: QueueItem, content: dict)
                         sig = inspect.signature(pub.publish)
@@ -532,9 +548,9 @@ async def autopilot_loop():
                             item = _SimpleQueueItem(
                                 id=f"autopilot-{plat}",
                                 platform=plat,
-                                platform_content=content_pack,
+                                platform_content=publish_content,
                             )
-                            pub_result = await pub.publish(item, content_pack)
+                            pub_result = await pub.publish(item, publish_content)
                             publish_results.append({
                                 "platform": plat,
                                 "success": getattr(pub_result, "success", False),
@@ -543,7 +559,7 @@ async def autopilot_loop():
                             })
                         else:
                             # Publer-style: publish(content: dict)
-                            pub_result = await pub.publish(content_pack)
+                            pub_result = await pub.publish(publish_content)
                             if isinstance(pub_result, dict):
                                 publish_results.append({"platform": plat, **pub_result})
                             else:
@@ -553,6 +569,13 @@ async def autopilot_loop():
                                     "post_url": getattr(pub_result, "post_url", ""),
                                     "error": getattr(pub_result, "error", ""),
                                 })
+
+                        # ── TikTok: record post for daily-limit tracking ──
+                        if plat == "tiktok":
+                            tk_success = publish_results[-1].get("success", False)
+                            tk_label = publish_content.get("_account_label", "")
+                            await _record_tiktok_post(tk_label, tk_success)
+
                     except Exception as pub_err:
                         publish_results.append({
                             "platform": plat,
@@ -563,18 +586,22 @@ async def autopilot_loop():
                 # ── Feed publish results into account health ──
                 for pr in publish_results:
                     plat_name = pr.get("platform", "")
-                    health = _account_health.get_health(plat_name)
+                    # TikTok: per-account health key (e.g. "tiktok:brand_main")
+                    health_key = plat_name
+                    if plat_name == "tiktok" and pr.get("_account_label"):
+                        health_key = f"tiktok:{pr['_account_label']}"
+                    health = _account_health.get_health(health_key)
                     cur_warnings = health.warning_count if health else 0
                     if pr.get("success"):
                         # Success: reset warnings (recovery)
                         _account_health.update(
-                            plat_name,
+                            health_key,
                             warning_count=max(0, cur_warnings - 1),
                         )
                     else:
                         # Failure: increment warnings
                         _account_health.update(
-                            plat_name,
+                            health_key,
                             warning_count=cur_warnings + 1,
                         )
 
@@ -1733,6 +1760,125 @@ async def api_account_health_safe(platform: str, account_id: str = ""):
 
 
 # ════════════════════════════════════════════════════════════════
+# TikTok content preparation — adapts content_pack for publishing
+# ════════════════════════════════════════════════════════════════
+
+async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") -> dict:
+    """
+    Adapt a raw content_pack into a Publer/TikTok-ready publish dict.
+
+    Handles:
+      1. Build proper caption from body + hashtags (max 2200 chars)
+      2. Set platforms filter so Publer only targets TikTok
+      3. Pick next TikTok account via TikTokAccountManager (round-robin)
+      4. Generate image from image_prompt if no media_url exists
+      5. Return Publer-compatible content dict
+    """
+    import tempfile
+    import uuid as _uuid
+
+    # ── 1. Build caption ──
+    title = content_pack.get("title", "")
+    body = content_pack.get("body", "")
+    hook = content_pack.get("hook", "")
+    cta = content_pack.get("cta", "")
+    hashtags = content_pack.get("hashtags", [])
+
+    # TikTok caption format: hook → body → CTA → hashtags
+    parts = []
+    if hook and hook not in body:
+        parts.append(hook)
+    if body:
+        parts.append(body)
+    elif title:
+        parts.append(title)
+    if cta and cta not in body:
+        parts.append(cta)
+
+    caption = "\n\n".join(parts)
+
+    # Append hashtags
+    if hashtags:
+        tag_str = " ".join(f"#{t.lstrip('#')}" for t in hashtags[:8])
+        caption = f"{caption}\n\n{tag_str}"
+
+    # Enforce TikTok 2200 char limit
+    if len(caption) > 2200:
+        caption = caption[:2190] + "..."
+
+    # ── 2. Pick TikTok account (round-robin) ──
+    account_ids = []
+    account_label = None
+    try:
+        from core.tiktok_accounts import get_account_manager
+        mgr = get_account_manager()
+        acct = mgr.next_account()
+        if acct:
+            account_ids = [acct.get("publer_account_id") or acct.get("id", "")]
+            account_label = acct.get("label", "")
+            logger.info("tiktok.account_picked",
+                        label=account_label, account_id=account_ids[0])
+    except Exception as e:
+        logger.warning("tiktok.account_manager_error", error=str(e))
+
+    # ── 3. Generate image if needed ──
+    media_url = content_pack.get("media_url", "") or content_pack.get("image_url", "")
+    if not media_url:
+        image_prompt = content_pack.get("image_prompt", "")
+        if image_prompt:
+            try:
+                output_dir = tempfile.mkdtemp(prefix="viralops_tiktok_")
+                output_path = os.path.join(output_dir, f"tiktok_{_uuid.uuid4().hex[:8]}.png")
+                from llm_content import generate_ai_image
+                img_path = await asyncio.to_thread(
+                    generate_ai_image, image_prompt, output_path
+                )
+                if img_path and os.path.isfile(img_path):
+                    media_url = img_path  # Local file path — Publer will upload
+                    logger.info("tiktok.image_generated", path=img_path)
+                else:
+                    logger.warning("tiktok.image_generation_failed",
+                                   prompt=image_prompt[:80])
+            except Exception as e:
+                logger.warning("tiktok.image_gen_error", error=str(e))
+
+    # ── 4. Build Publer-compatible content dict ──
+    result = {
+        "caption": caption,
+        "title": title,
+        "platforms": [platform],
+        "hashtags": hashtags[:8],
+        "content_type": "photo" if media_url else "status",
+    }
+    if account_ids:
+        result["account_ids"] = account_ids
+    if media_url:
+        if media_url.startswith(("http://", "https://")):
+            result["media_url"] = media_url
+        else:
+            # Local file — convert to data for upload
+            result["media_local_path"] = media_url
+    # Carry over extra metadata
+    result["_account_label"] = account_label or ""
+    result["_original_content_pack"] = True
+
+    return result
+
+
+async def _record_tiktok_post(account_label: str, success: bool):
+    """Record a TikTok post in the account manager for daily limit tracking."""
+    try:
+        from core.tiktok_accounts import get_account_manager
+        mgr = get_account_manager()
+        if success:
+            mgr.record_post(account_label)
+        else:
+            mgr.record_draft(account_label)
+    except Exception as e:
+        logger.warning("tiktok.record_post_error", error=str(e))
+
+
+# ════════════════════════════════════════════════════════════════
 # API — Publish
 # ════════════════════════════════════════════════════════════════
 
@@ -1773,6 +1919,21 @@ def _get_publisher(platform: str):
     elif platform == "quora":
         from integrations.quora_publisher import QuoraPublisher
         return QuoraPublisher()
+    elif platform == "tiktok":
+        # Fallback: Direct TikTok API (MultiTikTokPublisher → TikTokPublisher)
+        try:
+            from integrations.multi_tiktok_publisher import MultiTikTokPublisher
+            mtp = MultiTikTokPublisher()
+            if mtp.accounts:
+                return mtp
+        except Exception:
+            pass
+        try:
+            from integrations.social_connectors import get_social_publisher
+            return get_social_publisher("tiktok")
+        except Exception:
+            pass
+        raise ValueError("TikTok: no publisher configured (need Publer or TIKTOK_ACCESS_TOKEN)")
     else:
         raise ValueError(f"Unknown platform: {platform}")
 
@@ -2459,7 +2620,7 @@ async def health():
         content={
             "status": "ok" if all_healthy else "degraded",
             "checks": checks,
-            "version": "2.15.0",
+            "version": "2.16.0",
             "engine": "ViralOps Engine — EMADS-PR v1.0",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         },
