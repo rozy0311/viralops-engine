@@ -566,6 +566,40 @@ async def autopilot_loop():
                                         logger.warning("tiktok.quality_upgrade_error",
                                                        error=str(qe)[:200])
 
+                                # ── QUALITY GATE — block low-quality content ──
+                                # ReconcileGPT Phase 2: review metadata MUST pass
+                                # before we publish to TikTok.  If content fails
+                                # these checks it is saved as draft, NOT published.
+                                _qg_score = content_pack.get("_review_score", 0)
+                                _qg_pass = content_pack.get("_review_pass", False)
+                                _qg_chars = len(content_pack.get("content_formatted", ""))
+                                _QG_MIN_SCORE = 8.0   # absolute floor
+                                _QG_MIN_CHARS = 1500   # minimum content length
+
+                                if not _qg_pass or _qg_score < _QG_MIN_SCORE or _qg_chars < _QG_MIN_CHARS:
+                                    _qg_reason = (
+                                        f"score={_qg_score:.1f} (need {_QG_MIN_SCORE}+), "
+                                        f"chars={_qg_chars} (need {_QG_MIN_CHARS}+), "
+                                        f"review_pass={_qg_pass}"
+                                    )
+                                    logger.warning("tiktok.quality_gate_BLOCKED",
+                                                   reason=_qg_reason,
+                                                   title=content_pack.get("title", "")[:80])
+                                    publish_results.append({
+                                        "platform": plat,
+                                        "success": False,
+                                        "error": f"Quality gate blocked: {_qg_reason}",
+                                    })
+                                    # Don't publish — mark run as draft so content
+                                    # is saved but NOT sent to TikTok
+                                    status = "draft"
+                                    continue
+                                else:
+                                    logger.info("tiktok.quality_gate_PASSED",
+                                                score=_qg_score,
+                                                chars=_qg_chars,
+                                                review_pass=_qg_pass)
+
                                 publish_content = await _prepare_tiktok_content(
                                     content_pack, plat
                                 )
