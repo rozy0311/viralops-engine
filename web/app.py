@@ -1844,11 +1844,14 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
 
     # PRIORITY 2: content_formatted (full Perplexity-style 3500-4000 char content)
     elif content_formatted and len(content_formatted) > 500:
-        tag_str = " ".join(hashtags[:5])
+        tag_str = " ".join(hashtags[:5])  # TikTok allows max 5 hashtags
         caption_parts = []
         if title:
             caption_parts.append(title)
-        caption_parts.append(content_formatted)
+        # Strip any hashtags that LLM may have embedded in content_formatted
+        import re as _re
+        cleaned_content = _re.sub(r'\n+#\w+(?:\s+#\w+)*\s*$', '', content_formatted).strip()
+        caption_parts.append(cleaned_content)
         if tag_str:
             caption_parts.append(tag_str)
         caption = "\n\n".join(caption_parts)
@@ -1974,11 +1977,14 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
                         logger.warning("tiktok.pexels_fallback_error", error=str(pex_err))
 
     # ── 4. Build Publer-compatible content dict ──
+    # NOTE: Do NOT pass "hashtags" here — they are already embedded in caption.
+    # PublerPublisher.publish() appends hashtags to caption, so passing them
+    # would cause DUPLICATE hashtags (the exact same tags appearing twice).
     result = {
         "caption": caption,
         "title": title,
         "platforms": [platform],
-        "hashtags": hashtags[:8],
+        "hashtags": [],  # empty — already in caption (prevents publisher double-adding)
         "content_type": "photo" if media_url else "status",
     }
     if account_ids:

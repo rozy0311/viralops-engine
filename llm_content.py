@@ -798,6 +798,35 @@ def _strip_markdown(text: str) -> str:
     return text.strip()
 
 
+def _ensure_section_breaks(text: str) -> str:
+    """Ensure proper double-newline spacing before emoji section headers.
+
+    TikTok captions need explicit blank lines between sections for readability.
+    Without this, sections appear clumped/stuck-together on mobile.
+    """
+    if not text:
+        return text
+    lines = text.split('\n')
+    result = []
+    # Emoji ranges commonly used as section headers
+    _EMOJI_PATTERN = re.compile(
+        r'^[\U0001F300-\U0001FAD6\U00002600-\U000027BF\U0000FE00-\U0000FEFF'
+        r'\U0001F900-\U0001F9FF\U00002702-\U000027B0\u2705\u274C\u2611\u26A0]'
+    )
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        # If this line starts with an emoji (section header), ensure blank line before
+        if i > 0 and stripped and _EMOJI_PATTERN.match(stripped):
+            # Check if previous non-empty content had a blank line before this
+            if result and result[-1].strip() != '':
+                result.append('')  # Insert blank line
+        result.append(line)
+    text = '\n'.join(result)
+    # Collapse 3+ consecutive blank lines → 2
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def _auto_pick_broad_hashtags(topic: str, existing_tags: List[str], n: int = 2) -> List[str]:
     """Auto-pick 2 broad TikTok hashtags based on topic keywords (from spec)."""
     topic_lower = topic.lower()
@@ -965,8 +994,9 @@ CRITICAL:
             print(f"  [QUALITY] Raw text (last 200): {repr(result.text[-200:])}")
             continue
         
-        # ── Strip leftover Markdown (safety net) ──
+        # ── Strip leftover Markdown + ensure section breaks (safety net) ──
         content = _strip_markdown(pack.get("content_formatted", ""))
+        content = _ensure_section_breaks(content)
         pack["content_formatted"] = content
         content_len = len(content)
         print(f"  [QUALITY] Content length: {content_len} chars (target: 3500-4000)")
@@ -1004,7 +1034,7 @@ Return the FULL expanded answer as PLAIN TEXT (3500-4000 chars). Count carefully
             
             expand_result = call_llm(expand_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=6000, temperature=0.5)
             if expand_result.success and len(expand_result.text) > content_len:
-                pack["content_formatted"] = _strip_markdown(expand_result.text.strip())
+                pack["content_formatted"] = _ensure_section_breaks(_strip_markdown(expand_result.text.strip()))
                 content = pack["content_formatted"]
                 content_len = len(content)
                 print(f"  [QUALITY] Expanded to: {content_len} chars")
@@ -1031,7 +1061,7 @@ Return the TRIMMED answer as PLAIN TEXT (3500-4000 chars). No JSON wrapper. No m
             
             trim_result = call_llm(trim_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=5000, temperature=0.3)
             if trim_result.success and 3200 < len(trim_result.text) < 4200:
-                pack["content_formatted"] = _strip_markdown(trim_result.text.strip())
+                pack["content_formatted"] = _ensure_section_breaks(_strip_markdown(trim_result.text.strip()))
                 content_len = len(pack["content_formatted"])
                 print(f"  [QUALITY] Trimmed to: {content_len} chars")
         
