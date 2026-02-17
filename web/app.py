@@ -1892,15 +1892,22 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
         mgr = get_account_manager()
         acct = mgr.next_account()
         if acct:
-            account_ids = [acct.get("publer_account_id") or acct.get("id", "")]
-            account_label = acct.get("label", "")
+            # TikTokAccount is a dataclass — use attribute access, not dict .get()
+            account_ids = [getattr(acct, "id", "")]
+            account_label = getattr(acct, "label", "")
             logger.info("tiktok.account_picked",
                         label=account_label, account_id=account_ids[0])
     except Exception as e:
         logger.warning("tiktok.account_manager_error", error=str(e))
 
     # ── 3. Generate image if needed ──
-    media_url = content_pack.get("media_url", "") or content_pack.get("image_url", "")
+    media_url = (content_pack.get("media_url", "")
+                 or content_pack.get("image_url", "")
+                 or content_pack.get("_ai_image_path", ""))
+    # Validate local file still exists
+    if media_url and not media_url.startswith(("http://", "https://")) and not os.path.isfile(media_url):
+        logger.warning("tiktok.stale_image_path", path=media_url)
+        media_url = ""
     if not media_url:
         image_prompt = content_pack.get("image_prompt", "")
         if image_prompt:
