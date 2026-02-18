@@ -1842,24 +1842,153 @@ async def api_account_health_safe(platform: str, account_id: str = ""):
 # TikTok content preparation — adapts content_pack for publishing
 # ════════════════════════════════════════════════════════════════
 
+# ── TikTok caption format strategy (v4 — clump-proof) ──
+# TikTok API strips ALL newlines (\n, \n\n) when posting via third-party
+# schedulers like Publer.  No invisible-char workaround survives.
+#
+# STRATEGY: Keep 3500-4000 chars (full content!) but REFORMAT so the text
+# is readable EVEN WHEN every newline is stripped into one big block.
+#   • Emoji act as VISUAL SEPARATORS — the ONLY way to mark section breaks
+#   • Each idea is a self-contained sentence preceded by its emoji
+#   • No invisible chars, no Braille blanks, no tricks
+#   • Reads like a continuous flow of emoji-delimited ideas
+TIKTOK_MAX_CAPTION = 4000
+
+
+async def _reformat_for_tiktok(title: str, long_content: str, hashtags: list[str]) -> str:
+    """Reformat blog-style content into clump-proof TikTok caption (3500-4000 chars).
+
+    TikTok API strips ALL line breaks when posting via scheduler tools.
+    The caption MUST be readable as a single continuous block.
+
+    Emoji act as the ONLY visual separators between ideas.
+    """
+    tag_str = " ".join(f"#{t.lstrip('#')}" for t in hashtags[:5] if t.strip())
+    tag_budget = len(tag_str) + 2
+    char_budget = TIKTOK_MAX_CAPTION - tag_budget - 50  # aim 3500-3950
+
+    reformat_prompt = f"""Reformat this blog content into a TikTok-friendly caption.
+
+TITLE: {title}
+ORIGINAL CONTENT:
+{long_content[:4200]}
+
+CRITICAL CONTEXT: TikTok strips ALL line breaks when posted via API.
+Every newline becomes a space. The entire caption will render as ONE continuous
+block of text. You MUST design it to be READABLE in that format.
+
+RULES — FOLLOW EXACTLY:
+1. OUTPUT ONLY the reformatted caption text. No JSON, no code blocks, no wrapping quotes.
+2. Target {char_budget} characters (3500-3900 range). Keep ALL the original information.
+3. Start with a hook question, then "—" dash, then 2-3 sentence direct answer.
+4. Use emoji (🌿 🫙 ❌ ✅ 🪴 💡 🔥 👉) as VISUAL SECTION MARKERS.
+   Each new idea MUST start with an emoji so readers can see where sections begin
+   even when everything is one giant block.
+5. Within each section, use "•" bullet with text. Example:
+   "🌿 Basic Setup • Get a 5-gallon bucket for $5 from any hardware store. • Add shredded cardboard as carbon — tear into 1-2 inch pieces. • Collect fruit peels, coffee grounds, veggie trimmings (no meat, no dairy)."
+6. For step-by-step, use numbered emoji: "🫙 Quick Method — 1️⃣ Gather scraps daily. 2️⃣ Add a handful of shredded paper. 3️⃣ Mix every few days. 4️⃣ Keep lid on, check weekly. 5️⃣ Harvest compost in 8-12 weeks."
+7. For warnings: "❌ Common Mistakes — • Overloading food scraps makes it stink. • Forgetting to aerate kills the process."
+8. For tips: "✅ Pro Tips — • Start small with just a bucket. • Keep it damp but not soggy."
+9. PLAIN TEXT ONLY — no ** bold, no ### headings, no Markdown formatting.
+10. Keep ALL specific numbers from original ($5, 8-12 weeks, 130°F, 1:1 ratio, etc).
+11. Witty personality — dry humor, real talk, zero corporate tone.
+12. End with a punchy 1-2 sentence closer.
+13. Do NOT use invisible characters, Braille blanks, or zero-width spaces.
+14. Do NOT rely on line breaks for formatting — they will ALL be stripped."""
+
+    try:
+        from llm_content import call_llm
+        result = call_llm(
+            reformat_prompt,
+            system="You reformat blog content into TikTok captions that read well as one continuous block. Emoji are the ONLY visual separators. Output ONLY the caption text.",
+            max_tokens=4500,
+            temperature=0.5,
+        )
+        if result.success and result.text and len(result.text.strip()) > 500:
+            caption = result.text.strip()
+            # Strip any wrapping quotes/code blocks the LLM might add
+            if caption.startswith('"') and caption.endswith('"'):
+                caption = caption[1:-1]
+            if caption.startswith("```"):
+                caption = caption.split("```", 2)[-1] if caption.count("```") >= 2 else caption[3:]
+                caption = caption.rsplit("```", 1)[0] if "```" in caption else caption
+                caption = caption.strip()
+            # Remove any stray Markdown the LLM sneaks in
+            import re as _re
+            caption = _re.sub(r'\*\*(.+?)\*\*', r'\1', caption)
+            caption = _re.sub(r'###?\s*', '', caption)
+            # Append hashtags if not already present
+            if tag_str and tag_str not in caption:
+                caption = f"{caption} {tag_str}"
+            logger.info("tiktok.reformat_success",
+                        original_len=len(long_content),
+                        new_len=len(caption),
+                        provider=result.provider)
+            return caption
+    except Exception as e:
+        logger.warning("tiktok.reformat_llm_error", error=str(e)[:200])
+
+    # ── FALLBACK: programmatic clump-proof reformat (no LLM available) ──
+    return _fallback_tiktok_clumpproof(title, long_content, hashtags)
+
+
+def _fallback_tiktok_clumpproof(title: str, content: str, hashtags: list[str]) -> str:
+    """Programmatic fallback: make existing content clump-proof without LLM.
+
+    Strategy: collapse all newlines → spaces, clean up spacing,
+    ensure emoji section headers are followed by "—" dash separators.
+    """
+    import re as _re
+    tag_str = " ".join(f"#{t.lstrip('#')}" for t in hashtags[:5] if t.strip())
+
+    # Start with title
+    caption = f"{title} — " if title else ""
+
+    # Collapse all newlines → single spaces
+    flat = _re.sub(r'\s*\n\s*', ' ', content)
+    # Collapse multiple spaces
+    flat = _re.sub(r' {2,}', ' ', flat).strip()
+
+    # Ensure emoji section headers have " — " before them for visual separation
+    # Match common section-header emoji
+    flat = _re.sub(
+        r'\s*([\U0001F33F\U0001FAD8\U0001F372\u274C\u2705\U0001FAB4\U0001F4A1\U0001F525\U0001F449'
+        r'\U0001F331\U0001F33B\U0001F33C\U0001F33D\U0001F33E])',
+        r' \1', flat
+    )
+
+    caption += flat
+
+    # Trim to budget, leaving room for hashtags
+    max_content = TIKTOK_MAX_CAPTION - len(tag_str) - 10
+    if len(caption) > max_content:
+        caption = caption[:max_content].rsplit(" ", 1)[0]
+
+    if tag_str:
+        caption = f"{caption} {tag_str}"
+
+    return caption[:TIKTOK_MAX_CAPTION]
+
+
 async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") -> dict:
     """
     Adapt a raw content_pack into a Publer/TikTok-ready publish dict.
 
     Handles:
-      1. Build FULL caption from content_formatted / universal_caption_block (3500-4000 chars)
-         — Falls back to basic hook+body+cta if quality content not available
+      1. Reformat content into clump-proof TikTok caption (3500-4000 chars)
+         — TikTok API strips ALL newlines, so emoji are the only separators
+         — Uses LLM to reformat, with programmatic fallback
       2. Set platforms filter so Publer only targets TikTok
       3. Pick next TikTok account via TikTokAccountManager (round-robin)
       4. Generate image from image_prompt if no media_url exists
       5. Return Publer-compatible content dict
 
-    TikTok caption limit: 4000 chars (updated 2024).
+    TikTok caption limit: 4000 chars.
     """
     import tempfile
     import uuid as _uuid
 
-    # ── 1. Build caption — PREFER quality content fields ──
+    # ── 1. Build caption — reformat for TikTok (clump-proof) ──
     title = content_pack.get("title", "")
     content_formatted = content_pack.get("content_formatted", "")
     universal_caption = content_pack.get("universal_caption_block", "")
@@ -1868,78 +1997,47 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
     # Ensure all hashtags have # prefix
     hashtags = [f"#{t.lstrip('#')}" for t in hashtags if t.strip()]
 
-    # PRIORITY 1: universal_caption_block (already includes title + content + hashtags)
+    # Get the best available long content
+    long_content = ""
     if universal_caption and len(universal_caption) > 500:
-        caption = universal_caption
-        # Ensure hashtags are included at the end
-        tag_str = " ".join(hashtags[:5])
-        if tag_str and tag_str not in caption:
-            caption = f"{caption}\n\n{tag_str}"
-
-    # PRIORITY 2: content_formatted (full Perplexity-style 3500-4000 char content)
+        long_content = universal_caption
     elif content_formatted and len(content_formatted) > 500:
-        tag_str = " ".join(hashtags[:5])  # TikTok allows max 5 hashtags
-        caption_parts = []
-        if title:
-            caption_parts.append(title)
-        # Strip any hashtags that LLM may have embedded in content_formatted
-        import re as _re
-        cleaned_content = _re.sub(r'\n+#\w+(?:\s+#\w+)*\s*$', '', content_formatted).strip()
-        caption_parts.append(cleaned_content)
-        if tag_str:
-            caption_parts.append(tag_str)
-        caption = "\n\n".join(caption_parts)
-
-    # PRIORITY 3: Fallback to basic fields (hook + body + cta)
+        long_content = content_formatted
     else:
         body = content_pack.get("body", "")
         hook = content_pack.get("hook", "")
         cta = content_pack.get("cta", "")
-
         parts = []
-        if hook and hook not in body:
+        if hook:
             parts.append(hook)
         if body:
             parts.append(body)
         elif title:
             parts.append(title)
-        if cta and cta not in body:
+        if cta:
             parts.append(cta)
+        long_content = " ".join(parts)
 
-        caption = "\n\n".join(parts)
-
-        # Append hashtags
-        if hashtags:
-            tag_str = " ".join(hashtags[:5])
-            caption = f"{caption}\n\n{tag_str}"
-
-    # ── TikTok line-break fix (v3 — Braille blank separator) ───
-    # TikTok's renderer STRIPS both \n and \n\n — empty lines are removed.
-    # The proven workaround: insert an INVISIBLE character (Braille Pattern
-    # Blank U+2800 "⠀") on each "blank" line.  TikTok treats it as a real
-    # character so the line is preserved, but humans cannot see it.
-    #
-    # Before: "Line A\n\nLine B"  → TikTok renders: "Line A Line B"  (clumped)
-    # After:  "Line A\n⠀\nLine B" → TikTok renders: "Line A\n \nLine B" ✓
-    import re as _re
-    BRAILLE_BLANK = "\u2800"  # invisible on all platforms
-
-    # Step 1: normalise — collapse 3+ newlines to exactly 2
-    caption = _re.sub(r'\n{3,}', '\n\n', caption)
-
-    # Step 2: every single \n that is NOT already part of \n\n → keep as-is
-    #         (single line-break within a paragraph — TikTok preserves these)
-
-    # Step 3: replace every TRUE blank line (\n\n) with \n⠀\n
-    caption = caption.replace('\n\n', f'\n{BRAILLE_BLANK}\n')
-
-    # Enforce TikTok 4000 char limit (updated 2024, was 2200)
-    if len(caption) > 4000:
-        # Smart trim: keep title + as much content as possible + hashtags at end
+    # ── Reformat: make content clump-proof for TikTok ──
+    # Always reformat — even "short" content needs emoji separators
+    if long_content and len(long_content) > 200:
+        caption = await _reformat_for_tiktok(title, long_content, hashtags)
+    else:
+        caption = long_content.strip()
         tag_str = " ".join(hashtags[:5])
-        tag_space = len(tag_str) + 4  # +4 for \n\n separator + buffer
-        max_content = 4000 - tag_space - 10
-        caption = caption[:max_content].rsplit("\n", 1)[0] + f"\n\n{tag_str}"
+        if tag_str and tag_str not in caption:
+            caption = f"{caption} {tag_str}"
+
+    # ── Strip ALL invisible Unicode artifacts ──
+    import re as _re
+    caption = _re.sub(r'[\u2800\u200B\u200C\u200D\uFEFF]', '', caption)
+
+    # ── Enforce TikTok 4000 char limit ──
+    if len(caption) > TIKTOK_MAX_CAPTION:
+        tag_str = " ".join(hashtags[:5])
+        tag_space = len(tag_str) + 2
+        max_content = TIKTOK_MAX_CAPTION - tag_space - 10
+        caption = caption[:max_content].rsplit(" ", 1)[0] + f" {tag_str}"
 
     # ── 2. Pick TikTok account (round-robin) ──
     account_ids = []
