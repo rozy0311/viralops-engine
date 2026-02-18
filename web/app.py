@@ -1879,7 +1879,11 @@ block of text. You MUST design it to be READABLE in that format.
 
 RULES — FOLLOW EXACTLY:
 1. OUTPUT ONLY the reformatted caption text. No JSON, no code blocks, no wrapping quotes.
-2. Target {char_budget} characters (3500-3900 range). Keep ALL the original information.
+2. ⚠️ HARD LENGTH REQUIREMENT: Your output MUST be {char_budget} characters (3500-3900 range).
+   This is NON-NEGOTIABLE. Do NOT summarize or shorten the content.
+   You are REFORMATTING, not SUMMARIZING. Keep EVERY detail, EVERY tip, EVERY example.
+   If the original is 3800 chars, your output should also be ~3800 chars.
+   Count your characters — if below 3400, you MUST add more detail from the original.
 3. Start with a hook question, then "—" dash, then 2-3 sentence direct answer.
 4. Use emoji (🌿 🫙 ❌ ✅ 🪴 💡 🔥 👉) as VISUAL SECTION MARKERS.
    Each new idea MUST start with an emoji so readers can see where sections begin
@@ -1894,36 +1898,97 @@ RULES — FOLLOW EXACTLY:
 11. Witty personality — dry humor, real talk, zero corporate tone.
 12. End with a punchy 1-2 sentence closer.
 13. Do NOT use invisible characters, Braille blanks, or zero-width spaces.
-14. Do NOT rely on line breaks for formatting — they will ALL be stripped."""
+14. Do NOT rely on line breaks for formatting — they will ALL be stripped.
+15. FINAL CHECK: Re-read your output. Is it 3500-3900 characters? If NOT, expand it NOW."""
+
+    MIN_REFORMAT_LEN = 3200  # minimum acceptable reformat length
+
+    def _clean_llm_caption(raw: str) -> str:
+        """Strip wrapping artifacts from LLM output."""
+        import re as _re
+        c = raw.strip()
+        if c.startswith('"') and c.endswith('"'):
+            c = c[1:-1]
+        if c.startswith("```"):
+            c = c.split("```", 2)[-1] if c.count("```") >= 2 else c[3:]
+            c = c.rsplit("```", 1)[0] if "```" in c else c
+            c = c.strip()
+        c = _re.sub(r'\*\*(.+?)\*\*', r'\1', c)
+        c = _re.sub(r'###?\s*', '', c)
+        return c.strip()
 
     try:
         from llm_content import call_llm
+
+        # ── Attempt 1: normal reformat ──
         result = call_llm(
             reformat_prompt,
-            system="You reformat blog content into TikTok captions that read well as one continuous block. Emoji are the ONLY visual separators. Output ONLY the caption text.",
-            max_tokens=4500,
+            system="You reformat blog content into TikTok captions that read well as one continuous block. Emoji are the ONLY visual separators. Output ONLY the caption text. OUTPUT MUST BE 3500-3900 CHARACTERS — same length as the original.",
+            max_tokens=5000,
             temperature=0.5,
         )
+        caption = ""
         if result.success and result.text and len(result.text.strip()) > 500:
-            caption = result.text.strip()
-            # Strip any wrapping quotes/code blocks the LLM might add
-            if caption.startswith('"') and caption.endswith('"'):
-                caption = caption[1:-1]
-            if caption.startswith("```"):
-                caption = caption.split("```", 2)[-1] if caption.count("```") >= 2 else caption[3:]
-                caption = caption.rsplit("```", 1)[0] if "```" in caption else caption
-                caption = caption.strip()
-            # Remove any stray Markdown the LLM sneaks in
+            caption = _clean_llm_caption(result.text)
+
+        # ── Attempt 2: if too short, retry with stricter prompt ──
+        if len(caption) < MIN_REFORMAT_LEN:
+            logger.warning("tiktok.reformat_too_short",
+                           len=len(caption), min=MIN_REFORMAT_LEN)
+            expand_prompt = f"""Your previous output was only {len(caption)} characters. That is TOO SHORT.
+
+I need EXACTLY 3500-3900 characters. The original content was {len(long_content)} characters.
+
+Here is the original content again:
+{long_content[:4200]}
+
+EXPAND your previous output to 3500-3900 characters by:
+- Adding back ALL details you removed
+- Including ALL tips, examples, numbers, and real-talk commentary
+- Each section should have 3-5 bullet points with "•"
+- Add extra context, comparisons, or "why this matters" explanations
+
+Previous short output to expand:
+{caption[:2000]}
+
+OUTPUT ONLY the full 3500-3900 character caption. No JSON, no code blocks."""
+
+            result2 = call_llm(
+                expand_prompt,
+                system="You MUST output 3500-3900 characters. This is a HARD requirement. Expand the content — do NOT summarize.",
+                max_tokens=5000,
+                temperature=0.6,
+            )
+            if result2.success and result2.text and len(result2.text.strip()) > len(caption):
+                caption2 = _clean_llm_caption(result2.text)
+                if len(caption2) > len(caption):
+                    caption = caption2
+                    logger.info("tiktok.reformat_expanded",
+                                len=len(caption), attempt=2)
+
+        # ── Attempt 3: if STILL too short, pad with original content ──
+        if caption and len(caption) < MIN_REFORMAT_LEN:
             import re as _re
-            caption = _re.sub(r'\*\*(.+?)\*\*', r'\1', caption)
-            caption = _re.sub(r'###?\s*', '', caption)
+            # Flatten original content and append missing parts
+            flat_original = _re.sub(r'\s*\n\s*', ' ', long_content)
+            flat_original = _re.sub(r' {2,}', ' ', flat_original).strip()
+            # Find content not yet in caption (simple: append tail of original)
+            needed = MIN_REFORMAT_LEN - len(caption) + 200
+            # Take the last N chars of original that aren't the title/hook
+            tail = flat_original[-(needed + 200):]
+            caption = f"{caption} ✅ More Details — {tail}"
+            caption = caption[:TIKTOK_MAX_CAPTION - len(tag_str) - 10]
+            logger.info("tiktok.reformat_padded",
+                        len=len(caption), padding=needed)
+
+        if caption:
             # Append hashtags if not already present
             if tag_str and tag_str not in caption:
                 caption = f"{caption} {tag_str}"
             logger.info("tiktok.reformat_success",
                         original_len=len(long_content),
                         new_len=len(caption),
-                        provider=result.provider)
+                        provider=getattr(result, 'provider', 'unknown'))
             return caption
     except Exception as e:
         logger.warning("tiktok.reformat_llm_error", error=str(e)[:200])
