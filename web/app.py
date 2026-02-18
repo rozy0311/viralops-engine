@@ -1913,14 +1913,25 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
             tag_str = " ".join(hashtags[:5])
             caption = f"{caption}\n\n{tag_str}"
 
-    # ── TikTok line-break fix ──────────────────────────────────
-    # TikTok's API STRIPS single \n — it only preserves \n\n (double newlines).
-    # Without this, numbered lists and sections all collapse into one giant
-    # clumped paragraph on the TikTok mobile app.
-    # Strategy: convert every single \n to \n\n, then collapse 3+ back to \n\n.
+    # ── TikTok line-break fix (v3 — Braille blank separator) ───
+    # TikTok's renderer STRIPS both \n and \n\n — empty lines are removed.
+    # The proven workaround: insert an INVISIBLE character (Braille Pattern
+    # Blank U+2800 "⠀") on each "blank" line.  TikTok treats it as a real
+    # character so the line is preserved, but humans cannot see it.
+    #
+    # Before: "Line A\n\nLine B"  → TikTok renders: "Line A Line B"  (clumped)
+    # After:  "Line A\n⠀\nLine B" → TikTok renders: "Line A\n \nLine B" ✓
     import re as _re
-    caption = _re.sub(r'(?<!\n)\n(?!\n)', '\n\n', caption)   # \n → \n\n
-    caption = _re.sub(r'\n{3,}', '\n\n', caption)             # \n\n\n+ → \n\n
+    BRAILLE_BLANK = "\u2800"  # invisible on all platforms
+
+    # Step 1: normalise — collapse 3+ newlines to exactly 2
+    caption = _re.sub(r'\n{3,}', '\n\n', caption)
+
+    # Step 2: every single \n that is NOT already part of \n\n → keep as-is
+    #         (single line-break within a paragraph — TikTok preserves these)
+
+    # Step 3: replace every TRUE blank line (\n\n) with \n⠀\n
+    caption = caption.replace('\n\n', f'\n{BRAILLE_BLANK}\n')
 
     # Enforce TikTok 4000 char limit (updated 2024, was 2200)
     if len(caption) > 4000:
