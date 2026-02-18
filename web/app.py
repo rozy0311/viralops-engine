@@ -359,8 +359,8 @@ _AUTOPILOT_DEFAULTS = {
     "enabled": False,
     "interval_hours": 4,
     "niches": ["general"],
-    "platforms": ["tiktok", "pinterest"],
-    "max_posts_per_day": 6,
+    "platforms": ["tiktok", "facebook", "pinterest"],
+    "max_posts_per_day": 15,
 }
 
 
@@ -422,7 +422,7 @@ async def autopilot_loop():
                 _autopilot_posts_today_date = today
 
             # Check daily limit
-            if _autopilot_posts_today >= cfg.get("max_posts_per_day", 6):
+            if _autopilot_posts_today >= cfg.get("max_posts_per_day", 15):
                 logger.info("autopilot.daily_limit_reached",
                             count=_autopilot_posts_today)
                 await asyncio.sleep(600)  # Check again in 10 min
@@ -432,7 +432,7 @@ async def autopilot_loop():
             niches = cfg.get("niches") or ["general"]
             niche = niches[_niche_index % len(niches)] if niches else "general"
             _niche_index += 1
-            platforms = cfg.get("platforms", ["tiktok", "pinterest"])
+            platforms = cfg.get("platforms", ["tiktok", "facebook", "pinterest"])
 
             logger.info("autopilot.generating", niche=niche, platforms=platforms)
 
@@ -610,6 +610,53 @@ async def autopilot_loop():
                                     "error": f"TikTok prep failed: {tk_err}",
                                 })
                                 continue
+
+                        elif plat == "facebook":
+                            # ── Facebook: rich text with full formatting ──
+                            try:
+                                publish_content = await _prepare_facebook_content(
+                                    content_pack
+                                )
+                                if not publish_content:
+                                    logger.warning("facebook.prepare_empty",
+                                                   title=content_pack.get("title", "")[:60])
+                                    continue
+                                logger.info("facebook.content_ready",
+                                            chars=len(publish_content.get("caption", "")))
+                            except Exception as fb_err:
+                                publish_results.append({
+                                    "platform": plat,
+                                    "success": False,
+                                    "error": f"Facebook prep failed: {fb_err}",
+                                })
+                                continue
+
+                        elif plat == "pinterest":
+                            # ── Pinterest: pin with image + short description ──
+                            try:
+                                publish_content = await _prepare_pinterest_content(
+                                    content_pack
+                                )
+                                if not publish_content:
+                                    logger.warning("pinterest.prepare_empty",
+                                                   title=content_pack.get("title", "")[:60],
+                                                   reason="no image available for pin")
+                                    publish_results.append({
+                                        "platform": plat,
+                                        "success": False,
+                                        "error": "Pinterest requires an image — skipped",
+                                    })
+                                    continue
+                                logger.info("pinterest.content_ready",
+                                            title=publish_content.get("title", "")[:60])
+                            except Exception as pin_err:
+                                publish_results.append({
+                                    "platform": plat,
+                                    "success": False,
+                                    "error": f"Pinterest prep failed: {pin_err}",
+                                })
+                                continue
+
                         else:
                             publish_content = content_pack
 
@@ -1479,7 +1526,7 @@ async def api_pipeline_run(request: Request):
     data = await request.json()
     niche = data.get("niche", "general")
     topic = data.get("topic")
-    platforms = data.get("platforms", ["tiktok", "pinterest"])
+    platforms = data.get("platforms", ["tiktok", "facebook", "pinterest"])
     publish_mode = data.get("publish_mode", "draft")
 
     try:
@@ -1612,7 +1659,7 @@ async def api_autopilot_config_put(request: Request):
     if "max_posts_per_day" in data:
         try:
             val = int(data["max_posts_per_day"])
-            current["max_posts_per_day"] = max(1, min(val, 100))
+            current["max_posts_per_day"] = max(1, min(val, 500))
         except (ValueError, TypeError):
             pass
     _save_autopilot_config(current)
@@ -2216,6 +2263,187 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
     result["_account_label"] = account_label or ""
     result["_original_content_pack"] = True
 
+    return result
+
+
+async def _prepare_facebook_content(content_pack: dict) -> dict:
+    """
+    Adapt a raw content_pack into a Publer/Facebook-ready publish dict.
+
+    Facebook supports rich text with newlines, links, emojis, etc.
+    No need for clump-proof reformatting — use the full formatted content
+    as-is with proper paragraph breaks.
+
+    Facebook post limits:
+      - Status/text: 63,206 chars
+      - Photo caption: 63,206 chars
+      - No daily post limit enforced by ViralOps
+    """
+    import tempfile
+    import uuid as _uuid
+
+    title = content_pack.get("title", "")
+    content_formatted = content_pack.get("content_formatted", "")
+    universal_caption = content_pack.get("universal_caption_block", "")
+    hashtags = content_pack.get("hashtags", [])
+    hashtags = [f"#{t.lstrip('#')}" for t in hashtags if t.strip()]
+
+    # Use the best available content — FB supports full rich text
+    long_content = ""
+    if universal_caption and len(universal_caption) > 500:
+        long_content = universal_caption
+    elif content_formatted and len(content_formatted) > 500:
+        long_content = content_formatted
+    else:
+        body = content_pack.get("body", "")
+        hook = content_pack.get("hook", "")
+        cta = content_pack.get("cta", "")
+        parts = []
+        if hook:
+            parts.append(hook)
+        if body:
+            parts.append(body)
+        elif title:
+            parts.append(title)
+        if cta:
+            parts.append(cta)
+        long_content = "\n\n".join(parts)
+
+    # Build caption: title + content + hashtags
+    caption_parts = []
+    if title:
+        caption_parts.append(f"🌿 {title}")
+    if long_content:
+        caption_parts.append(long_content)
+    tag_str = " ".join(hashtags[:10])
+    if tag_str:
+        caption_parts.append(tag_str)
+    caption = "\n\n".join(caption_parts)
+
+    # ── Generate image if needed ──
+    media_url = (content_pack.get("media_url", "")
+                 or content_pack.get("image_url", "")
+                 or content_pack.get("_ai_image_path", ""))
+    if media_url and not media_url.startswith(("http://", "https://")) and not os.path.isfile(media_url):
+        media_url = ""
+    if not media_url:
+        image_prompt = content_pack.get("image_prompt", "")
+        if image_prompt:
+            try:
+                output_dir = tempfile.mkdtemp(prefix="viralops_fb_")
+                output_path = os.path.join(output_dir, f"fb_{_uuid.uuid4().hex[:8]}.png")
+                from llm_content import generate_ai_image
+                img_path = await asyncio.to_thread(
+                    generate_ai_image, image_prompt, output_path
+                )
+                if img_path and os.path.isfile(img_path):
+                    media_url = img_path
+                    logger.info("facebook.image_generated", path=img_path)
+            except Exception as e:
+                logger.warning("facebook.image_gen_error", error=str(e))
+
+    result = {
+        "caption": caption,
+        "title": title,
+        "platforms": ["facebook"],
+        "hashtags": [],  # already in caption
+        "content_type": "photo" if media_url else "status",
+    }
+    if media_url:
+        if media_url.startswith(("http://", "https://")):
+            result["media_url"] = media_url
+        else:
+            result["media_local_path"] = media_url
+
+    logger.info("facebook.content_prepared",
+                chars=len(caption), has_image=bool(media_url))
+    return result
+
+
+async def _prepare_pinterest_content(content_pack: dict) -> dict:
+    """
+    Adapt a raw content_pack into a Publer/Pinterest-ready publish dict.
+
+    Pinterest Pin format:
+      - Title: max 100 chars
+      - Description: max 500 chars
+      - Image REQUIRED for pins
+      - Link optional but recommended
+      - No daily post limit enforced by ViralOps
+    """
+    import tempfile
+    import uuid as _uuid
+
+    title = content_pack.get("title", "")
+    content_formatted = content_pack.get("content_formatted", "")
+    universal_caption = content_pack.get("universal_caption_block", "")
+    hashtags = content_pack.get("hashtags", [])
+    hashtags = [f"#{t.lstrip('#')}" for t in hashtags if t.strip()]
+
+    # Pinterest title: max 100 chars
+    pin_title = title[:97] + "..." if len(title) > 100 else title
+
+    # Pinterest description: max 500 chars — use compact version
+    long_content = ""
+    if universal_caption and len(universal_caption) > 200:
+        long_content = universal_caption
+    elif content_formatted and len(content_formatted) > 200:
+        long_content = content_formatted
+    else:
+        body = content_pack.get("body", "")
+        hook = content_pack.get("hook", "")
+        long_content = hook or body or title
+
+    # Build description: truncate to 500 chars with hashtags
+    tag_str = " ".join(hashtags[:5])
+    max_desc = 500 - len(tag_str) - 2 if tag_str else 500
+    desc = long_content[:max_desc].rsplit(" ", 1)[0] if len(long_content) > max_desc else long_content
+    if tag_str:
+        desc = f"{desc} {tag_str}"
+
+    # ── Image is REQUIRED for Pinterest pins ──
+    media_url = (content_pack.get("media_url", "")
+                 or content_pack.get("image_url", "")
+                 or content_pack.get("_ai_image_path", ""))
+    if media_url and not media_url.startswith(("http://", "https://")) and not os.path.isfile(media_url):
+        media_url = ""
+    if not media_url:
+        image_prompt = content_pack.get("image_prompt", "")
+        if image_prompt:
+            try:
+                output_dir = tempfile.mkdtemp(prefix="viralops_pin_")
+                output_path = os.path.join(output_dir, f"pin_{_uuid.uuid4().hex[:8]}.png")
+                from llm_content import generate_ai_image
+                img_path = await asyncio.to_thread(
+                    generate_ai_image, image_prompt, output_path
+                )
+                if img_path and os.path.isfile(img_path):
+                    media_url = img_path
+                    logger.info("pinterest.image_generated", path=img_path)
+            except Exception as e:
+                logger.warning("pinterest.image_gen_error", error=str(e))
+
+    if not media_url:
+        logger.warning("pinterest.no_image_skipping",
+                        title=title[:60],
+                        reason="Pinterest requires an image for pins")
+        return {}  # Empty dict signals skip
+
+    result = {
+        "caption": desc,
+        "title": pin_title,
+        "platforms": ["pinterest"],
+        "hashtags": [],  # already in description
+        "content_type": "pin",
+    }
+    if media_url.startswith(("http://", "https://")):
+        result["media_url"] = media_url
+    else:
+        result["media_local_path"] = media_url
+
+    logger.info("pinterest.content_prepared",
+                title_len=len(pin_title), desc_len=len(desc),
+                has_image=True)
     return result
 
 

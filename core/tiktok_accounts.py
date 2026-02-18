@@ -35,7 +35,8 @@ from typing import Any, Optional
 logger = logging.getLogger("viralops.tiktok_accounts")
 
 # ── Constants ──────────────────────────────────────────────────────
-MAX_POSTS_PER_ACCOUNT_PER_DAY = 3   # TikTok safe limit
+MAX_POSTS_PER_ACCOUNT_PER_DAY = 15  # TikTok practical max (no hard API limit,
+                                     # but >15/day risks shadowban/throttle)
 DEFAULT_JITTER_MIN = 15              # Minutes min gap between posts
 DEFAULT_JITTER_MAX = 45              # Minutes max gap between posts
 
