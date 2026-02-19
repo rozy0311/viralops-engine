@@ -207,7 +207,15 @@ async def _dedup_against_publer(
 async def _generate_content(topic: str, score: float) -> dict[str, Any]:
     from llm_content import generate_quality_post
 
-    pack = await asyncio.to_thread(generate_quality_post, topic=topic, score=score)
+    # Season is computed by month inside generate_quality_post().
+    # Optional override: set VIRALOPS_SEASON=Winter|Spring|Summer|Fall
+    season_override = os.environ.get("VIRALOPS_SEASON", "").strip()
+    pack = await asyncio.to_thread(
+        generate_quality_post,
+        topic=topic,
+        score=score,
+        season=season_override,
+    )
     if not pack or not pack.get("content_formatted"):
         raise ValueError(f"Failed generate: {topic[:80]}")
     return pack
