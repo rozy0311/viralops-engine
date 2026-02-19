@@ -1931,7 +1931,7 @@ RULES — FOLLOW EXACTLY:
    You are REFORMATTING, not SUMMARIZING. Keep EVERY detail, EVERY tip, EVERY example.
    If the original is 3800 chars, your output should also be ~3800 chars.
    Count your characters — if below 3400, you MUST add more detail from the original.
-3. Start with a hook question, then "—" dash, then 2-3 sentence direct answer.
+3. Start with the provided TITLE as the first line (keep it recognizable), then "—" dash, then 2-3 sentence direct answer.
 4. Use emoji (🌿 🫙 ❌ ✅ 🪴 💡 🔥 👉) as VISUAL SECTION MARKERS.
    Each new idea MUST start with an emoji so readers can see where sections begin
    even when everything is one giant block.
@@ -1966,6 +1966,12 @@ RULES — FOLLOW EXACTLY:
 
     try:
         from llm_content import call_llm
+
+        def _norm(s: str) -> str:
+            import re as _re
+            s = (s or "").lower().strip()
+            s = _re.sub(r"\s+", " ", s)
+            return s
 
         # ── Attempt 1: normal reformat ──
         result = call_llm(
@@ -2032,6 +2038,21 @@ OUTPUT ONLY the full 3500-3900 character caption. No JSON, no code blocks."""
             # Append hashtags if not already present
             if tag_str and tag_str not in caption:
                 caption = f"{caption} {tag_str}"
+
+            # Ensure title is visible in TikTok caption.
+            # TikTok does not have a separate 'title' field — only caption text.
+            # Some LLM reformats may drop the provided TITLE; prefix it back in.
+            if title:
+                norm_title = _norm(title)
+                head = _norm(caption[:220])
+                if norm_title and norm_title not in head:
+                    # Leave room for hashtags already appended
+                    max_len = TIKTOK_MAX_CAPTION
+                    prefix = f"{title} — "
+                    caption = (prefix + caption).strip()
+                    if len(caption) > max_len:
+                        caption = caption[:max_len].rsplit(" ", 1)[0]
+
             logger.info("tiktok.reformat_success",
                         original_len=len(long_content),
                         new_len=len(caption),

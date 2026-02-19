@@ -732,8 +732,10 @@ YOUR ROLE: ANSWER the question like you're a witty, knowledgeable friend who has
 
 WINNING CONTENT PATTERN (proven viral blog posts — emulate this depth):
 - Answer like you've done it yourself for 4+ years: "Staunton clay floods spring, freezes solid winter — our raised beds solved everything"
+- Add 1 trial-error regret line early: "Wish I did X sooner — first batch failed and I wasted $5" (make it specific)
 - Include MULTIPLE sub-sections with different angles on the same topic
-- Give LISTS of specific variations (like "25 layouts" or "10 methods") — each with exact plant combos, measurements, costs
+- Give LISTS of specific variations (like "15-25 uses/layouts" or "10 methods") — each with exact combos, measurements, costs
+- Include an "Expansion Ladder" (start tiny → scale weekly/monthly) when it fits the topic
 - Add "Reality Checks" section — honest warnings like "cover brassicas with netting unless you love donating crops to cabbage worms"
 - Add "Common Mistakes" section — 🚩 emoji header, 3-4 specific things people ALWAYS get wrong and WHY
 - End with a "Practical Summary" using ✔ checkmarks — the tl;dr action list
@@ -928,12 +930,29 @@ def generate_quality_post(
                      "Portland", "Seattle", "Austin", "Miami", "Atlanta", "Boston"]
         location = _rng.choice(locations)
     if not season:
-        import datetime
-        month = datetime.datetime.now().month
-        season = {12: "Winter", 1: "Winter", 2: "Winter",
-                  3: "Spring", 4: "Spring", 5: "Spring",
-                  6: "Summer", 7: "Summer", 8: "Summer",
-                  9: "Fall", 10: "Fall", 11: "Fall"}[month]
+        # User preference: treat current period as Spring (late-winter/early-spring transition).
+        # Allow explicit override via env var.
+        season_override = os.environ.get("VIRALOPS_SEASON", "").strip()
+        if season_override:
+            season = season_override
+        else:
+            import datetime
+            month = datetime.datetime.now().month
+            # Default bias toward Spring for Feb–May.
+            season = {
+                12: "Winter",
+                1: "Winter",
+                2: "Spring",
+                3: "Spring",
+                4: "Spring",
+                5: "Spring",
+                6: "Summer",
+                7: "Summer",
+                8: "Summer",
+                9: "Fall",
+                10: "Fall",
+                11: "Fall",
+            }[month]
     
     print(f"\n{'='*60}")
     print(f"  QUALITY CONTENT GENERATOR — Q&A Natural Style")
@@ -971,7 +990,7 @@ SEASON: {season}
 Your task: output ONLY a SINGLE valid JSON object with this exact schema (no markdown, no code fences):
 
 {{
-  \"title\": \"Do you know [surprising specific claim with a number]?\",
+    "title": "HOOK LINE (question/contrarian/myth/checklist) with 1+ specific number/fact",
   \"content_formatted\": \"PLAIN TEXT answer. Aim 3500-4000 chars. NO **. NO ###. Emoji section headers.\",
   \"pain_point\": \"1 sentence\",
   \"audiences\": [\"...\", \"...\", \"...\"],
@@ -1020,7 +1039,8 @@ SEASON: {season}
 {feedback_block}
 You are answering someone who asked "{topic}". Give them the REAL, COMPLETE answer with personality.
 
-EXAMPLE OF THE EXACT FORMAT TO MATCH (real published post — notice NO Markdown):
+EXAMPLE OF THE FORMAT TO MATCH (real published post — notice NO Markdown).
+This is ONE valid hook style; you may use other hook styles too:
 
 Do you know banana peels make natural shoe polish that repels water too?
 
@@ -1041,7 +1061,7 @@ FORMAT YOUR CONTENT EXACTLY LIKE THAT EXAMPLE. PLAIN TEXT ONLY.
 Output as JSON:
 
 {{
-  "title": "Do you know [surprising specific claim from the topic with a number or fact]?",
+    "title": "HOOK LINE (1 line). Can be a question OR contrarian claim OR myth-buster. Must include 1+ specific number/fact.",
   "content_formatted": "PLAIN TEXT answer. 3500-4000 chars. NO ** markers. NO ### headings. NO Markdown. Emoji section headers. Exact numbers. Witty tone.",
   "pain_point": "Ultra-specific problem (1 sentence with $ or timeframe)",
   "audiences": ["Specific persona 1", "Specific persona 2", "Specific persona 3"],
@@ -1059,7 +1079,11 @@ Output as JSON:
 
 CRITICAL:
 1. content_formatted = PLAIN TEXT answer, 3500-4000 characters. NO Markdown. COUNT CAREFULLY.
-2. Title MUST be a natural question: "Do you know [specific claim]?" — NOT generic like "Unlock the Power of..."
+2. Title MUST be a strong HOOK line (NOT generic clickbait). Allowed patterns:
+    - A direct question (not necessarily "Do you know")
+    - A contrarian claim: "Stop doing X — here's why (with numbers)"
+    - A myth-buster: "Coffee grounds + eggshells for tomatoes: myth or real?"
+    - A checklist promise: "3 signs you're doing X wrong"
 3. ABSOLUTELY NO ** bold markers — TikTok shows them as ugly literal ** characters.
 4. ABSOLUTELY NO ### or ## headings — TikTok shows them as literal # characters.
 5. Use emoji section headers: 🌿 🫘 🫙 ❌ ✅ on their own lines.
@@ -1275,7 +1299,7 @@ Score each 1-10 (be STRICT — 10 = professional-grade, 7 = mediocre):
 1. ANSWER_QUALITY — Does the content ACTUALLY answer the topic like a Perplexity AI expert? Specific facts, not fluff?
 2. CONTENT_DEPTH — 3200-4000 chars of REAL value? Every sentence teaches something? (3000+ is acceptable if dense)
 3. TONE — Casual, witty, personality-driven? Dry humor? NOT corporate, NOT generic blog-speak?
-4. HOOK — Does the title start with "Do you know" or a natural question? Or is it generic clickbait like "Unlock the Power of..."?
+4. HOOK — Is the FIRST LINE a strong hook (question OR contrarian claim OR myth-buster OR checklist)? Or is it generic clickbait like "Unlock the Power of..."?
 5. SPECIFICITY — Concrete numbers ($prices, timeframes, quantities, temperatures)? At least 15 specific numbers? Or vague advice?
 6. ACTIONABILITY — Reader can do this TODAY with what they have?
 7. FORMATTING — PLAIN TEXT ONLY. NO ** bold? NO ### headings? NO Markdown at all? Uses emoji section headers (🌿 🫙 ❌ ✅)?
@@ -1284,7 +1308,7 @@ Score each 1-10 (be STRICT — 10 = professional-grade, 7 = mediocre):
 For EACH criterion below 9, explain SPECIFICALLY what's wrong and how to fix it.
 
 Output ONLY valid JSON:
-{{"scores": {{"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix (2-3 sentences, be actionable)", "improved_title": "Do you know [specific claim]? — rewrite if title is generic clickbait, else keep same"}}"""
+{{"scores": {{"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix (2-3 sentences, be actionable)", "improved_title": "Rewrite the first line into a stronger hook (question/contrarian/myth/checklist) using 1+ specific number — keep it natural"}}"""
     
     gen_provider = pack.get("_gen_provider", "")
     review_providers = ["github_models", "perplexity", "gemini", "openai"]
@@ -1461,14 +1485,14 @@ Score 1-10 on each criteria:
 1. ANSWER_QUALITY — Does the content actually answer the topic like a Perplexity AI expert? Specific facts, not fluff?
 2. CONTENT_DEPTH — 3200-4000 chars of REAL value? Every sentence teaches something?
 3. TONE — Casual, witty, personality-driven? Dry humor? NOT corporate, NOT generic blog-speak?
-4. HOOK — Does the title start with "Do you know" or a natural question? Would the first 2 sentences stop someone scrolling?
+4. HOOK — Is the first line a strong hook (question/contrarian/myth/checklist) with a specific number/fact? Would the first 2 sentences stop someone scrolling?
 5. SPECIFICITY — Concrete numbers ($prices, timeframes, quantities, temperatures)? At least 15 specific numbers? Or vague advice?
 6. ACTIONABILITY — Reader can do this TODAY with what they have?
 7. FORMATTING — PLAIN TEXT ONLY for TikTok. Uses emoji section headers (🌿 🫙 ❌ ✅)? NO ** bold markers? NO ### headings? NO Markdown at all? Clean and readable?
    DEDUCT 2 POINTS if content contains ** or ### or ## — these show as ugly literal characters on TikTok.
 
 Output ONLY valid JSON:
-{"scores": {"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix", "improved_title": "Do you know [specific claim]? — rewrite if title is generic clickbait"}
+{"scores": {"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix", "improved_title": "Rewrite the first line into a stronger hook using 1+ specific number/fact (question/contrarian/myth/checklist)"}
 Pass threshold: avg >= 9.0"""
 
 
