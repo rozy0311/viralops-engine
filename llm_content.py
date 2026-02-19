@@ -949,6 +949,54 @@ def generate_quality_post(
     best_pack = None
     best_score = 0.0
     prev_feedback = ""
+
+    def _coerce_pack_from_raw(raw_text: str) -> Optional[Dict[str, Any]]:
+        """Best-effort: convert a non-JSON / truncated-JSON LLM response into a valid pack JSON."""
+        if not raw_text or not raw_text.strip():
+            return None
+
+        # Keep prompt bounded
+        raw_snippet = raw_text.strip()
+        if len(raw_snippet) > 6500:
+            raw_snippet = raw_snippet[:6500]
+
+        coerce_prompt = f"""You are a JSON-only formatter.
+
+We tried to generate a ViralOps content pack, but the model returned NON-VALID JSON (or truncated JSON).
+
+TOPIC: {topic}
+LOCATION: {location}
+SEASON: {season}
+
+Your task: output ONLY a SINGLE valid JSON object with this exact schema (no markdown, no code fences):
+
+{{
+  \"title\": \"Do you know [surprising specific claim with a number]?\",
+  \"content_formatted\": \"PLAIN TEXT answer. Aim 3500-4000 chars. NO **. NO ###. Emoji section headers.\",
+  \"pain_point\": \"1 sentence\",
+  \"audiences\": [\"...\", \"...\", \"...\"],
+  \"steps\": [\"Step 1...\", \"Step 2...\"],
+  \"result\": \"Measurable outcome\",
+  \"hashtags\": [\"NanoNiche1\", \"NanoNiche2\", \"NanoNiche3\"],
+  \"image_title\": \"Max 4 words\",
+  \"image_subtitle\": \"Max 5 words\",
+  \"image_steps\": \"Word1 • Word2 • Word3\",
+  \"colors\": [[60, 80, 40], [120, 160, 80]]
+}}
+
+Rules:
+- Use the RAW OUTPUT below as the source. If it's incomplete, rewrite cleanly.
+- content_formatted MUST be plain text TikTok-friendly (no Markdown tokens).
+- Hashtags MUST be exactly 3 items, without leading '#'.
+
+RAW OUTPUT (may be invalid / truncated):
+{raw_snippet}
+"""
+
+        fix = call_llm(coerce_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=2500, temperature=0.2)
+        if not fix.success:
+            return None
+        return _extract_json(fix.text)
     
     for attempt in range(1, MAX_ATTEMPTS + 1):
         print(f"\n  ── Attempt {attempt}/{MAX_ATTEMPTS} ──")
@@ -1036,7 +1084,12 @@ CRITICAL:
             print(f"  [QUALITY] Raw text length: {raw_len}")
             print(f"  [QUALITY] Raw text (first 300): {repr(result.text[:300])}")
             print(f"  [QUALITY] Raw text (last 200): {repr(result.text[-200:])}")
-            continue
+
+            # Fallback: try to coerce raw output into required JSON schema
+            pack = _coerce_pack_from_raw(result.text)
+            if not pack:
+                continue
+            print(f"  [QUALITY] Coerced pack from raw text")
         
         # ── Strip leftover Markdown + ensure section breaks (safety net) ──
         content = _strip_markdown(pack.get("content_formatted", ""))
