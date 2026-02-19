@@ -40,6 +40,15 @@ from typing import Any, Optional
 
 import httpx
 
+# Auto-load .env (best-effort) so CLI utilities and one-off scripts
+# don't fail when they forget to call load_dotenv().
+try:
+    from dotenv import load_dotenv, find_dotenv
+
+    load_dotenv(find_dotenv(usecwd=True), override=False)
+except Exception:
+    pass
+
 logger = logging.getLogger("viralops.publisher.publer")
 
 # ── Network provider mapping ──
@@ -348,7 +357,14 @@ class PublerPublisher:
                 pf = platform_filter.lower()
                 # Map ViralOps names to Publer provider names
                 publer_key = PLATFORM_TO_PUBLER_NETWORK.get(pf, pf)
-                if publer_key in acc_type or pf in acc_type or pf in acc_name:
+                # Publer uses provider aliases like fb_page / pin_business.
+                alias_ok = False
+                if pf == "facebook" and (acc_type.startswith("fb") or "facebook" in acc_type):
+                    alias_ok = True
+                if pf == "pinterest" and (acc_type.startswith("pin") or "pinterest" in acc_type):
+                    alias_ok = True
+
+                if publer_key in acc_type or pf in acc_type or pf in acc_name or alias_ok:
                     ids.append(acc_id)
             else:
                 ids.append(acc_id)
