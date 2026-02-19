@@ -764,6 +764,11 @@ class PublerPublisher:
         List posts.
         Endpoint: GET /posts
         """
+        if not self._connected:
+            await self.connect()
+        if not self._connected:
+            return []
+
         params: dict[str, Any] = {"limit": limit, "page": page}
         if status:
             params["status"] = status
@@ -772,11 +777,16 @@ class PublerPublisher:
             resp = await self._request("GET", "posts", params=params)
             if resp.status_code == 200:
                 data = resp.json()
-                if isinstance(data, dict) and "data" in data:
-                    return data["data"]
+                if isinstance(data, dict):
+                    if "data" in data and isinstance(data["data"], list):
+                        return data["data"]
+                    # Publer sometimes returns {"posts": [...]} 
+                    if "posts" in data and isinstance(data["posts"], list):
+                        return data["posts"]
                 if isinstance(data, list):
                     return data
                 return []
+            logger.warning("Publer get_posts failed: %d %s", resp.status_code, resp.text[:300])
             return []
         except Exception as e:
             logger.error("Publer get_posts error: %s", e)
@@ -785,6 +795,10 @@ class PublerPublisher:
     async def delete_post(self, post_id: str) -> bool:
         """Delete a post by ID."""
         try:
+            if not self._connected:
+                await self.connect()
+            if not self._connected:
+                return False
             resp = await self._request("DELETE", f"posts/{post_id}")
             return resp.status_code in (200, 204)
         except Exception as e:

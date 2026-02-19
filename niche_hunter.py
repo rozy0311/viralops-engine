@@ -580,6 +580,26 @@ def score_all_seeds() -> list[dict]:
 # Uses Gemini 2.5 Flash for budget-friendly AI scoring
 # 
 
+def _get_gemini_api_keys() -> list[str]:
+    """Return Gemini API keys in priority order (deduped).
+
+    Supports:
+      - GEMINI_API_KEY
+      - FALLBACK_GEMINI_API_KEY
+      - SECOND_FALLBACK_GEMINI_API_KEY
+    """
+    keys: list[str] = []
+    for env_name in [
+        "GEMINI_API_KEY",
+        "FALLBACK_GEMINI_API_KEY",
+        "SECOND_FALLBACK_GEMINI_API_KEY",
+    ]:
+        val = os.environ.get(env_name, "").strip()
+        if val and val not in keys:
+            keys.append(val)
+    return keys
+
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -633,14 +653,29 @@ def expand_niches_with_gemini(broad_niche: str, count: int = 20) -> list[dict]:
     try:
         from google import genai
 
-        if not GEMINI_API_KEY:
-            print("  No GEMINI_API_KEY  using local database only")
+        api_keys = _get_gemini_api_keys()
+        if not api_keys:
+            print("  No GEMINI_API_KEY(s)  using local database only")
             return []
 
-        client = genai.Client(api_key=GEMINI_API_KEY)
         prompt = build_niche_expansion_prompt(broad_niche, count)
-        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-        text = response.text.strip()
+        last_err: Exception | None = None
+        text = ""
+        for idx, api_key in enumerate(api_keys, 1):
+            try:
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+                text = (response.text or "").strip()
+                if text:
+                    break
+            except Exception as e:
+                last_err = e
+                # Common quota errors should fall through to next key
+                print(f"  Gemini key {idx}/{len(api_keys)} failed: {str(e)[:120]}")
+                continue
+
+        if not text:
+            raise last_err or RuntimeError("Gemini returned empty response")
 
         # Clean up JSON
         if text.startswith("```"):
