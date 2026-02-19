@@ -32,3 +32,9 @@ logs/
 *.sqlite3
 
 data/
+
+# Local-only debug/ops scripts (keep out of repo)
+scripts/batch_mega.py
+scripts/batch_mega_r3.py
+scripts/check_recent_duplicates.py
+scripts/search_publer_posts.py
