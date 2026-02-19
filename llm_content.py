@@ -1300,14 +1300,39 @@ def get_unused_topics(top_n: int = 10) -> List[Tuple[str, float, str, str]]:
     if not os.path.exists(db_path):
         return []
     
-    # Get published titles (direct sqlite3 — avoids circular import from web.app)
-    published_titles = set()
+    def _norm_tokens(text: str) -> set:
+        import re
+        text = (text or "").lower()
+        text = re.sub(r"[^a-z0-9 ]+", " ", text)
+        toks = [t for t in re.split(r"\s+", text) if t]
+        # keep informative tokens only
+        stop = {
+            "do", "you", "know", "that", "can", "make", "your", "with", "just",
+            "how", "to", "in", "under", "for", "and", "the", "a", "an",
+        }
+        return {t for t in toks if len(t) >= 4 and t not in stop}
+
+    # Get published titles/topics (direct sqlite3 — avoids circular import from web.app)
+    published_texts = set()
     viralops_db = os.path.join(os.path.dirname(__file__), "web", "viralops.db")
     if os.path.exists(viralops_db):
         try:
             _vconn = sqlite3.connect(viralops_db)
-            rows = _vconn.execute("SELECT title FROM posts WHERE status = 'published'").fetchall()
-            published_titles = {r[0].lower() for r in rows}
+            rows = _vconn.execute("SELECT title, extra_fields FROM posts WHERE status = 'published'").fetchall()
+            for title, extra_fields in rows:
+                title = (title or "").strip()
+                if title:
+                    published_texts.add(title)
+                # Prefer original picked topic if stored
+                if extra_fields:
+                    try:
+                        obj = json.loads(extra_fields)
+                        if isinstance(obj, dict):
+                            t = (obj.get("topic") or "").strip()
+                            if t:
+                                published_texts.add(t)
+                    except Exception:
+                        pass
             _vconn.close()
         except Exception as e:
             print(f"  [DEDUP] Warning: could not load published titles: {e}")
@@ -1322,11 +1347,19 @@ def get_unused_topics(top_n: int = 10) -> List[Tuple[str, float, str, str]]:
     # Filter out already-published (keyword overlap check)
     unused = []
     for topic, score, niche, hook in all_topics:
-        topic_words = set(topic.lower().split()[:6])
+        topic_words = _norm_tokens(topic)
         is_used = False
-        for title in published_titles:
-            title_words = set(title.lower().split()[:6])
-            if len(topic_words & title_words) >= 3:
+        for pub_text in published_texts:
+            pub_words = _norm_tokens(pub_text)
+            if not pub_words:
+                continue
+            shared = len(topic_words & pub_words)
+            # Strong match: 3+ shared informative tokens
+            if shared >= 3:
+                is_used = True
+                break
+            # Smaller topic strings: shared/len(topic) ratio
+            if topic_words and (shared / max(1, len(topic_words))) >= 0.6 and shared >= 2:
                 is_used = True
                 break
         if not is_used:
