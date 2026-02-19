@@ -964,9 +964,9 @@ def generate_quality_post(
     # ══ RETRY LOOP — generate → review → regenerate with feedback until 9.0+ ══
     MAX_ATTEMPTS = 3
     MIN_SCORE = 9.0
-    GOOD_ENOUGH = 8.5  # accept after all attempts if best >= this
+    RUBRIC_MIN_100 = 92
     best_pack = None
-    best_score = 0.0
+    best_metrics: tuple[float, float] = (0.0, 0.0)  # (rubric_total_100, tiktok_avg)
     prev_feedback = ""
 
     def _coerce_pack_from_raw(raw_text: str) -> Optional[Dict[str, Any]]:
@@ -1023,11 +1023,12 @@ RAW OUTPUT (may be invalid / truncated):
         # ── Phase 1: CTO Agent — Generate content as Q&A answer ──
         feedback_block = ""
         if prev_feedback:
+            _best_rubric, _best_tiktok = best_metrics
             feedback_block = f"""
 PREVIOUS ATTEMPT FEEDBACK (fix these issues):
 {prev_feedback}
 
-Regenerate the content fixing ALL issues above. Score MUST be higher than {best_score:.1f}.
+Regenerate the content fixing ALL issues above. TikTok avg score MUST be higher than {_best_tiktok:.1f}.
 """
         
         quality_prompt = f"""Answer this nano-niche topic like a Perplexity AI expert:
@@ -1215,48 +1216,68 @@ Return the TRIMMED answer as PLAIN TEXT (3500-4000 chars). No JSON wrapper. No m
         # ── Phase 2: ReconcileGPT — Quality Review ──
         review = _review_quality_content(pack)
         review_score = 0.0
+        rubric_total_100 = 0.0
         if review:
             review_score = review.get("avg", 0)
+            rubric_total_100 = float(review.get("rubric_total_100", 0.0) or 0.0)
             pack["_review_score"] = review_score
-            pack["_review_pass"] = review_score >= MIN_SCORE
+            pack["_rubric_total_100"] = rubric_total_100
+            pack["_rubric_pass"] = rubric_total_100 >= RUBRIC_MIN_100
+            if isinstance(review.get("rubric_scores"), dict):
+                pack["_rubric_scores"] = review.get("rubric_scores")
+
+            pack["_review_pass"] = (review_score >= MIN_SCORE) and (rubric_total_100 >= RUBRIC_MIN_100)
             pack["_review_feedback"] = review.get("feedback", "")
             pack["_review_provider"] = review.get("_provider", "")
             
             if review.get("improved_title") and review_score < 9.5:
                 pack["title"] = review["improved_title"]
             
-            print(f"  [QUALITY] Review: {review_score:.1f}/10 — {'PASS ✓' if review_score >= MIN_SCORE else 'RETRYING...'}")
+            print(
+                f"  [QUALITY] Review: {review_score:.1f}/10 + rubric={rubric_total_100:.0f}/100 — "
+                f"{'PASS ✓' if pack.get('_review_pass') else 'RETRYING...'}"
+            )
             if review.get("feedback"):
                 print(f"  [QUALITY] Feedback: {review['feedback'][:150]}")
         
-        # ── Track best ──
-        if review_score > best_score:
-            best_score = review_score
+        # ── Track best (prefer higher rubric, then higher TikTok avg) ──
+        metrics = (rubric_total_100, review_score)
+        if metrics > best_metrics:
+            best_metrics = metrics
             best_pack = pack.copy()
         
         # ── Check if we reached target ──
-        if review_score >= MIN_SCORE:
-            print(f"  [QUALITY] ✓ Target {MIN_SCORE}+ reached on attempt {attempt}!")
+        if (review_score >= MIN_SCORE) and (rubric_total_100 >= RUBRIC_MIN_100):
+            print(f"  [QUALITY] ✓ Targets reached (tiktok>={MIN_SCORE}, rubric>={RUBRIC_MIN_100}) on attempt {attempt}!")
             break
         
         # ── Prepare feedback for next attempt ──
         if attempt < MAX_ATTEMPTS:
             prev_feedback = review.get("feedback", "") if review else "Content quality insufficient."
-            prev_feedback += f"\nPrevious score: {review_score:.1f}/10. Need {MIN_SCORE}+."
-            print(f"  [QUALITY] Score {review_score:.1f} < {MIN_SCORE} — regenerating with feedback...")
+            prev_feedback += (
+                f"\nPrevious scores: tiktok={review_score:.1f}/10 (need {MIN_SCORE}+), "
+                f"rubric={rubric_total_100:.0f}/100 (need {RUBRIC_MIN_100}+)."
+            )
+            print(
+                f"  [QUALITY] Below thresholds — regenerating with feedback... "
+                f"(tiktok {review_score:.1f}/{MIN_SCORE}, rubric {rubric_total_100:.0f}/{RUBRIC_MIN_100})"
+            )
     
     # Use best pack from all attempts
     pack = best_pack
     if not pack:
         print(f"  [QUALITY] All {MAX_ATTEMPTS} attempts failed.")
         return None
-    
-    # If best score >= GOOD_ENOUGH after all retries, mark as pass
-    if best_score >= GOOD_ENOUGH:
-        pack["_review_pass"] = True
-    
-    print(f"\n  [QUALITY] BEST SCORE: {best_score:.1f}/10 (from {MAX_ATTEMPTS} attempt(s))"
-          f"{' ✓ ACCEPTED' if best_score >= GOOD_ENOUGH else ' ⚠ BELOW THRESHOLD'}")
+
+    best_rubric, best_tiktok = best_metrics
+    pack["_review_pass"] = (best_tiktok >= MIN_SCORE) and (best_rubric >= RUBRIC_MIN_100)
+    pack["_rubric_pass"] = best_rubric >= RUBRIC_MIN_100
+    pack["_rubric_total_100"] = best_rubric
+
+    print(
+        f"\n  [QUALITY] BEST: tiktok={best_tiktok:.1f}/10, rubric={best_rubric:.0f}/100 "
+        f"(from {MAX_ATTEMPTS} attempt(s)){' ✓ ACCEPTED' if pack.get('_review_pass') else ' ⚠ BELOW THRESHOLD'}"
+    )
     
     # ── Build Universal Caption Block (Title + Content + Hashtags for TikTok) ──
     tag_str = " ".join("#" + t.lstrip("#") for t in pack["hashtags"] if t.strip())
@@ -1282,6 +1303,10 @@ def _review_quality_content(pack: Dict[str, Any]) -> Optional[Dict]:
     """Enhanced ReconcileGPT review — strict scoring, target 9.0+."""
     content = pack.get("content_formatted", "")
     content_len = len(content)
+
+    # Gate thresholds — keep TikTok avg on /10 scale, add micro-niche rubric on /100 scale
+    TIKTOK_MIN_AVG = 9.0
+    RUBRIC_MIN_100 = 92
     
     review_prompt = f"""You are a STRICT content quality reviewer. Score honestly — 9 or 10 means EXCELLENT.
 
@@ -1305,10 +1330,36 @@ Score each 1-10 (be STRICT — 10 = professional-grade, 7 = mediocre):
 7. FORMATTING — PLAIN TEXT ONLY. NO ** bold? NO ### headings? NO Markdown at all? Uses emoji section headers (🌿 🫙 ❌ ✅)?
    DEDUCT 2 points if you find ANY ** or ### or ## markers — these show as literal ugly characters on TikTok.
 
+MICRO-NICHE RUBRIC (score each 1-10; be strict):
+1. HYPER_SPECIFIC_NICHE — Narrow long-tail (who/where/conditions/tools). Not generic.
+2. PERSONAL_STORY_REGRET — Includes a concrete trial-error + "wish/regret" line early.
+3. NUMBERED_LIST_VARIATIONS — Has a numbered list of variations/uses/layouts; ideally 15-25 items total across the post.
+4. PRACTICAL_STEPS_MEASURABLE — Measurable steps (cups/inches/hours/temps). Not vague.
+5. QUANTIFIABLE_VALUE — Clear measurable outcomes (%, $, time saved, yield, etc.).
+6. LOW_COST_NO_GEAR — Explicit low-cost approach + at least one "no fancy gear" / zero-cost alternative.
+7. VISUAL_ENGAGING_FORMAT — Very scannable on mobile: emoji headers, spacing, short lines, clean lists.
+8. SEO_LONGTAIL_KEYWORDS — Naturally reinforces the long-tail keyword phrase a few times without stuffing.
+9. CTA_EXPANSION_LADDER — Has a next-step CTA and/or an expansion ladder (start small → scale).
+10. LENGTH_SCANNABILITY — Hits 3200-4000 chars and stays readable (no walls of text).
+
 For EACH criterion below 9, explain SPECIFICALLY what's wrong and how to fix it.
 
-Output ONLY valid JSON:
-{{"scores": {{"answer_quality": N, "content_depth": N, "tone": N, "hook": N, "specificity": N, "actionability": N, "formatting": N}}, "avg": N.N, "pass": true/false, "feedback": "Specific issues to fix (2-3 sentences, be actionable)", "improved_title": "Rewrite the first line into a stronger hook (question/contrarian/myth/checklist) using 1+ specific number — keep it natural"}}"""
+Output ONLY valid JSON (no markdown, no code fences) with this schema:
+- scores: object with numeric 1-10 values for: answer_quality, content_depth, tone, hook, specificity, actionability, formatting
+- avg: number (average of scores)
+- rubric_scores: object with numeric 1-10 values for:
+    hyper_specific_niche, personal_story_regret, numbered_list_variations, practical_steps_measurable,
+    quantifiable_value, low_cost_no_gear, visual_engaging_format, seo_longtail_keywords,
+    cta_expansion_ladder, length_scannability
+- rubric_total_100: integer (0-100)
+- pass: boolean
+- feedback: string (2-3 sentences; mention which rubric criterion is failing and exactly how to fix it)
+- improved_title: string (rewrite first line into a stronger hook using 1+ specific number)
+
+PASS RULE:
+- avg >= {TIKTOK_MIN_AVG}
+- rubric_total_100 >= {RUBRIC_MIN_100}
+"""
     
     gen_provider = pack.get("_gen_provider", "")
     review_providers = ["github_models", "perplexity", "gemini", "openai"]
@@ -1316,7 +1367,7 @@ Output ONLY valid JSON:
         review_providers.remove(gen_provider)
         review_providers.append(gen_provider)
     
-    result = call_llm(review_prompt, system=QUALITY_REVIEW_SYSTEM, max_tokens=1500, temperature=0.2, providers=review_providers)
+    result = call_llm(review_prompt, system=QUALITY_REVIEW_SYSTEM, max_tokens=2200, temperature=0.2, providers=review_providers)
     
     if not result.success:
         print(f"  [REVIEW] LLM call failed — skipping review")
@@ -1328,13 +1379,21 @@ Output ONLY valid JSON:
         import re as _re
         print(f"  [REVIEW] JSON parse failed — raw response (first 400 chars): {result.text[:400]}")
         avg_match = _re.search(r'"avg"\s*:\s*([0-9]+(?:\.[0-9]+)?)', result.text)
+        rubric_match = _re.search(r'"rubric_total_100"\s*:\s*([0-9]+(?:\.[0-9]+)?)', result.text)
         if avg_match:
             fallback_avg = float(avg_match.group(1))
             print(f"  [REVIEW] Fallback: extracted avg={fallback_avg} from raw text")
             # Try to get feedback too
             fb_match = _re.search(r'"feedback"\s*:\s*"([^"]*)"', result.text)
             fb_text = fb_match.group(1) if fb_match else ""
-            review = {"avg": fallback_avg, "pass": fallback_avg >= 9.0, "feedback": fb_text, "_provider": result.provider}
+            fallback_rubric = float(rubric_match.group(1)) if rubric_match else 0.0
+            review = {
+                "avg": fallback_avg,
+                "rubric_total_100": fallback_rubric,
+                "pass": (fallback_avg >= TIKTOK_MIN_AVG) and (fallback_rubric >= RUBRIC_MIN_100),
+                "feedback": fb_text,
+                "_provider": result.provider,
+            }
         else:
             # Try to find individual score values from the scores dict
             score_matches = _re.findall(r'"(?:answer_quality|content_depth|tone|hook|specificity|actionability|formatting)"\s*:\s*([0-9]+(?:\.[0-9]+)?)', result.text)
@@ -1350,10 +1409,22 @@ Output ONLY valid JSON:
                 if len(nums) >= 3:
                     fallback_avg = round(sum(nums) / len(nums), 1)
                     print(f"  [REVIEW] Fallback (numbers): extracted {len(nums)} scores, avg={fallback_avg}")
-                    review = {"avg": fallback_avg, "pass": fallback_avg >= 9.0, "feedback": "", "_provider": result.provider}
+                    review = {
+                        "avg": fallback_avg,
+                        "rubric_total_100": 0.0,
+                        "pass": fallback_avg >= TIKTOK_MIN_AVG,
+                        "feedback": "",
+                        "_provider": result.provider,
+                    }
                 else:
                     print(f"  [REVIEW] Could not extract scores — accepting content with default score 8.5")
-                    review = {"avg": 8.5, "pass": True, "feedback": "Review parsing failed — auto-accepted", "_provider": result.provider}
+                    review = {
+                        "avg": 8.5,
+                        "rubric_total_100": 0.0,
+                        "pass": False,
+                        "feedback": "Review parsing failed — blocked by quality gate",
+                        "_provider": result.provider,
+                    }
     
     if review:
         review["_provider"] = review.get("_provider", result.provider)
@@ -1361,7 +1432,20 @@ Output ONLY valid JSON:
         if scores:
             avg = sum(scores.values()) / len(scores)
             review["avg"] = round(avg, 1)
-            review["pass"] = avg >= 9.0
+
+        rubric_scores = review.get("rubric_scores", {})
+        if isinstance(rubric_scores, dict) and rubric_scores:
+            try:
+                rubric_avg = sum(float(v) for v in rubric_scores.values()) / len(rubric_scores)
+                review["rubric_total_100"] = int(round(rubric_avg * 10))
+            except Exception:
+                review["rubric_total_100"] = float(review.get("rubric_total_100", 0.0) or 0.0)
+        else:
+            review["rubric_total_100"] = float(review.get("rubric_total_100", 0.0) or 0.0)
+
+        review["pass"] = (float(review.get("avg", 0.0) or 0.0) >= TIKTOK_MIN_AVG) and (
+            float(review.get("rubric_total_100", 0.0) or 0.0) >= RUBRIC_MIN_100
+        )
     
     return review
 

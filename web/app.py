@@ -553,7 +553,8 @@ async def autopilot_loop():
                                             # Carry over review metadata
                                             for k in ("_review_score", "_review_pass",
                                                        "_review_feedback", "_content_chars",
-                                                       "_location", "_season"):
+                                                       "_location", "_season",
+                                                       "_rubric_total_100", "_rubric_pass", "_rubric_scores"):
                                                 if k in quality_pack:
                                                     content_pack[k] = quality_pack[k]
                                             logger.info("tiktok.quality_upgrade_ok",
