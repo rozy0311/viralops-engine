@@ -16,11 +16,12 @@ import asyncio
 import os
 import sys
 import time
+from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-os.environ.setdefault("PUBLER_API_KEY", "9540295ccce6cb94f26a4559e20f8a98e3ee02c63c7324f0")
-os.environ.setdefault("PUBLER_WORKSPACE_ID", "698782eb57bbdca107c404f5")
+load_dotenv(override=True)
+
 
 # Account IDs
 TIKTOK_1 = "698c95e5b1ab790def1352c1"  # The Rike Root Stories

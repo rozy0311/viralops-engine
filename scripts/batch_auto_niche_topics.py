@@ -38,14 +38,15 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from dotenv import load_dotenv
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Publer defaults (kept consistent with existing batch scripts)
-os.environ.setdefault("PUBLER_API_KEY", "9540295ccce6cb94f26a4559e20f8a98e3ee02c63c7324f0")
-os.environ.setdefault("PUBLER_WORKSPACE_ID", "698782eb57bbdca107c404f5")
+load_dotenv(override=True)
 
 TIKTOK_1 = "698c95e5b1ab790def1352c1"   # The Rike Root Stories
 TIKTOK_2 = "69951ea30c4677f27c12d98c"   # The Rike Stories
+# Legacy IDs kept for backwards compatibility; prefer Publer discovery.
 FACEBOOK = "699522978f7449fba2dceebe"    # The Rike (Facebook)
 PINTEREST = "69951f098f7449fba2dceadd"   # therike (Pinterest)
 
@@ -284,7 +285,12 @@ async def _publish_facebook(cp: dict[str, Any]) -> dict:
     pc = await _prepare_facebook_content(cp)
     if not pc:
         return {"success": False, "error": "FB empty"}
-    pc["account_ids"] = [FACEBOOK]
+    # Prefer platform discovery so it auto-scales when you add accounts.
+    pc["platforms"] = ["facebook"]
+    if os.environ.get("VIRALOPS_FACEBOOK_ACCOUNT_ID", "").strip():
+        pc["account_ids"] = [os.environ["VIRALOPS_FACEBOOK_ACCOUNT_ID"].strip()]
+    elif FACEBOOK:
+        pc["account_ids"] = [FACEBOOK]
     r = await PublerPublisher().publish(pc)
     return r if isinstance(r, dict) else {"success": False, "error": str(r)}
 
@@ -296,7 +302,11 @@ async def _publish_pinterest(cp: dict[str, Any]) -> dict:
     pc = await _prepare_pinterest_content(cp)
     if not pc:
         return {"success": False, "error": "Pinterest no image"}
-    pc["account_ids"] = [PINTEREST]
+    pc["platforms"] = ["pinterest"]
+    if os.environ.get("VIRALOPS_PINTEREST_ACCOUNT_ID", "").strip():
+        pc["account_ids"] = [os.environ["VIRALOPS_PINTEREST_ACCOUNT_ID"].strip()]
+    elif PINTEREST:
+        pc["account_ids"] = [PINTEREST]
     r = await PublerPublisher().publish(pc)
     return r if isinstance(r, dict) else {"success": False, "error": str(r)}
 

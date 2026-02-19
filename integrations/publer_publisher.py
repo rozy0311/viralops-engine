@@ -593,9 +593,16 @@ class PublerPublisher:
                 logger.warning("Publer: local file not found: %s", media_local_path)
 
         # ── Build request body ──
+        # Publer supports many post states (draft/scheduled/published_*).
+        # If we're hitting the publish endpoint, we must NOT send draft state,
+        # otherwise the post may be created as a draft and never posted.
         schedule_at = content.get("schedule_at", "")
-        state = "scheduled" if schedule_at else "draft"
-        endpoint = "posts/schedule/publish" if not schedule_at else "posts/schedule"
+        if schedule_at:
+            state = "scheduled"
+            endpoint = "posts/schedule"
+        else:
+            state = "published"
+            endpoint = "posts/schedule/publish"
 
         post_body = {
             "bulk": {

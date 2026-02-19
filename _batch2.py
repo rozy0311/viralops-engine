@@ -1,9 +1,10 @@
 """Batch publish 4 more TikTok posts with clump-proof format."""
 import sys, os, asyncio
+from dotenv import load_dotenv
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
-os.environ.setdefault("PUBLER_API_KEY", "9540295ccce6cb94f26a4559e20f8a98e3ee02c63c7324f0")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+load_dotenv(override=True)
 TIKTOK_ACCOUNT = "698c95e5b1ab790def1352c1"
 
 TOPICS = [

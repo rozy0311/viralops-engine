@@ -1,8 +1,10 @@
 """Post 4 bai to SECOND TikTok account: The Rike Stories (69951ea30c4677f27c12d98c)."""
 import sys, os, asyncio
+from dotenv import load_dotenv
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
-os.environ.setdefault("PUBLER_API_KEY", "9540295ccce6cb94f26a4559e20f8a98e3ee02c63c7324f0")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+load_dotenv(override=True)
 
 TIKTOK_ACCOUNT_2 = "69951ea30c4677f27c12d98c"  # The Rike Stories
 
