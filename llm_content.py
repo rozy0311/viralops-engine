@@ -4,8 +4,9 @@ ViralOps Engine — Smart LLM Content Pipeline
 Multi-provider cascade with self-review (EMADS-PR pattern).
 
 Providers (cost-aware order):
-  1. Gemini cascade (free tier — auto-fallback through 7 models)
-     2.5 Flash → 2.5 Pro → 2.0 Flash → 3.0 Pro → 2.5 Flash Lite → 2.0 Flash Lite → 2.0 Pro Exp
+  1. Gemini cascade (free tier — 3 API keys × 7 models = 21 attempts)
+     Keys: GEMINI_API_KEY → FALLBACK_GEMINI_API_KEY → SECOND_FALLBACK_GEMINI_API_KEY
+     Models: 2.5 Flash → 2.5 Pro → 2.0 Flash → 2.5 Flash Lite → 2.0 Flash Lite → 2.0 Pro Exp
   2. GitHub Models / gpt-4o-mini (free via Copilot)
   3. Perplexity / sonar (has web search — great for trending content)
   4. OpenAI / gpt-4o-mini (paid fallback)
@@ -78,24 +79,43 @@ GEMINI_TEXT_MODELS = [
     "gemini-2.0-pro-exp",     # 15 RPM, Unlimited TPM, 1.5K RPD
 ]
 
-# Track which Gemini models are quota-exhausted with timestamps.
+# ── Multi-key Gemini API key rotation ──────────────────────────────────
+# Supports up to 3 Gemini API keys for quota spreading.
+# Env vars: GEMINI_API_KEY, FALLBACK_GEMINI_API_KEY, SECOND_FALLBACK_GEMINI_API_KEY
+
+def _get_gemini_api_keys() -> List[Tuple[str, str]]:
+    """Gather all available Gemini API keys (label, key) — deduped."""
+    keys: List[Tuple[str, str]] = []
+    seen = set()
+    for label, env_var in [
+        ("primary", "GEMINI_API_KEY"),
+        ("fallback", "FALLBACK_GEMINI_API_KEY"),
+        ("fallback2", "SECOND_FALLBACK_GEMINI_API_KEY"),
+    ]:
+        k = os.environ.get(env_var, "").strip()
+        if k and k not in seen:
+            keys.append((label, k))
+            seen.add(k)
+    return keys
+
+# Track which Gemini (model, key_index) combos are quota-exhausted.
 # Entries expire after GEMINI_QUOTA_RESET_SECS so recovered quotas are retried.
-_gemini_exhausted: dict = {}  # {model_name: exhausted_timestamp}
+_gemini_exhausted: dict = {}  # {(model_name, key_idx): exhausted_timestamp}
 GEMINI_QUOTA_RESET_SECS = 3600  # 1 hour
 
-def _is_gemini_exhausted(model_name: str) -> bool:
-    """Check if a Gemini model is quota-exhausted (with 1-hour expiry)."""
-    ts = _gemini_exhausted.get(model_name)
+def _is_gemini_exhausted(model_name: str, key_idx: int = 0) -> bool:
+    """Check if a Gemini model+key combo is quota-exhausted (1-hour expiry)."""
+    ts = _gemini_exhausted.get((model_name, key_idx))
     if ts is None:
         return False
     if time.time() - ts > GEMINI_QUOTA_RESET_SECS:
-        _gemini_exhausted.pop(model_name, None)
+        _gemini_exhausted.pop((model_name, key_idx), None)
         return False
     return True
 
-def _mark_gemini_exhausted(model_name: str) -> None:
-    """Mark a Gemini model as quota-exhausted (auto-expires after 1 hour)."""
-    _gemini_exhausted[model_name] = time.time()
+def _mark_gemini_exhausted(model_name: str, key_idx: int = 0) -> None:
+    """Mark a Gemini model+key combo as quota-exhausted (auto-expires)."""
+    _gemini_exhausted[(model_name, key_idx)] = time.time()
 
 # Singleton Gemini client — reuse across calls to avoid connection overhead
 _gemini_client = None
@@ -184,19 +204,25 @@ def call_llm(
         if pconfig.name not in allowed:
             continue
             
-        api_key = os.environ.get(pconfig.api_key_env, "")
-        if not api_key:
-            continue
-        
         # Check if provider is disabled
         if pconfig.name == "openai" and os.environ.get("DISABLE_OPENAI", "").lower() == "true":
             continue
+
+        if pconfig.is_gemini:
+            # Multi-key rotation for Gemini
+            gemini_keys = _get_gemini_api_keys()
+            if not gemini_keys:
+                continue
+        else:
+            api_key = os.environ.get(pconfig.api_key_env, "")
+            if not api_key:
+                continue
             
         start_time = time.time()
         
         try:
             if pconfig.is_gemini:
-                result = _call_gemini(pconfig, api_key, prompt, system, max_tokens, temperature)
+                result = _call_gemini(pconfig, gemini_keys, prompt, system, max_tokens, temperature)
             else:
                 result = _call_openai_compatible(pconfig, api_key, prompt, system, max_tokens, temperature)
             
@@ -225,17 +251,18 @@ def call_llm(
 
 def _call_gemini(
     config: ProviderConfig,
-    api_key: str,
+    api_keys: List[Tuple[str, str]],
     prompt: str,
     system: str,
     max_tokens: int,
     temperature: float,
 ) -> ProviderResult:
     """
-    Call Google Gemini via genai SDK with automatic model fallback.
+    Call Google Gemini via genai SDK with automatic model + key fallback.
 
-    Cascades through GEMINI_TEXT_MODELS when a model hits 429/RESOURCE_EXHAUSTED.
-    Tracks exhausted models per session so subsequent calls skip them instantly.
+    Cascades through GEMINI_TEXT_MODELS × api_keys.
+    For each model, tries all available API keys before moving to the next model.
+    Tracks exhausted (model, key) pairs per session so subsequent calls skip instantly.
     """
     try:
         from google import genai
@@ -244,79 +271,85 @@ def _call_gemini(
         return ProviderResult(text="", provider=config.name, model=config.model,
                              success=False, error="google-genai not installed")
 
-    try:
-        client = _get_gemini_client(api_key)
-    except (ValueError, Exception) as e:
-        return ProviderResult(text="", provider=config.name, model=config.model,
-                             success=False, error=f"Gemini client init failed: {e}")
     full_prompt = f"{system}\n\n{prompt}" if system else prompt
+    total_models = len(GEMINI_TEXT_MODELS)
+    total_keys = len(api_keys)
 
     last_error = ""
     for model_name in GEMINI_TEXT_MODELS:
-        # Skip models we already know are exhausted (with 1-hour expiry)
-        if _is_gemini_exhausted(model_name):
-            continue
+        for key_idx, (key_label, api_key) in enumerate(api_keys):
+            # Skip combos we already know are exhausted (with 1-hour expiry)
+            if _is_gemini_exhausted(model_name, key_idx):
+                continue
 
-        try:
-            resp = client.models.generate_content(
-                model=model_name,
-                contents=full_prompt,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
-                    http_options={"timeout": 60_000},  # 60s timeout (ms)
-                ),
-            )
+            try:
+                client = _get_gemini_client(api_key)
+            except (ValueError, Exception) as e:
+                last_error = f"{model_name}[{key_label}]: client init failed: {e}"
+                print(f"  [LLM] Gemini/{model_name}[{key_label}] — init error: {str(e)[:80]}")
+                continue
 
-            text = resp.text.strip() if resp.text else ""
-            if text:
-                # Use actual token count from SDK when available, else estimate
-                est_tokens = len(text.split()) * 1.3
-                try:
-                    if hasattr(resp, 'usage_metadata') and resp.usage_metadata:
-                        actual = getattr(resp.usage_metadata, 'candidates_token_count', 0)
-                        if actual:
-                            est_tokens = actual
-                except Exception:
-                    pass
-                return ProviderResult(
-                    text=text,
-                    provider=config.name,
+            try:
+                resp = client.models.generate_content(
                     model=model_name,
-                    tokens_used=int(est_tokens),
-                    success=True,
+                    contents=full_prompt,
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=max_tokens,
+                        temperature=temperature,
+                        http_options={"timeout": 60_000},  # 60s timeout (ms)
+                    ),
                 )
-            else:
-                last_error = f"{model_name}: Empty response"
-                print(f"  [LLM] Gemini/{model_name} — empty response, trying next…")
 
-        except Exception as e:
-            err_str = str(e).lower()
-            is_quota = (
-                "resource_exhausted" in err_str
-                or "429" in err_str
-                or "quota" in err_str
-                or "rate limit" in err_str
-                or "rate_limit" in err_str
-            )
-            if is_quota:
-                _mark_gemini_exhausted(model_name)
-                print(f"  [LLM] Gemini/{model_name} — quota exhausted, cascading…")
-                last_error = f"{model_name}: quota exhausted"
-                continue
-            else:
-                # Non-quota error (model not found, bad request, etc.)
-                print(f"  [LLM] Gemini/{model_name} — error: {str(e)[:120]}")
-                last_error = f"{model_name}: {str(e)[:200]}"
-                continue
+                text = resp.text.strip() if resp.text else ""
+                if text:
+                    # Use actual token count from SDK when available, else estimate
+                    est_tokens = len(text.split()) * 1.3
+                    try:
+                        if hasattr(resp, 'usage_metadata') and resp.usage_metadata:
+                            actual = getattr(resp.usage_metadata, 'candidates_token_count', 0)
+                            if actual:
+                                est_tokens = actual
+                    except Exception:
+                        pass
+                    print(f"  [LLM] Gemini/{model_name}[{key_label}] — OK")
+                    return ProviderResult(
+                        text=text,
+                        provider=config.name,
+                        model=model_name,
+                        tokens_used=int(est_tokens),
+                        success=True,
+                    )
+                else:
+                    last_error = f"{model_name}[{key_label}]: Empty response"
+                    print(f"  [LLM] Gemini/{model_name}[{key_label}] — empty response, trying next…")
 
-    # All Gemini models exhausted
+            except Exception as e:
+                err_str = str(e).lower()
+                is_quota = (
+                    "resource_exhausted" in err_str
+                    or "429" in err_str
+                    or "quota" in err_str
+                    or "rate limit" in err_str
+                    or "rate_limit" in err_str
+                )
+                if is_quota:
+                    _mark_gemini_exhausted(model_name, key_idx)
+                    print(f"  [LLM] Gemini/{model_name}[{key_label}] — quota exhausted, trying next key…")
+                    last_error = f"{model_name}[{key_label}]: quota exhausted"
+                    continue
+                else:
+                    # Non-quota error (model not found, bad request, etc.)
+                    print(f"  [LLM] Gemini/{model_name}[{key_label}] — error: {str(e)[:120]}")
+                    last_error = f"{model_name}[{key_label}]: {str(e)[:200]}"
+                    continue
+
+    # All Gemini models × keys exhausted
     return ProviderResult(
         text="",
         provider=config.name,
         model="gemini-all-exhausted",
         success=False,
-        error=f"All {len(GEMINI_TEXT_MODELS)} Gemini models exhausted: {last_error}",
+        error=f"All {total_models} models × {total_keys} keys exhausted: {last_error}",
     )
 
 
@@ -395,7 +428,7 @@ def _call_openai_compatible(
 
 # Cascade of image-generation models (try in order, skip quota-exhausted)
 # Gemini models share one quota pool; Imagen models have a separate quota pool.
-# 3 Gemini models × 2 keys = 6 attempts; 2 Imagen models × 2 keys = 4 attempts → 10 total cloud
+# 3 Gemini models × 3 keys = 9 attempts; 2 Imagen models × 3 keys = 6 attempts → 15 total cloud
 IMAGE_MODELS_GEMINI = [
     "gemini-2.0-flash-exp-image-generation",
     "gemini-2.5-flash-image",
@@ -468,14 +501,8 @@ def generate_ai_image(
         return result
     
     # ── FALLBACK 1: Gemini / Imagen cascade ───────────────────────────────
-    # Dual API key rotation: primary → fallback
-    api_keys = []
-    pk = os.environ.get("GEMINI_API_KEY", "")
-    fk = os.environ.get("FALLBACK_GEMINI_API_KEY", "") or os.environ.get("FALLBACK_GOOGLE_AI_STUDIO_API_KEY", "")
-    if pk:
-        api_keys.append(("primary", pk))
-    if fk and fk != pk:
-        api_keys.append(("fallback", fk))
+    # Triple API key rotation: primary → fallback → fallback2
+    api_keys = _get_gemini_api_keys()
     
     if not api_keys:
         print("  [IMAGE] No GEMINI_API_KEY — skipping Gemini/Imagen fallback")

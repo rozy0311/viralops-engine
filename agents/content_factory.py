@@ -59,18 +59,34 @@ def _get_provider_order() -> list[str]:
     return [p.strip() for p in order.split(",") if p.strip()]
 
 
-def _get_gemini_client():
+def _get_gemini_client(api_key: str = ""):
     """Lazy-load Gemini client (google.genai SDK — new unified API)."""
     try:
         from google import genai
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if not api_key:
+        key = api_key or os.getenv("GEMINI_API_KEY", "")
+        if not key:
             return None
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=key)
         return client
     except ImportError:
         logger.debug("content_factory.no_gemini_sdk", msg="google-genai not installed")
         return None
+
+
+def _get_gemini_api_keys() -> list[tuple[str, str]]:
+    """Gather all available Gemini API keys (label, key) — deduped."""
+    keys: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for label, env_var in [
+        ("primary", "GEMINI_API_KEY"),
+        ("fallback", "FALLBACK_GEMINI_API_KEY"),
+        ("fallback2", "SECOND_FALLBACK_GEMINI_API_KEY"),
+    ]:
+        k = os.getenv(env_var, "").strip()
+        if k and k not in seen:
+            keys.append((label, k))
+            seen.add(k)
+    return keys
 
 
 def _get_github_models_client():
@@ -136,59 +152,75 @@ def _call_gemini(system_prompt: str, user_prompt: str, temperature: float) -> tu
     """Call Gemini API via google.genai SDK. Returns (parsed_json, model_name) or (None, '').
 
     Includes 1 automatic retry with higher max_output_tokens on JSON truncation.
+    Rotates through all available Gemini API keys when quota is exhausted.
     """
-    client = _get_gemini_client()
-    if not client:
+    api_keys = _get_gemini_api_keys()
+    if not api_keys:
         return None, ""
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     # Retry once with more tokens if JSON is truncated
     token_limits = [4096, 8192]
 
-    for attempt, max_tokens in enumerate(token_limits):
-        try:
-            from google.genai import types
+    for key_label, api_key in api_keys:
+        client = _get_gemini_client(api_key)
+        if not client:
+            continue
 
-            response = client.models.generate_content(
-                model=model_name,
-                contents=user_prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=temperature,
-                    max_output_tokens=max_tokens,
-                    response_mime_type="application/json",
-                ),
-            )
+        for attempt, max_tokens in enumerate(token_limits):
+            try:
+                from google.genai import types
 
-            # Track usage
-            if hasattr(response, "usage_metadata") and response.usage_metadata:
-                _track_cost(model_name, {
-                    "prompt_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
-                    "completion_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
-                })
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=user_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        temperature=temperature,
+                        max_output_tokens=max_tokens,
+                        response_mime_type="application/json",
+                    ),
+                )
 
-            text = response.text.strip()
-            # Gemini sometimes wraps JSON in ```json ... ```
-            if text.startswith("```"):
-                text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+                # Track usage
+                if hasattr(response, "usage_metadata") and response.usage_metadata:
+                    _track_cost(model_name, {
+                        "prompt_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
+                        "completion_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
+                    })
 
-            parsed = json.loads(text)
-            logger.info("content_factory.gemini_success", model=model_name, attempt=attempt + 1)
-            return parsed, f"gemini/{model_name}"
+                text = response.text.strip()
+                # Gemini sometimes wraps JSON in ```json ... ```
+                if text.startswith("```"):
+                    text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-        except json.JSONDecodeError as e:
-            # JSON truncation — retry with more tokens
-            if attempt < len(token_limits) - 1:
-                logger.warning("content_factory.gemini_json_truncated",
-                               model=model_name, attempt=attempt + 1,
-                               max_tokens=max_tokens, error=str(e)[:80])
-                continue
-            logger.warning("content_factory.gemini_error", model=model_name, error=str(e))
-            return None, ""
+                parsed = json.loads(text)
+                logger.info("content_factory.gemini_success", model=model_name,
+                            key=key_label, attempt=attempt + 1)
+                return parsed, f"gemini/{model_name}"
 
-        except Exception as e:
-            logger.warning("content_factory.gemini_error", model=model_name, error=str(e))
-            return None, ""
+            except json.JSONDecodeError as e:
+                # JSON truncation — retry with more tokens
+                if attempt < len(token_limits) - 1:
+                    logger.warning("content_factory.gemini_json_truncated",
+                                   model=model_name, key=key_label, attempt=attempt + 1,
+                                   max_tokens=max_tokens, error=str(e)[:80])
+                    continue
+                logger.warning("content_factory.gemini_error", model=model_name, error=str(e))
+                break  # Try next key
+
+            except Exception as e:
+                err_str = str(e).lower()
+                is_quota = ("resource_exhausted" in err_str or "429" in err_str
+                            or "quota" in err_str or "rate limit" in err_str)
+                if is_quota:
+                    logger.warning("content_factory.gemini_quota",
+                                   model=model_name, key=key_label, error=str(e)[:80])
+                    break  # Try next key
+                logger.warning("content_factory.gemini_error", model=model_name, error=str(e))
+                return None, ""
+
+    return None, ""
 
 
 def _call_github_models(system_prompt: str, user_prompt: str, temperature: float) -> tuple[Optional[dict], str]:
