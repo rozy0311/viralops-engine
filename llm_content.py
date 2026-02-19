@@ -1094,6 +1094,13 @@ CRITICAL:
 9. Hashtags: exactly 3 NANO-NICHE tags (ultra-specific, high-search).
 10. NO generic intro, NO "great question", NO motivation speeches, NO brand names.
 11. Include sections: 🌿 main (2-3 subsections), 🫙 quick method (6 steps), ❌ mistakes (3-4), ✅ tips (4-5), punchy ending.
+13. MUST include a numbered "Variations / Layouts / Uses" list with AT LEAST 15 items total.
+    - Each item: 1 short line (so it fits the 3500-4000 char limit).
+    - You can split into 2 smaller numbered lists if needed (e.g., 1-8 and 9-16).
+14. MUST include CTA + Expansion Ladder near the end:
+    - CTA: 1 line (comment/pin/save/follow or "try this tonight")
+    - Expansion ladder: 3 steps (Start tiny → weekly → monthly)
+15. SEO long-tail reinforcement: naturally repeat the core topic phrase (or its key keywords) 3-4 times across the post.
 12. Output ONLY valid JSON."""
 
         result = call_llm(quality_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=6000, temperature=0.6)
@@ -1142,9 +1149,11 @@ FORMATTING RULES (CRITICAL — TikTok shows raw text, NOT rendered Markdown):
 
 Expand this answer by ADDING concrete sections (don't rewrite what's already good):
 - Add an emoji-headed section with 3-4 specific examples/variations with EXACT prices ($), timeframes, quantities
+- Add a numbered Variations/Layouts/Uses list with AT LEAST 15 items total (each 1 short line)
 - Add ❌ What usually doesn't work section (3-4 specific mistakes with WHY they fail)
 - Add ✅ Survival tips section (4-5 tips with exact numbers)
 - Add a 🫙 Quick Method numbered list (6 steps with specific measurements)
+- Add CTA + Expansion Ladder near the end (Start tiny → weekly → monthly)
 - Add more witty personality — dry humor one-liners between sections
 - Add real-world context: "In Miami during winter..." or "If you live in an apartment..."
 - EVERY new sentence must teach something specific — zero filler
@@ -1197,6 +1206,7 @@ Return the TRIMMED answer as PLAIN TEXT (3500-4000 chars). No JSON wrapper. No m
         
         # ── Metadata ──
         pack["_source"] = f"quality_ai_{result.provider}"
+        pack["_topic"] = topic
         pack["_niche_score"] = score
         pack["_gen_provider"] = result.provider
         pack["_gen_model"] = result.model
@@ -1448,6 +1458,135 @@ PASS RULE:
         )
     
     return review
+
+
+def make_tiktok_account_variant(
+    base_pack: Dict[str, Any],
+    *,
+    topic: str,
+    account_label: str,
+    variant_id: str,
+) -> Dict[str, Any]:
+    """Create a per-account TikTok variant to reduce duplicate/copyright detection.
+
+    This rewrites the long caption while preserving factual meaning, numbers,
+    structure, and micro-niche depth.
+
+    Returns a NEW pack dict (does not mutate base_pack).
+    """
+    # Keep it safe: if anything goes wrong, fall back to base_pack.
+    try:
+        content = str(base_pack.get("content_formatted", "") or "").strip()
+        title = str(base_pack.get("title", "") or "").strip()
+        if not content or len(content) < 1200:
+            return dict(base_pack)
+
+        # Bound the content to keep the rewrite prompt stable.
+        snippet = content
+        if len(snippet) > 3900:
+            snippet = snippet[:3900]
+
+        variant_prompt = f"""You are rewriting a TikTok caption into a DISTINCT variant for a different TikTok account.
+
+GOAL:
+- Make the writing clearly different (different hook, different phrasing, reorder lists/examples),
+  but keep the SAME practical meaning and keep specific numbers/facts.
+- This is to avoid duplicate-content detection across multiple TikTok accounts.
+
+ACCOUNT LABEL: {account_label}
+VARIANT ID: {variant_id}
+
+TOPIC (keep aligned to this long-tail): {topic}
+
+ORIGINAL TITLE:
+{title}
+
+ORIGINAL CAPTION (source):
+{snippet}
+
+HARD RULES:
+- Output ONLY valid JSON (no markdown, no code fences).
+- Title must be 1 line hook with 1+ specific number.
+- content_formatted MUST be PLAIN TEXT (TikTok shows raw text): NO **, NO ###, NO markdown.
+- Keep 3500-4000 characters.
+- Must include: trial-error regret line, reality checks, common mistakes, practical summary.
+- Must include a numbered Variations/Layouts/Uses list with AT LEAST 15 items total (each 1 short line).
+- Must include CTA + Expansion Ladder (Start tiny → weekly → monthly).
+- Preserve at least 15 specific numbers total.
+- Rewrite synonyms and sentence structure; reorder at least 30% of the content.
+
+Return JSON schema:
+{
+  "title": "...",
+  "content_formatted": "...",
+  "hashtags": ["NanoNiche1", "NanoNiche2", "NanoNiche3"]
+}
+"""
+
+        # Prefer a provider different from the generator when possible.
+        gen_provider = str(base_pack.get("_gen_provider", "") or "").strip()
+        providers = ["github_models", "perplexity", "gemini", "openai"]
+        if gen_provider in providers:
+            providers.remove(gen_provider)
+            providers.append(gen_provider)
+
+        result = call_llm(
+            variant_prompt,
+            system=QUALITY_CONTENT_SYSTEM,
+            max_tokens=4500,
+            temperature=0.55,
+            providers=providers,
+        )
+        if not result.success:
+            return dict(base_pack)
+
+        parsed = _extract_json(result.text)
+        if not isinstance(parsed, dict):
+            return dict(base_pack)
+
+        variant_pack = dict(base_pack)
+        if parsed.get("title"):
+            variant_pack["title"] = str(parsed["title"]).strip()
+        if parsed.get("content_formatted"):
+            vcontent = _ensure_section_breaks(_strip_markdown(str(parsed["content_formatted"]).strip()))
+            variant_pack["content_formatted"] = vcontent
+
+        # Hashtags: keep exactly 5 total (3 micro from variant + 2 broad auto)
+        raw_micro = (parsed.get("hashtags") or [])
+        if isinstance(raw_micro, list):
+            micro_tags = [str(t).lstrip('#').strip() for t in raw_micro if str(t).strip()][:3]
+        else:
+            micro_tags = []
+
+        broad_tags = _auto_pick_broad_hashtags(topic, micro_tags, n=2)
+        broad_tags = [t.lstrip('#').strip() for t in broad_tags]
+        variant_pack["hashtags"] = micro_tags + broad_tags
+        _enforce_5_hashtags(variant_pack, topic)
+
+        variant_pack["_variant_of"] = str(base_pack.get("_source", "") or "")
+        variant_pack["_variant_for_account"] = account_label
+        variant_pack["_variant_id"] = variant_id
+        variant_pack["_variant_provider"] = result.provider
+        variant_pack["_variant_model"] = result.model
+
+        # Re-run review on the variant so quality gate is consistent
+        review = _review_quality_content(variant_pack)
+        if review:
+            tiktok_avg = float(review.get("avg", 0.0) or 0.0)
+            rubric_total = float(review.get("rubric_total_100", 0.0) or 0.0)
+            variant_pack["_review_score"] = tiktok_avg
+            variant_pack["_rubric_total_100"] = rubric_total
+            variant_pack["_rubric_pass"] = rubric_total >= 92
+            variant_pack["_review_pass"] = (tiktok_avg >= 9.0) and (rubric_total >= 92)
+            variant_pack["_review_feedback"] = review.get("feedback", "")
+            variant_pack["_review_provider"] = review.get("_provider", "")
+            if isinstance(review.get("rubric_scores"), dict):
+                variant_pack["_rubric_scores"] = review.get("rubric_scores")
+
+        return variant_pack
+
+    except Exception:
+        return dict(base_pack)
 
 
 def get_unused_topics(top_n: int = 10) -> List[Tuple[str, float, str, str]]:

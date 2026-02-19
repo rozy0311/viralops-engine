@@ -50,6 +50,51 @@ FACEBOOK = "699522978f7449fba2dceebe"    # The Rike (Facebook)
 PINTEREST = "69951f098f7449fba2dceadd"   # therike (Pinterest)
 
 
+async def _get_tiktok_accounts() -> list[tuple[str, str]]:
+    """Return list of (account_id, label) for TikTok.
+
+    Priority:
+      1) Env `VIRALOPS_TIKTOK_ACCOUNT_IDS` (comma-separated Publer account IDs)
+      2) Publer discovery: all connected TikTok accounts in workspace
+      3) Fallback to the two historical hardcoded IDs if present
+    """
+    env_ids = os.environ.get("VIRALOPS_TIKTOK_ACCOUNT_IDS", "").strip()
+    if env_ids:
+        ids = [x.strip() for x in env_ids.split(",") if x.strip()]
+        return [(aid, f"tiktok_{i+1}") for i, aid in enumerate(ids)]
+
+    # Discover from Publer (best for scaling: auto-updates when you connect more accounts)
+    try:
+        from integrations.publer_publisher import PublerPublisher
+
+        pub = PublerPublisher()
+        await pub.connect()
+        accounts = await pub.get_accounts()
+        out: list[tuple[str, str]] = []
+        for acc in accounts or []:
+            acc_type = str(acc.get("type", acc.get("provider", "")) or "").lower()
+            if "tiktok" not in acc_type:
+                continue
+            acc_id = str(acc.get("id", acc.get("_id", "")) or "").strip()
+            if not acc_id:
+                continue
+            name = str(acc.get("name", "") or "").strip()
+            label = name or acc_id[-6:]
+            out.append((acc_id, label))
+        if out:
+            return out
+    except Exception:
+        pass
+
+    # Final fallback: keep legacy behavior
+    legacy: list[tuple[str, str]] = []
+    if TIKTOK_1:
+        legacy.append((TIKTOK_1, "RikeRoot"))
+    if TIKTOK_2:
+        legacy.append((TIKTOK_2, "RikeStories"))
+    return legacy
+
+
 def _log_published_to_viralops_db(pack: dict[str, Any], platforms: list[str], extra: dict[str, Any] | None = None) -> None:
     """Persist a published post to web/viralops.db so future runs can dedup."""
     proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -259,11 +304,23 @@ async def _publish_pinterest(cp: dict[str, Any]) -> dict:
 async def _publish_all(cp: dict[str, Any]) -> dict[str, dict]:
     results: dict[str, dict] = {}
 
-    results["tiktok1"] = await _publish_tiktok(cp, TIKTOK_1, "RikeRoot")
-    await asyncio.sleep(2)
+    # TikTok multi-account: publish DISTINCT variants per account to avoid
+    # duplicate/copyright detection.
+    from llm_content import make_tiktok_account_variant
 
-    results["tiktok2"] = await _publish_tiktok(cp, TIKTOK_2, "RikeStories")
-    await asyncio.sleep(2)
+    base_topic = str(cp.get("_topic") or cp.get("title") or "").strip() or "(unknown topic)"
+    tiktok_accounts = await _get_tiktok_accounts()
+
+    for idx, (account_id, label) in enumerate(tiktok_accounts, 1):
+        variant_id = f"tiktok{idx}"
+        cp_variant = make_tiktok_account_variant(
+            cp,
+            topic=base_topic,
+            account_label=label,
+            variant_id=variant_id,
+        )
+        results[f"tiktok{idx}"] = await _publish_tiktok(cp_variant, account_id, label)
+        await asyncio.sleep(2)
 
     results["facebook"] = await _publish_facebook(cp)
     await asyncio.sleep(2)
