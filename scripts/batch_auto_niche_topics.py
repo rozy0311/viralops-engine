@@ -36,6 +36,7 @@ import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
+from datetime import timedelta
 from typing import Any
 
 from dotenv import load_dotenv
@@ -96,8 +97,14 @@ async def _get_tiktok_accounts() -> list[tuple[str, str]]:
     return legacy
 
 
-def _log_published_to_viralops_db(pack: dict[str, Any], platforms: list[str], extra: dict[str, Any] | None = None) -> None:
-    """Persist a published post to web/viralops.db so future runs can dedup."""
+def _log_published_to_viralops_db(
+    pack: dict[str, Any],
+    platforms: list[str],
+    extra: dict[str, Any] | None = None,
+    *,
+    status: str = "published",
+) -> None:
+    """Persist a post attempt to web/viralops.db so future runs can dedup/debug."""
     proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     db_path = os.path.join(proj_root, "web", "viralops.db")
     if not os.path.exists(db_path):
@@ -117,6 +124,8 @@ def _log_published_to_viralops_db(pack: dict[str, Any], platforms: list[str], ex
         "_gen_model": pack.get("_gen_model", ""),
     })
 
+    status = (status or payload.get("status") or "published").strip().lower()
+
     published_at = datetime.now(timezone.utc).isoformat()
 
     conn = sqlite3.connect(db_path)
@@ -127,10 +136,59 @@ def _log_published_to_viralops_db(pack: dict[str, Any], platforms: list[str], ex
                 title,
                 body,
                 json.dumps(platforms),
-                "published",
+                status,
                 published_at,
                 json.dumps(payload, ensure_ascii=False),
             ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _ensure_topic_history_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS topic_history (
+            topic TEXT PRIMARY KEY,
+            source TEXT,
+            created_at TEXT
+        )
+        """
+    )
+
+
+def _topic_already_used(topic: str) -> bool:
+    proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path = os.path.join(proj_root, "web", "viralops.db")
+    if not os.path.exists(db_path):
+        return False
+    t = (topic or "").strip()
+    if not t:
+        return True
+    conn = sqlite3.connect(db_path)
+    try:
+        _ensure_topic_history_table(conn)
+        row = conn.execute("SELECT 1 FROM topic_history WHERE topic = ?", (t,)).fetchone()
+        return bool(row)
+    finally:
+        conn.close()
+
+
+def _mark_topic_used(topic: str, source: str) -> None:
+    proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path = os.path.join(proj_root, "web", "viralops.db")
+    if not os.path.exists(db_path):
+        return
+    t = (topic or "").strip()
+    if not t:
+        return
+    conn = sqlite3.connect(db_path)
+    try:
+        _ensure_topic_history_table(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO topic_history (topic, source, created_at) VALUES (?, ?, ?)",
+            (t, source or "", datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
     finally:
@@ -168,6 +226,104 @@ def _pick_topics(limit: int, min_score: float) -> list[tuple[str, float, str, st
             break
 
     return picked
+
+
+def _strip_md_links(text: str) -> str:
+    # Remove markdown links: [label](url) -> label
+    text = re.sub(r"\[([^\]]+)\]\(([^\)]+)\)", r"\1", text)
+    # Remove bare URLs
+    text = re.sub(r"https?://\S+", "", text)
+    # Remove trailing citation artifacts like ".nanalyze" / ".pbpc" that occur
+    # when the source was like ".[nanalyze](...)".
+    text = re.sub(r"\.[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*\s*$", "", text)
+    return text
+
+
+def _pick_topics_from_ideas_file(file_path: str, limit: int) -> list[tuple[str, float, str, str]]:
+    """Extract micro-niche idea bullet points from a Markdown file and treat them as topics.
+
+    Expected structure (from the winner-post file): a section with bullet lists under headings like
+    "Mycelium-Based Materials", "Fiber Plant Materials", "Other Plant Composites".
+    """
+    if not file_path or not os.path.isfile(file_path):
+        raise FileNotFoundError(f"ideas file not found: {file_path}")
+
+    raw = open(file_path, "r", encoding="utf-8", errors="replace").read()
+    lines = raw.splitlines()
+
+    # Start scanning from the micro-niche ideas area if present.
+    start_idx = 0
+    for i, ln in enumerate(lines):
+        if "micro niche idea" in ln.lower() and "plant" in ln.lower():
+            start_idx = i
+            break
+        if "mycelium-based materials" in ln.lower():
+            start_idx = i
+            break
+
+    candidates: list[str] = []
+    for ln in lines[start_idx:]:
+        # Stop once we leave the ideas block (comparison table / checklist etc.)
+        if ln.strip().lower().startswith("## comparison table"):
+            break
+        if ln.strip().startswith("|"):
+            continue  # skip tables
+        if not ln.lstrip().startswith("-"):
+            continue
+
+        idea = ln.lstrip().lstrip("-").strip()
+        if not idea:
+            continue
+
+        idea = _strip_md_links(idea)
+        idea = re.sub(r"\s+", " ", idea).strip()
+        idea = idea.rstrip(".")
+
+        # Filter out ultra-short bullets
+        if len(idea) < 18:
+            continue
+
+        candidates.append(idea)
+
+    # De-dupe while preserving order
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for c in candidates:
+        key = c.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(c)
+        if len(uniq) >= limit:
+            break
+
+    # Return (topic, score, niche, hook)
+    return [(t, 9.2, "ideas_file", "") for t in uniq]
+
+
+def _seed_keywords_from_ideas(ideas: list[str]) -> set[str]:
+    seeds: set[str] = set()
+    for idea in ideas:
+        seeds |= _norm_tokens(idea)
+    return seeds
+
+
+def _rank_db_candidates_by_seed(
+    db_candidates: list[tuple[str, float, str, str]],
+    seed_keywords: set[str],
+) -> list[tuple[str, float, str, str]]:
+    if not seed_keywords:
+        return db_candidates
+
+    def score_item(item: tuple[str, float, str, str]) -> float:
+        topic = item[0]
+        tset = _norm_tokens(topic)
+        if not tset:
+            return 0.0
+        return len(tset & seed_keywords) / max(1, len(tset))
+
+    # Prefer higher keyword overlap; stable tie-break by original order
+    return sorted(db_candidates, key=score_item, reverse=True)
 
 
 def _norm_tokens(text: str) -> set[str]:
@@ -274,8 +430,49 @@ async def _publish_tiktok(cp: dict[str, Any], account_id: str, label: str) -> di
     pc = await _prepare_tiktok_content(cp, "tiktok")
     pc["account_ids"] = [account_id]
     pc["_account_label"] = label
-    r = await PublerPublisher().publish(pc)
-    return r if isinstance(r, dict) else {"success": False, "error": str(r)}
+    pub = PublerPublisher()
+    r = await pub.publish(pc)
+    if not isinstance(r, dict):
+        return {"success": False, "error": str(r)}
+
+    # TikTok OpenAPI spam guard: if too many posts in last 24h, auto-schedule.
+    err = str(r.get("error", "") or "")
+    err_l = err.lower()
+    is_tiktok_limit = (
+        ("tiktok" in err_l and "openapi" in err_l)
+        or ("too many posts" in err_l and "24 hours" in err_l)
+        or ("blocked" in err_l and "minimize spam" in err_l)
+    )
+    if (not r.get("success")) and is_tiktok_limit:
+        hours = float(os.environ.get("VIRALOPS_TIKTOK_SCHEDULE_FALLBACK_HOURS", "25") or "25")
+        base = datetime.now(timezone.utc) + timedelta(hours=hours)
+        # Stagger schedules per account to avoid same-minute collisions.
+        try:
+            offset_min = int(os.environ.get("VIRALOPS_TIKTOK_SCHEDULE_STAGGER_MIN", "2") or "2")
+        except Exception:
+            offset_min = 2
+        # Deterministic offset from account_id
+        acct_bump = sum(ord(c) for c in str(account_id)) % max(1, offset_min)
+
+        last: dict | None = None
+        for attempt in range(4):
+            schedule_at = (base + timedelta(minutes=acct_bump + attempt * 2)).replace(microsecond=0).isoformat()
+            pc2 = dict(pc)
+            pc2["schedule_at"] = schedule_at
+            r2 = await pub.publish(pc2)
+            if isinstance(r2, dict) and r2.get("success"):
+                r2["_fallback"] = "scheduled_due_to_tiktok_openapi_limit"
+                r2["_scheduled_at"] = schedule_at
+                return r2
+            last = r2 if isinstance(r2, dict) else {"success": False, "error": str(r2)}
+            err2 = str((last or {}).get("error", "") or "").lower()
+            if "one minute gap" not in err2 and "another post at this time" not in err2:
+                break
+            await asyncio.sleep(0.5)
+
+        return last or {"success": False, "error": "schedule fallback failed"}
+
+    return r
 
 
 async def _publish_facebook(cp: dict[str, Any]) -> dict:
@@ -285,13 +482,32 @@ async def _publish_facebook(cp: dict[str, Any]) -> dict:
     pc = await _prepare_facebook_content(cp)
     if not pc:
         return {"success": False, "error": "FB empty"}
-    # Prefer platform discovery so it auto-scales when you add accounts.
     pc["platforms"] = ["facebook"]
-    if os.environ.get("VIRALOPS_FACEBOOK_ACCOUNT_ID", "").strip():
-        pc["account_ids"] = [os.environ["VIRALOPS_FACEBOOK_ACCOUNT_ID"].strip()]
-    elif FACEBOOK:
-        pc["account_ids"] = [FACEBOOK]
-    r = await PublerPublisher().publish(pc)
+
+    pub = PublerPublisher()
+    await pub.connect()
+
+    # 1) Explicit override
+    fb_override = os.environ.get("VIRALOPS_FACEBOOK_ACCOUNT_ID", "").strip()
+    if fb_override:
+        pc["account_ids"] = [fb_override]
+    else:
+        # 2) Discover currently-connected FB accounts in Publer workspace
+        fb_ids = await pub.get_account_ids("facebook")
+        if fb_ids:
+            pc["account_ids"] = [fb_ids[0]]
+        elif FACEBOOK:
+            # 3) Last resort legacy ID
+            pc["account_ids"] = [FACEBOOK]
+
+    r = await pub.publish(pc)
+    if isinstance(r, dict) and (not r.get("success")):
+        err = str(r.get("error", "") or "")
+        if "composer is in a bad state" in err.lower():
+            r["error"] = (
+                err
+                + " | FIX: In Publer dashboard → Accounts, reselect/refresh the Facebook Page connection (disconnect/reconnect if needed)."
+            )
     return r if isinstance(r, dict) else {"success": False, "error": str(r)}
 
 
@@ -303,11 +519,55 @@ async def _publish_pinterest(cp: dict[str, Any]) -> dict:
     if not pc:
         return {"success": False, "error": "Pinterest no image"}
     pc["platforms"] = ["pinterest"]
-    if os.environ.get("VIRALOPS_PINTEREST_ACCOUNT_ID", "").strip():
-        pc["account_ids"] = [os.environ["VIRALOPS_PINTEREST_ACCOUNT_ID"].strip()]
-    elif PINTEREST:
-        pc["account_ids"] = [PINTEREST]
-    r = await PublerPublisher().publish(pc)
+
+    pub = PublerPublisher()
+    await pub.connect()
+
+    # 1) Explicit override
+    pin_override = os.environ.get("VIRALOPS_PINTEREST_ACCOUNT_ID", "").strip()
+    if pin_override:
+        pc["account_ids"] = [pin_override]
+    else:
+        # 2) Discover currently-connected Pinterest accounts in Publer workspace
+        pin_ids = await pub.get_account_ids("pinterest")
+        if pin_ids:
+            pc["account_ids"] = [pin_ids[0]]
+        elif PINTEREST:
+            # 3) Last resort legacy ID
+            pc["account_ids"] = [PINTEREST]
+
+    # Pinterest requires selecting an album/board.
+    album_override = os.environ.get("VIRALOPS_PINTEREST_ALBUM_ID", "").strip()
+    if album_override:
+        pc["album_id"] = album_override
+    else:
+        try:
+            accounts = await pub.get_accounts()
+            target_id = (pc.get("account_ids") or [""])[0]
+            acc = next((a for a in (accounts or []) if str(a.get("id", a.get("_id", ""))) == str(target_id)), None)
+            albums = (acc or {}).get("albums") or []
+            if albums and isinstance(albums, list) and isinstance(albums[0], dict) and albums[0].get("id"):
+                pc["album_id"] = str(albums[0].get("id"))
+        except Exception:
+            pass
+
+    r = await pub.publish(pc)
+    if isinstance(r, dict) and (not r.get("success")):
+        err = str(r.get("error", "") or "")
+        if "composer is in a bad state" in err.lower():
+            r["error"] = (
+                err
+                + " | FIX: In Publer dashboard → Accounts, reselect/refresh the Pinterest Business connection (disconnect/reconnect if needed)."
+            )
+        # Some Publer setups reject content_type="pin" for Pinterest; retry with alternatives.
+        if ("post type is not valid" in err.lower()) or ("album can't be blank" in err.lower()):
+            for ct in ("photo", "status", "video"):
+                pc2 = dict(pc)
+                pc2["content_type"] = ct
+                r2 = await pub.publish(pc2)
+                if isinstance(r2, dict) and r2.get("success"):
+                    r2["_fallback"] = f"pinterest_content_type_{ct}"
+                    return r2
     return r if isinstance(r, dict) else {"success": False, "error": str(r)}
 
 
@@ -329,7 +589,12 @@ async def _publish_all(cp: dict[str, Any]) -> dict[str, dict]:
             account_label=label,
             variant_id=variant_id,
         )
-        results[f"tiktok{idx}"] = await _publish_tiktok(cp_variant, account_id, label)
+        # IMPORTANT: pass the explicit Publer account ID into the pack so `_prepare_tiktok_content()`
+        # does not round-robin-pick a different account (and logs match the actual target).
+        variant_pack = dict(cp_variant)
+        variant_pack["account_ids"] = [account_id]
+        variant_pack["_account_label"] = f"tiktok#{idx}"
+        results[f"tiktok{idx}"] = await _publish_tiktok(variant_pack, account_id, label)
         await asyncio.sleep(2)
 
     results["facebook"] = await _publish_facebook(cp)
@@ -343,6 +608,12 @@ async def _publish_all(cp: dict[str, Any]) -> dict[str, dict]:
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--publish", action="store_true", help="Actually publish. Default is dry-run.")
+    ap.add_argument(
+        "--ideas-file",
+        type=str,
+        default="",
+        help="Optional: path to a Markdown file to source micro-niche idea bullet topics from (overrides niche_hunter.db picking).",
+    )
     ap.add_argument("--limit", type=int, default=3, help="How many topics to process.")
     ap.add_argument("--min-score", type=float, default=8.5, help="Min niche score to accept.")
     ap.add_argument("--refresh-db", choices=["local", "full"], default=None, help="Refresh niche_hunter.db before picking topics.")
@@ -374,7 +645,22 @@ async def main() -> int:
         _refresh_db(args.refresh_db)
 
     # Pick extra candidates first, then filter by Publer recent history
-    candidates = _pick_topics(limit=max(10, args.limit * 6), min_score=args.min_score)
+    ideas_candidates: list[tuple[str, float, str, str]] = []
+    seed_keywords: set[str] = set()
+
+    if args.ideas_file:
+        ideas_candidates = _pick_topics_from_ideas_file(args.ideas_file, limit=max(20, args.limit * 8))
+        seed_keywords = _seed_keywords_from_ideas([t for (t, *_rest) in ideas_candidates])
+
+    db_candidates = _pick_topics(limit=max(20, args.limit * 10), min_score=args.min_score)
+    if seed_keywords:
+        db_candidates = _rank_db_candidates_by_seed(db_candidates, seed_keywords)
+
+    # Combine: ideas first, then DB fallback.
+    candidates = ideas_candidates + db_candidates
+
+    # Filter out already-used topics (persisted history)
+    candidates = [c for c in candidates if not _topic_already_used(c[0])]
     if not args.no_publer_dedup:
         topics = await _dedup_against_publer(
             candidates,
@@ -421,15 +707,35 @@ async def main() -> int:
             results = await _publish_all(cp)
             for pf, r in results.items():
                 ok = bool(r.get("success"))
-                msg = "OK" if ok else f"FAIL: {str(r.get('error', '?'))[:80]}"
+                if ok and r.get("scheduled"):
+                    when = str(r.get("_scheduled_at") or r.get("schedule_at") or "").strip()
+                    msg = f"SCHEDULED {when}".strip()
+                else:
+                    msg = "OK" if ok else f"FAIL: {str(r.get('error', '?'))[:140]}"
                 print(f"    {'✓' if ok else '✗'} {pf}: {msg}")
 
-            # Persist to viralops.db if we had at least one successful publish
-            if any(bool(r.get("success")) for r in results.values()):
+            # Persist only if ALL platform publishes succeeded.
+            all_ok = all(bool(r.get("success")) for r in results.values())
+            if all_ok:
                 _log_published_to_viralops_db(
                     cp,
                     platforms=["tiktok", "facebook", "pinterest"],
                     extra={"topic": topic, "picked_score": score, "picked_niche": niche, "picked_hook": hook},
+                )
+                _mark_topic_used(topic, source=niche or "")
+            else:
+                # Record a failure entry (for debugging) but do NOT mark topic used.
+                _log_published_to_viralops_db(
+                    {"title": cp.get("title", ""), "content_formatted": cp.get("content_formatted", ""), "universal_caption_block": cp.get("universal_caption_block", "")},
+                    platforms=["tiktok", "facebook", "pinterest"],
+                    extra={
+                        "topic": topic,
+                        "picked_score": score,
+                        "picked_niche": niche,
+                        "picked_hook": hook,
+                        "results": results,
+                    },
+                    status="failed",
                 )
 
         except Exception as e:

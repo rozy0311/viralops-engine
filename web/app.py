@@ -2104,6 +2104,60 @@ def _fallback_tiktok_clumpproof(title: str, content: str, hashtags: list[str]) -
     return caption[:TIKTOK_MAX_CAPTION]
 
 
+def _strip_duplicate_title_and_hashtags(*, title: str, text: str) -> str:
+    """Remove duplicate title line at the start and hashtag-only lines at the end.
+
+    This prevents patterns like:
+      TITLE\n\nTITLE\n\n...
+    and avoids double-hashtag tails when universal_caption_block already includes them.
+    """
+    import re as _re
+
+    t = str(title or "").strip()
+    s = str(text or "")
+    if not s.strip() or not t:
+        return s.strip()
+
+    # Strip trailing hashtag-only blocks (one or more lines mostly made of #tags).
+    lines = s.splitlines()
+    while lines:
+        tail = lines[-1].strip()
+        if not tail:
+            lines.pop()
+            continue
+        # A line that contains at least 2 hashtags and little else.
+        if len(_re.findall(r"#[A-Za-z0-9_]+", tail)) >= 2 and _re.sub(r"#[A-Za-z0-9_]+", "", tail).strip() == "":
+            lines.pop()
+            # Also remove any blank line before it
+            while lines and not lines[-1].strip():
+                lines.pop()
+            continue
+        break
+    s = "\n".join(lines)
+
+    # Strip leading duplicate title line(s).
+    def _norm(x: str) -> str:
+        x = (x or "").strip().lower()
+        x = x.lstrip("🌿✅❌🔥👉🫙🫘🌱🍃 ")
+        x = x.replace("—", "-").replace("–", "-")
+        x = _re.sub(r"\s+", " ", x)
+        return x
+
+    t_norm = _norm(t)
+    lines = s.splitlines()
+    # drop leading blanks
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if lines:
+        first = _norm(lines[0])
+        if first == t_norm or first.startswith(t_norm + " -") or first.startswith(t_norm + " —"):
+            lines.pop(0)
+            # drop one blank line after title
+            while lines and not lines[0].strip():
+                lines.pop(0)
+    return "\n".join(lines).strip()
+
+
 async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") -> dict:
     """
     Adapt a raw content_pack into a Publer/TikTok-ready publish dict.
@@ -2152,6 +2206,9 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
             parts.append(cta)
         long_content = " ".join(parts)
 
+    # Remove duplicate title/hashtags that may already be present in long_content.
+    long_content = _strip_duplicate_title_and_hashtags(title=title, text=long_content)
+
     # ── Reformat: make content clump-proof for TikTok ──
     # Always reformat — even "short" content needs emoji separators
     if long_content and len(long_content) > 200:
@@ -2173,21 +2230,35 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
         max_content = TIKTOK_MAX_CAPTION - tag_space - 10
         caption = caption[:max_content].rsplit(" ", 1)[0] + f" {tag_str}"
 
-    # ── 2. Pick TikTok account (round-robin) ──
+    # ── 2. Pick TikTok account ─────────────────────────────────────
+    # If caller provided explicit Publer account IDs, respect them.
+    # This is REQUIRED for multi-account publishing where each account
+    # must receive a distinct caption variant.
     account_ids = []
     account_label = None
-    try:
-        from core.tiktok_accounts import get_account_manager
-        mgr = get_account_manager()
-        acct = mgr.next_account()
-        if acct:
-            # TikTokAccount is a dataclass — use attribute access, not dict .get()
-            account_ids = [getattr(acct, "id", "")]
-            account_label = getattr(acct, "label", "")
-            logger.info("tiktok.account_picked",
-                        label=account_label, account_id=account_ids[0])
-    except Exception as e:
-        logger.warning("tiktok.account_manager_error", error=str(e))
+    explicit_ids = content_pack.get("account_ids", [])
+    if isinstance(explicit_ids, list) and any(str(x).strip() for x in explicit_ids):
+        account_ids = [str(x).strip() for x in explicit_ids if str(x).strip()]
+        account_label = str(content_pack.get("_account_label", "") or "")
+        logger.info(
+            "tiktok.account_override",
+            label=account_label,
+            account_ids=account_ids,
+        )
+    else:
+        # Default: round-robin via TikTokAccountManager
+        try:
+            from core.tiktok_accounts import get_account_manager
+
+            mgr = get_account_manager()
+            acct = mgr.next_account()
+            if acct:
+                # TikTokAccount is a dataclass — use attribute access, not dict .get()
+                account_ids = [getattr(acct, "id", "")]
+                account_label = getattr(acct, "label", "")
+                logger.info("tiktok.account_picked", label=account_label, account_id=account_ids[0])
+        except Exception as e:
+            logger.warning("tiktok.account_manager_error", error=str(e))
 
     # ── 3. Generate image if needed ──
     media_url = (content_pack.get("media_url", "")
@@ -2331,6 +2402,9 @@ async def _prepare_facebook_content(content_pack: dict) -> dict:
             parts.append(cta)
         long_content = "\n\n".join(parts)
 
+    # Avoid repeating the title and hashtag block when universal_caption already contains them.
+    long_content = _strip_duplicate_title_and_hashtags(title=title, text=long_content)
+
     # Build caption: title + content + hashtags
     caption_parts = []
     if title:
@@ -2415,6 +2489,9 @@ async def _prepare_pinterest_content(content_pack: dict) -> dict:
         body = content_pack.get("body", "")
         hook = content_pack.get("hook", "")
         long_content = hook or body or title
+
+    # Prevent duplicate title at the top and duplicate hashtag tails.
+    long_content = _strip_duplicate_title_and_hashtags(title=title, text=long_content)
 
     # Build description: truncate to 500 chars with hashtags
     tag_str = " ".join(hashtags[:5])

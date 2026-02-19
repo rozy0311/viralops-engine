@@ -34,6 +34,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -156,7 +157,8 @@ class PublerPublisher:
         client = await self._get_client()
         url = f"{self.API_URL}/{endpoint}"
 
-        last_error = None
+        transient_statuses = {500, 502, 503, 504, 520, 521, 522, 523, 524}
+        last_error: Optional[Exception] = None
         for attempt in range(self.MAX_RETRIES):
             try:
                 resp = await client.request(
@@ -177,6 +179,22 @@ class PublerPublisher:
                         "Publer rate limited, retry in %ds", retry_after
                     )
                     await asyncio.sleep(retry_after)
+                    continue
+
+                # Retry transient upstream/Cloudflare failures (e.g., HTTP 520).
+                if resp.status_code in transient_statuses:
+                    delay = min(30.0, float(self.RETRY_DELAY) * (attempt + 1) * 2)
+                    delay += random.uniform(0.0, 0.6)
+                    logger.warning(
+                        "Publer transient HTTP %d on %s %s (attempt %d/%d) — retry in %.1fs",
+                        resp.status_code,
+                        method,
+                        endpoint,
+                        attempt + 1,
+                        self.MAX_RETRIES,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
                     continue
 
                 return resp
@@ -382,6 +400,7 @@ class PublerPublisher:
         Supports URL upload (async via /media/from-url) or
         direct file upload (sync via POST /media multipart).
         """
+        transient_statuses = {500, 502, 503, 504, 520, 521, 522, 523, 524}
         try:
             if url:
                 # URL-based upload — async, returns job_id
@@ -408,14 +427,32 @@ class PublerPublisher:
                 }
                 if self.workspace_id:
                     upload_headers["Publer-Workspace-Id"] = self.workspace_id
-                async with httpx.AsyncClient(timeout=60.0) as upload_client:
-                    with open(file_path, "rb") as f:
-                        files = {"file": f}
-                        resp = await upload_client.post(
-                            f"{self.API_URL}/media",
-                            files=files,
-                            headers=upload_headers,
+
+                resp: httpx.Response | None = None
+                max_attempts = max(2, int(self.MAX_RETRIES))
+                for attempt in range(max_attempts):
+                    async with httpx.AsyncClient(timeout=60.0) as upload_client:
+                        with open(file_path, "rb") as f:
+                            files = {"file": f}
+                            resp = await upload_client.post(
+                                f"{self.API_URL}/media",
+                                files=files,
+                                headers=upload_headers,
+                            )
+
+                    if resp.status_code in transient_statuses and attempt < (max_attempts - 1):
+                        delay = min(30.0, float(self.RETRY_DELAY) * (attempt + 1) * 2)
+                        delay += random.uniform(0.0, 0.6)
+                        logger.warning(
+                            "Publer media upload transient HTTP %d (attempt %d/%d) — retry in %.1fs",
+                            resp.status_code,
+                            attempt + 1,
+                            max_attempts,
+                            delay,
                         )
+                        await asyncio.sleep(delay)
+                        continue
+                    break
             else:
                 return None
 
@@ -435,7 +472,9 @@ class PublerPublisher:
                 # Direct upload returns media object immediately
                 return data.get("data", data)
             else:
-                logger.error("Publer media upload error: %s", resp.text)
+                body = (resp.text or "")
+                snippet = body[:600].replace("\r", " ").replace("\n", " ")
+                logger.error("Publer media upload error (HTTP %d): %s", resp.status_code, snippet)
                 return None
 
         except Exception as e:
@@ -517,6 +556,13 @@ class PublerPublisher:
                 continue
 
             provider = str(acc_info.get("type", acc_info.get("provider", ""))).lower()
+
+            # Normalize provider aliases returned by Publer accounts.
+            # Examples: fb_page, pin_business. Publer networks expect canonical keys.
+            if provider.startswith("fb"):
+                provider = "facebook"
+            elif provider.startswith("pin"):
+                provider = "pinterest"
             publer_network = None
             for viralops_name, publer_key in PLATFORM_TO_PUBLER_NETWORK.items():
                 if viralops_name in provider or publer_key in provider:
@@ -560,6 +606,13 @@ class PublerPublisher:
             schedule_at = content.get("schedule_at", "")
             if schedule_at:
                 acc_entry["scheduled_at"] = schedule_at
+
+            # Pinterest requires an album/board selection (Publer calls it album).
+            # If not provided, Publer can reject with: "Album can't be blank".
+            if publer_network == "pinterest":
+                album_id = str(content.get("album_id", "") or "").strip()
+                if album_id:
+                    acc_entry["album_id"] = album_id
 
             target_accounts.append(acc_entry)
 
@@ -645,21 +698,76 @@ class PublerPublisher:
                     job_result = await self._poll_job(job_id)
 
                     if job_result["success"]:
+                        payload = job_result.get("payload", {})
+
+                        # Publer payload can be a dict or a list of job items.
+                        # We must detect partial failures deterministically.
+                        failures_out: list[dict[str, Any]] = []
+                        if isinstance(payload, dict):
+                            failures = payload.get("failures")
+                            if failures:
+                                # keep shape but also normalize to list
+                                failures_out.append({"failures": failures})
+                        elif isinstance(payload, list):
+                            for item in payload:
+                                if not isinstance(item, dict):
+                                    continue
+                                if item.get("failure"):
+                                    failures_out.append(item.get("failure"))
+                                    continue
+                                post = item.get("post") if isinstance(item.get("post"), dict) else {}
+                                state = str(post.get("state", "") or "").lower()
+                                if state == "failed" or post.get("error") or post.get("details", {}).get("error"):
+                                    failures_out.append(
+                                        {
+                                            "account_id": post.get("account_id"),
+                                            "provider": post.get("provider"),
+                                            "message": post.get("error")
+                                            or (post.get("details", {}) or {}).get("error")
+                                            or "Post failed",
+                                            "post_id": post.get("id"),
+                                        }
+                                    )
+
+                        ok = len(failures_out) == 0
+
+                        error_summary = ""
+                        if not ok:
+                            # Best-effort: extract a single readable message.
+                            first = failures_out[0] if failures_out else {}
+                            if isinstance(first, dict):
+                                error_summary = str(first.get("message") or first.get("error") or "Publish failed")
+                            else:
+                                error_summary = "Publish failed"
+
                         logger.info(
-                            "Publer [%s]: Published to %d accounts (job=%s)",
+                            "Publer [%s]: Job complete (job=%s, accounts=%d, ok=%s)",
                             self.account_id,
-                            len(target_accounts),
                             job_id,
+                            len(target_accounts),
+                            ok,
                         )
+
+                        created_post_ids: list[str] = []
+                        if isinstance(payload, list):
+                            for item in payload:
+                                if not isinstance(item, dict):
+                                    continue
+                                post = item.get("post") if isinstance(item.get("post"), dict) else None
+                                if post and post.get("id"):
+                                    created_post_ids.append(str(post.get("id")))
                         return {
-                            "success": True,
+                            "success": bool(ok),
                             "post_id": job_id,
                             "post_url": "",
                             "platform": self.platform,
                             "accounts_count": len(target_accounts),
                             "account_ids": account_ids,
                             "scheduled": bool(schedule_at),
-                            "job_result": job_result.get("payload", {}),
+                            "job_result": payload,
+                            "failures": failures_out,
+                            "error": error_summary,
+                            "created_post_ids": created_post_ids,
                         }
                     else:
                         return {
@@ -667,16 +775,18 @@ class PublerPublisher:
                             "error": f"Publer job failed: {job_result.get('error', 'unknown')}",
                             "platform": self.platform,
                             "job_id": job_id,
+                            "job_result": job_result.get("payload", {}),
                         }
 
                 # No job_id — might be direct success
+                # In practice we REQUIRE a job_id to verify per-account outcomes.
                 return {
-                    "success": True,
-                    "post_id": "",
-                    "post_url": "",
+                    "success": False,
+                    "error": "Publer response missing job_id (cannot verify publish result)",
                     "platform": self.platform,
                     "accounts_count": len(target_accounts),
                     "scheduled": bool(schedule_at),
+                    "raw": data,
                 }
 
             return {
@@ -794,7 +904,10 @@ class PublerPublisher:
 
         params: dict[str, Any] = {"limit": limit, "page": page}
         if status:
+            # Publer payloads use the term `state`. Some API variants accept `status`.
+            # Send both for compatibility.
             params["status"] = status
+            params["state"] = status
 
         try:
             resp = await self._request("GET", "posts", params=params)

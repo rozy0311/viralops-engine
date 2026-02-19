@@ -22,11 +22,25 @@ import re
 import json
 import time
 import httpx
+import sys
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+
+def _configure_text_streams() -> None:
+    """Avoid hard crashes when printing Unicode to Windows legacy encodings."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(errors="replace")
+        except Exception:
+            pass
+
+
+_configure_text_streams()
 
 # ═══════════════════════════════════════════════════════════════
 # DATA ROOT — Short path to avoid Windows MAX_PATH (260) issues
@@ -1029,6 +1043,7 @@ PREVIOUS ATTEMPT FEEDBACK (fix these issues):
 {prev_feedback}
 
 Regenerate the content fixing ALL issues above. TikTok avg score MUST be higher than {_best_tiktok:.1f}.
+Also: the title/hook MUST NOT start with "Did you know" or "Do you know".
 """
         
         quality_prompt = f"""Answer this nano-niche topic like a Perplexity AI expert:
@@ -1043,7 +1058,7 @@ You are answering someone who asked "{topic}". Give them the REAL, COMPLETE answ
 EXAMPLE OF THE FORMAT TO MATCH (real published post — notice NO Markdown).
 This is ONE valid hook style; you may use other hook styles too:
 
-Do you know banana peels make natural shoe polish that repels water too?
+Stop paying $12 for shoe polish — a banana peel gives a 10-minute shine (and it's basically free).
 
 Yes, banana peels can serve as a natural DIY shoe polish for leather shoes due to their potassium content and oils, which mimic some commercial polishes for shine.
 
@@ -1085,6 +1100,11 @@ CRITICAL:
     - A contrarian claim: "Stop doing X — here's why (with numbers)"
     - A myth-buster: "Coffee grounds + eggshells for tomatoes: myth or real?"
     - A checklist promise: "3 signs you're doing X wrong"
+    - A confession/regret: "I ruined 3 batches before I fixed this (here's the 2-minute rule)"
+    - A price anchor: "This costs $0.30 at home vs $5 store-bought — here's the exact method"
+    - A constraint hook: "No stove. No blender. 8 minutes. Here's how"
+    - A punchy list promise: "15 ways to use X that aren't the obvious ones"
+    FORBIDDEN title openers (do not use): "Did you know", "Do you know".
 3. ABSOLUTELY NO ** bold markers — TikTok shows them as ugly literal ** characters.
 4. ABSOLUTELY NO ### or ## headings — TikTok shows them as literal # characters.
 5. Use emoji section headers: 🌿 🫘 🫙 ❌ ✅ on their own lines.
@@ -1241,7 +1261,10 @@ Return the TRIMMED answer as PLAIN TEXT (3500-4000 chars). No JSON wrapper. No m
             pack["_review_provider"] = review.get("_provider", "")
             
             if review.get("improved_title") and review_score < 9.5:
-                pack["title"] = review["improved_title"]
+                import re as _re
+                improved = str(review.get("improved_title", "") or "").strip()
+                if improved and not _re.match(r"^(did|do)\s+you\s+know\b", improved, flags=_re.IGNORECASE):
+                    pack["title"] = improved
             
             print(
                 f"  [QUALITY] Review: {review_score:.1f}/10 + rubric={rubric_total_100:.0f}/100 — "
@@ -1335,6 +1358,7 @@ Score each 1-10 (be STRICT — 10 = professional-grade, 7 = mediocre):
 2. CONTENT_DEPTH — 3200-4000 chars of REAL value? Every sentence teaches something? (3000+ is acceptable if dense)
 3. TONE — Casual, witty, personality-driven? Dry humor? NOT corporate, NOT generic blog-speak?
 4. HOOK — Is the FIRST LINE a strong hook (question OR contrarian claim OR myth-buster OR checklist)? Or is it generic clickbait like "Unlock the Power of..."?
+    HARD RULE: If the title starts with "Did you know" or "Do you know", the hook MUST be penalized and the post MUST NOT pass.
 5. SPECIFICITY — Concrete numbers ($prices, timeframes, quantities, temperatures)? At least 15 specific numbers? Or vague advice?
 6. ACTIONABILITY — Reader can do this TODAY with what they have?
 7. FORMATTING — PLAIN TEXT ONLY. NO ** bold? NO ### headings? NO Markdown at all? Uses emoji section headers (🌿 🫙 ❌ ✅)?
@@ -1365,6 +1389,7 @@ Output ONLY valid JSON (no markdown, no code fences) with this schema:
 - pass: boolean
 - feedback: string (2-3 sentences; mention which rubric criterion is failing and exactly how to fix it)
 - improved_title: string (rewrite first line into a stronger hook using 1+ specific number)
+    HARD RULE for improved_title: MUST NOT start with "Did you know" or "Do you know".
 
 PASS RULE:
 - avg >= {TIKTOK_MIN_AVG}
@@ -1456,6 +1481,16 @@ PASS RULE:
         review["pass"] = (float(review.get("avg", 0.0) or 0.0) >= TIKTOK_MIN_AVG) and (
             float(review.get("rubric_total_100", 0.0) or 0.0) >= RUBRIC_MIN_100
         )
+
+        # Deterministic hard-fail: forbidden hook openers.
+        import re as _re
+        title = str(pack.get("title", "") or "").strip()
+        if _re.match(r"^(did|do)\s+you\s+know\b", title, flags=_re.IGNORECASE):
+            review["avg"] = float(min(float(review.get("avg", 0.0) or 0.0), 8.0))
+            review["pass"] = False
+            fb_existing = str(review.get("feedback", "") or "").strip()
+            fb_ban = "Forbidden hook opener: title starts with 'Did/Do you know'. Rewrite the first line using contrarian/myth-buster/checklist/price-anchor." 
+            review["feedback"] = (fb_ban + (" " + fb_existing if fb_existing else "")).strip()
     
     return review
 
