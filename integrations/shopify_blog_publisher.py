@@ -1,5 +1,4 @@
-﻿"""
-ViralOps Engine -- Shopify Blog Publisher (REAL Implementation)
+"""ViralOps Engine -- Shopify Blog Publisher (REAL Implementation)
 
 Shopify Admin REST API -- blog article CRUD.
 Syncs content as published/draft blog articles to a Shopify store.
@@ -106,7 +105,7 @@ class ShopifyBlogPublisher:
                 f"{self._base_url}/blogs/{self._blog_id}.json"
             )
             resp.raise_for_status()
-            blog_data = resp.json().get("blog", {})
+            blog_data = (resp.json() or {}).get("blog", {})
             blog_title = blog_data.get("title", "Unknown")
             self._blog_handle = (blog_data.get("handle") or "").strip() or None
 
@@ -255,11 +254,12 @@ class ShopifyBlogPublisher:
             """Inject a single inline figure+img after the first paragraph."""
             if not html or not src:
                 return html
-            safe_alt = (alt or "").replace('"', "&quot;")
+            # Some Shopify themes render <img alt> (or <img title>) as a visible caption.
+            # Keep alt empty to avoid duplicating the article title under the image.
+            safe_alt = ""
             block = (
                 "<figure>"
                 f"<img src=\"{src}\" alt=\"{safe_alt}\" loading=\"lazy\" />"
-                f"<figcaption>{safe_alt}</figcaption>"
                 "</figure>"
             )
             # If already has an image, don't duplicate.

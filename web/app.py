@@ -1903,6 +1903,14 @@ async def api_account_health_safe(platform: str, account_id: str = ""):
 TIKTOK_MAX_CAPTION = 4000
 
 
+def _strip_tiktok_title_label(text: str) -> str:
+    """Strip accidental leading TITLE/TITTLE labels from TikTok caption text."""
+    import re as _re
+
+    t = (text or "").lstrip()
+    return _re.sub(r"^(?:TITLE|TITTLE)\s*:\s*", "", t, flags=_re.IGNORECASE)
+
+
 async def _reformat_for_tiktok(
     title: str,
     long_content: str,
@@ -1977,6 +1985,7 @@ RULES — FOLLOW EXACTLY:
             c = c.strip()
         c = _re.sub(r'\*\*(.+?)\*\*', r'\1', c)
         c = _re.sub(r'###?\s*', '', c)
+        c = _strip_tiktok_title_label(c)
         return c.strip()
 
     try:
@@ -2050,6 +2059,7 @@ OUTPUT ONLY the full 3500-3900 character caption. No JSON, no code blocks."""
                         len=len(caption), padding=needed)
 
         if caption:
+            caption = _strip_tiktok_title_label(caption)
             # Append hashtags if not already present
             if tag_str and tag_str not in caption:
                 caption = f"{caption} {tag_str}"
