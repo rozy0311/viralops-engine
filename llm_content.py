@@ -977,8 +977,14 @@ def generate_quality_post(
     
     # ══ RETRY LOOP — generate → review → regenerate with feedback until 9.0+ ══
     MAX_ATTEMPTS = 3
-    MIN_SCORE = 9.0
-    RUBRIC_MIN_100 = 92
+    try:
+        MIN_SCORE = float(os.environ.get("VIRALOPS_TIKTOK_MIN_AVG", "9.0") or "9.0")
+    except Exception:
+        MIN_SCORE = 9.0
+    try:
+        RUBRIC_MIN_100 = float(os.environ.get("VIRALOPS_RUBRIC_MIN_100", "92") or "92")
+    except Exception:
+        RUBRIC_MIN_100 = 92
     best_pack = None
     best_metrics: tuple[float, float] = (0.0, 0.0)  # (rubric_total_100, tiktok_avg)
     prev_feedback = ""
@@ -1737,8 +1743,14 @@ def _review_quality_content(pack: Dict[str, Any]) -> Optional[Dict]:
         }
 
     # Gate thresholds — keep TikTok avg on /10 scale, add micro-niche rubric on /100 scale
-    TIKTOK_MIN_AVG = 9.0
-    RUBRIC_MIN_100 = 92
+    try:
+        TIKTOK_MIN_AVG = float(os.environ.get("VIRALOPS_TIKTOK_MIN_AVG", "9.0") or "9.0")
+    except Exception:
+        TIKTOK_MIN_AVG = 9.0
+    try:
+        RUBRIC_MIN_100 = float(os.environ.get("VIRALOPS_RUBRIC_MIN_100", "92") or "92")
+    except Exception:
+        RUBRIC_MIN_100 = 92
 
     def _audit_micro_niche(text: str) -> Dict[str, Any]:
         import re as _re
