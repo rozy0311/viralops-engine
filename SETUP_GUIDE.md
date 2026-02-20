@@ -8,6 +8,25 @@
 ## 📋 Prerequisites
 
 1. **Python 3.13+** installed
+2. **Install dependencies** (recommended: use a venv)
+
+If your Python is **externally managed** (you see `externally-managed-environment` / PEP 668), install deps into a venv instead of system Python:
+
+```powershell
+# Create a short-path venv (avoids Windows path/unicode issues)
+python -m venv D:\vops-venv
+
+# Install deps (includes google-genai for Gemini)
+D:\vops-venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Then run scripts via:
+
+```powershell
+./run.ps1 scripts/batch_auto_niche_topics.py --help
+```
+
+`run.ps1` uses `VIRALOPS_PYTHON` if set, otherwise defaults to `D:\vops-venv\Scripts\python.exe` when present.
 2. **Copy environment template**: `cp .env.template .env`
 3. **OpenAI API Key** (required for content generation):
    - Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)

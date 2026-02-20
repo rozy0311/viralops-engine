@@ -300,7 +300,7 @@ class TestGeminiFallbackChain:
                     name="gemini", api_key_env="GEMINI_API_KEY",
                     base_url="", model="gemini-2.5-flash", is_gemini=True,
                 )
-                result = _call_gemini(config, "fake-key", "test", "system", 100, 0.7)
+                result = _call_gemini(config, [("primary", "fake-key")], "test", "system", 100, 0.7)
                 assert not result.success
                 # No models should have been called since all are exhausted
                 # (unless genai import fails first, which is also OK)
@@ -319,7 +319,7 @@ class TestGeminiFallbackChain:
             test_model = "test-model-xyz"
             _mark_gemini_exhausted(test_model)
             assert _is_gemini_exhausted(test_model)
-            _gemini_exhausted.pop(test_model, None)
+            _gemini_exhausted.pop((test_model, 0), None)
             assert not _is_gemini_exhausted(test_model)
         finally:
             _gemini_exhausted.clear()

@@ -32,6 +32,7 @@ import asyncio
 import json
 import os
 import re
+import uuid
 import sqlite3
 import sys
 import time
@@ -515,10 +516,29 @@ async def _publish_pinterest(cp: dict[str, Any]) -> dict:
     from web.app import _prepare_pinterest_content
     from integrations.publer_publisher import PublerPublisher
 
+    # Publer Pinterest API doesn't expose a dedicated alt_text field.
+    # Best-effort: include a short ALT line at the top of the description.
+    alt = str(
+        cp.get("image_alt")
+        or cp.get("image_alt_text")
+        or cp.get("title")
+        or cp.get("_topic")
+        or ""
+    ).strip()
+    alt = re.sub(r"\s+", " ", alt)[:150] if alt else ""
+    if alt:
+        cp = dict(cp)
+        cp["_pinterest_alt"] = alt
+
     pc = await _prepare_pinterest_content(cp)
     if not pc:
         return {"success": False, "error": "Pinterest no image"}
     pc["platforms"] = ["pinterest"]
+
+    if alt and pc.get("caption"):
+        cap = str(pc.get("caption") or "")
+        if cap and "alt:" not in cap.lower():
+            pc["caption"] = (f"ALT: {alt}\n\n" + cap)[:500]
 
     pub = PublerPublisher()
     await pub.connect()
@@ -552,6 +572,91 @@ async def _publish_pinterest(cp: dict[str, Any]) -> dict:
             pass
 
     r = await pub.publish(pc)
+    # Best-effort: fetch the created post objects so we can print the Pinterest pin link.
+    # Publer can be eventually consistent; poll briefly.
+    try:
+        if isinstance(r, dict) and r.get("success") and r.get("created_post_ids"):
+            created_ids = [str(x) for x in (r.get("created_post_ids") or []) if str(x).strip()]
+            if created_ids:
+                created_posts: list[dict[str, Any]] = []
+
+                for _attempt in range(12):
+                    if created_posts:
+                        break
+                    # Scan a few pages of recent posts.
+                    found: list[dict[str, Any]] = []
+                    for page in (1, 2, 3, 4, 5):
+                        recent = await pub.get_posts(limit=50, page=page)
+                        for cid in created_ids[:5]:
+                            p = next((pp for pp in (recent or []) if str(pp.get("id")) == cid), None)
+                            if not isinstance(p, dict):
+                                continue
+                            found.append(
+                                {
+                                    "id": p.get("id"),
+                                    "url": p.get("url"),
+                                    "post_link": p.get("post_link"),
+                                    "state": p.get("state"),
+                                }
+                            )
+                    # De-dupe by id
+                    seen_ids: set[str] = set()
+                    for it in found:
+                        iid = str(it.get("id") or "")
+                        if not iid or iid in seen_ids:
+                            continue
+                        seen_ids.add(iid)
+                        created_posts.append(it)
+
+                    if not created_posts:
+                        await asyncio.sleep(1.0)
+
+                if created_posts:
+                    r["created_posts"] = created_posts
+                    # Convenience: expose first post_link and url
+                    first = created_posts[0] if created_posts else {}
+                    first_link = str((first or {}).get("post_link") or "").strip()
+                    first_url = str((first or {}).get("url") or "").strip()
+                    if first_link:
+                        r["post_link"] = first_link
+                    if first_url:
+                        r["url"] = first_url
+    except Exception:
+        pass
+
+    # Fallback: match the created Pinterest post by destination URL.
+    # This covers cases where Publer doesn't return created_post_ids or the post isn't
+    # immediately visible for id-based lookup.
+    try:
+        if isinstance(r, dict) and r.get("success"):
+            if not str(r.get("post_link") or "").strip():
+                desired_url = str(pc.get("url") or "").strip()
+                if desired_url:
+                    for _attempt in range(18):
+                        match = None
+                        for page in (1, 2, 3, 4, 5):
+                            recent = await pub.get_posts(limit=50, page=page)
+                            match = next(
+                                (
+                                    p
+                                    for p in (recent or [])
+                                    if isinstance(p, dict)
+                                    and str(p.get("url") or "").strip() == desired_url
+                                ),
+                                None,
+                            )
+                            if isinstance(match, dict):
+                                break
+                        if isinstance(match, dict):
+                            r["url"] = match.get("url")
+                            r["matched_post_id"] = match.get("id")
+                            link = str(match.get("post_link") or "").strip()
+                            if link:
+                                r["post_link"] = link
+                            break
+                        await asyncio.sleep(1.0)
+    except Exception:
+        pass
     if isinstance(r, dict) and (not r.get("success")):
         err = str(r.get("error", "") or "")
         if "composer is in a bad state" in err.lower():
@@ -571,36 +676,244 @@ async def _publish_pinterest(cp: dict[str, Any]) -> dict:
     return r if isinstance(r, dict) else {"success": False, "error": str(r)}
 
 
-async def _publish_all(cp: dict[str, Any]) -> dict[str, dict]:
+def _build_shopify_article_from_pack(cp: dict[str, Any], *, draft: bool) -> dict[str, Any]:
+    """Best-effort map a ViralOps content pack to Shopify Article fields.
+
+    Shopify Admin API requires: title + body_html.
+    We also try to fill common Shopify UI fields: excerpt/summary, tags, author, SEO.
+    """
+    title = str(cp.get("title") or "").strip()
+    if not title:
+        title = str(cp.get("_topic") or "").strip()
+
+    # Prefer an explicit HTML field if present.
+    body_html = (
+        cp.get("body_html")
+        or cp.get("article_html")
+        or cp.get("blog_html")
+        or ""
+    )
+
+    if not body_html:
+        # Convert markdown-ish text to simple HTML paragraphs.
+        src = str(cp.get("content_formatted") or cp.get("universal_caption_block") or cp.get("body") or "").strip()
+        # Strip bare URLs from body; we want Pinterest to carry the destination link.
+        src = re.sub(r"https?://\S+", "", src)
+        parts = [ln.strip() for ln in src.splitlines() if ln.strip()]
+        body_html = "\n".join(f"<p>{ln}</p>" for ln in parts)
+
+    def _clean_meta(s: str) -> str:
+        s = re.sub(r"<[^>]+>", " ", s or "")
+        s = re.sub(r"https?://\S+", "", s)
+        # Remove most emoji/symbol codepoints for SERP stability
+        s = re.sub(r"[\U00010000-\U0010ffff]", "", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        s = s.replace('"', "").replace("'", "")
+        return s
+
+    def _make_meta_description() -> str:
+        # Prefer explicit seo_description if it's already good.
+        candidate = _clean_meta(str(cp.get("seo_description") or "").strip())
+        if 80 <= len(candidate) <= 160:
+            return candidate[:155]
+
+        hook = _clean_meta(str(cp.get("hook") or "").strip())
+        step_1 = _clean_meta(str(cp.get("step_1") or "").strip())
+        step_2 = _clean_meta(str(cp.get("step_2") or "").strip())
+        result = _clean_meta(str(cp.get("result") or "").strip())
+        micro = _clean_meta(str(cp.get("micro_keywords") or "").strip())
+
+        kws: list[str] = []
+        if micro:
+            for t in re.split(r"[•,\n]+", micro):
+                tt = t.strip()
+                if tt and len(tt) >= 3:
+                    kws.append(tt)
+                if len(kws) >= 2:
+                    break
+
+        base = hook or _clean_meta(title)
+
+        parts: list[str] = []
+        if base:
+            parts.append(base.rstrip(".!?") + ".")
+        steps = ", ".join([p for p in [step_1, step_2] if p])
+        if steps:
+            parts.append(f"Step-by-step: {steps}.")
+        if result:
+            parts.append(result.rstrip(".!?") + ".")
+        if kws:
+            parts.append("Keywords: " + ", ".join(kws) + ".")
+
+        meta = _clean_meta(" ".join(parts).strip())
+        if len(meta) > 155:
+            meta = meta[:155].rsplit(" ", 1)[0]
+        if len(meta) < 70:
+            meta = _clean_meta(title)[:70] + ". " + meta
+            meta = meta[:155].rsplit(" ", 1)[0] if len(meta) > 155 else meta
+        return meta
+
+    seo_description = _make_meta_description()
+
+    summary_html = str(cp.get("summary_html") or "").strip()
+    if not summary_html and seo_description:
+        summary_html = f"<p>{seo_description}</p>"
+
+    # Tags
+    tags: list[str] = []
+    micro = str(cp.get("micro_keywords") or "").strip()
+    if micro:
+        for t in re.split(r"[•,\n]+", micro):
+            tt = t.strip()
+            if tt:
+                tags.append(tt)
+    niche = str(cp.get("_niche") or cp.get("niche") or "").strip()
+    if niche:
+        tags.append(niche)
+    tags = [t[:60] for t in tags if t][:20]
+
+    author = str(
+        os.environ.get("SHOPIFY_AUTHOR", "")
+        or os.environ.get("VIRALOPS_SHOPIFY_AUTHOR", "")
+        or os.environ.get("BLOG_AUTHOR", "")
+        or os.environ.get("AUTHOR", "")
+    ).strip()
+
+    # Image handling
+    # - Shopify featured image needs a PUBLIC URL; if we only have a local file, we upload it after article creation.
+    image_url = ""
+    image_local_path = ""
+    candidate = str(cp.get("image_url") or cp.get("media_url") or "").strip()
+    if candidate.startswith(("http://", "https://")):
+        image_url = candidate
+    else:
+        local = str(cp.get("_ai_image_path") or cp.get("media_local_path") or "").strip()
+        if local and os.path.isfile(local):
+            image_local_path = local
+
+    image_alt = _clean_meta(str(cp.get("image_alt") or title).strip())
+    if not image_alt:
+        image_alt = _clean_meta(title)
+
+    out: dict[str, Any] = {
+        "title": title,
+        "body_html": body_html,
+        "summary_html": summary_html,
+        "tags": ", ".join(tags) if tags else "",
+        "author": author,
+        "seo_title": title[:70],
+        "seo_description": seo_description,
+        "published": (not draft),
+        "image_alt": image_alt,
+    }
+    if image_url:
+        out["image_url"] = image_url
+    if image_local_path:
+        out["image_local_path"] = image_local_path
+    return out
+
+
+async def _publish_shopify_blog(cp: dict[str, Any], *, draft: bool) -> dict:
+    """Create a Shopify blog article and return its public URL so Pinterest can match 1-1."""
+    from integrations.shopify_blog_publisher import ShopifyBlogPublisher
+    from core.models import QueueItem
+
+    shopify_account_id = os.environ.get("VIRALOPS_SHOPIFY_ACCOUNT_ID", "shopify_viralops").strip() or "shopify_viralops"
+    publisher = ShopifyBlogPublisher(account_id=shopify_account_id)
+    ok = await publisher.connect()
+    if not ok:
+        return {"success": False, "error": "Shopify connect failed (check SHOPIFY_SHOP/SHOPIFY_ACCESS_TOKEN/SHOPIFY_BLOG_ID)"}
+
+    content = _build_shopify_article_from_pack(cp, draft=draft)
+    qi = QueueItem(
+        id=f"shopify_{uuid.uuid4().hex[:10]}",
+        content_pack_id=str(cp.get("id") or cp.get("content_pack_id") or "batch"),
+        platform="shopify_blog",
+    )
+
+    try:
+        res = await publisher.publish(qi, content)
+    finally:
+        try:
+            await publisher.close()
+        except Exception:
+            pass
+
+    if not getattr(res, "success", False):
+        return {"success": False, "error": getattr(res, "error", "Shopify publish failed")}
+    return {
+        "success": True,
+        "post_url": getattr(res, "post_url", ""),
+        "post_id": getattr(res, "post_id", ""),
+        "admin_url": (getattr(res, "metadata", {}) or {}).get("admin_url", ""),
+        "handle": (getattr(res, "metadata", {}) or {}).get("handle", ""),
+        "published": (getattr(res, "metadata", {}) or {}).get("published", True),
+    }
+
+
+async def _publish_all(
+    cp: dict[str, Any],
+    *,
+    platforms: list[str],
+    publish_shopify: bool,
+    shopify_draft: bool,
+) -> dict[str, dict]:
     results: dict[str, dict] = {}
 
-    # TikTok multi-account: publish DISTINCT variants per account to avoid
-    # duplicate/copyright detection.
-    from llm_content import make_tiktok_account_variant
+    if "tiktok" in platforms:
+        # TikTok multi-account: publish DISTINCT variants per account to avoid
+        # duplicate/copyright detection.
+        from llm_content import make_tiktok_account_variant
 
-    base_topic = str(cp.get("_topic") or cp.get("title") or "").strip() or "(unknown topic)"
-    tiktok_accounts = await _get_tiktok_accounts()
+        base_topic = str(cp.get("_topic") or cp.get("title") or "").strip() or "(unknown topic)"
+        tiktok_accounts = await _get_tiktok_accounts()
 
-    for idx, (account_id, label) in enumerate(tiktok_accounts, 1):
-        variant_id = f"tiktok{idx}"
-        cp_variant = make_tiktok_account_variant(
-            cp,
-            topic=base_topic,
-            account_label=label,
-            variant_id=variant_id,
-        )
-        # IMPORTANT: pass the explicit Publer account ID into the pack so `_prepare_tiktok_content()`
-        # does not round-robin-pick a different account (and logs match the actual target).
-        variant_pack = dict(cp_variant)
-        variant_pack["account_ids"] = [account_id]
-        variant_pack["_account_label"] = f"tiktok#{idx}"
-        results[f"tiktok{idx}"] = await _publish_tiktok(variant_pack, account_id, label)
+        for idx, (account_id, label) in enumerate(tiktok_accounts, 1):
+            variant_id = f"tiktok{idx}"
+            cp_variant = make_tiktok_account_variant(
+                cp,
+                topic=base_topic,
+                account_label=label,
+                variant_id=variant_id,
+            )
+            # IMPORTANT: pass the explicit Publer account ID into the pack so `_prepare_tiktok_content()`
+            # does not round-robin-pick a different account (and logs match the actual target).
+            variant_pack = dict(cp_variant)
+            variant_pack["account_ids"] = [account_id]
+            variant_pack["_account_label"] = f"tiktok#{idx}"
+            results[f"tiktok{idx}"] = await _publish_tiktok(variant_pack, account_id, label)
+            await asyncio.sleep(2)
+
+    if "facebook" in platforms:
+        results["facebook"] = await _publish_facebook(cp)
         await asyncio.sleep(2)
 
-    results["facebook"] = await _publish_facebook(cp)
-    await asyncio.sleep(2)
+    # Optional: publish Shopify first, then attach the article URL to Pinterest.
+    pin_pack = cp
+    if publish_shopify and ("shopify_blog" in platforms):
+        shop = await _publish_shopify_blog(cp, draft=shopify_draft)
+        results["shopify_blog"] = shop
+        if ("pinterest" in platforms):
+            if shopify_draft:
+                results["pinterest"] = {
+                    "success": False,
+                    "error": "Skipped Pinterest: Shopify article was created as draft (not public), so the destination link would 404.",
+                }
+                return results
+            if shop.get("success") and shop.get("post_url"):
+                pin_pack = dict(cp)
+                pin_pack["destination_url"] = shop["post_url"]
+                pin_pack["url"] = shop["post_url"]
+            else:
+                # Enforce 1-1 match: if Shopify failed, do NOT publish Pinterest with a wrong/missing link.
+                results["pinterest"] = {
+                    "success": False,
+                    "error": "Skipped Pinterest: Shopify blog publish failed so destination link would not match.",
+                }
+                return results
 
-    results["pinterest"] = await _publish_pinterest(cp)
+    if "pinterest" in platforms:
+        results["pinterest"] = await _publish_pinterest(pin_pack)
 
     return results
 
@@ -608,6 +921,22 @@ async def _publish_all(cp: dict[str, Any]) -> dict[str, dict]:
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--publish", action="store_true", help="Actually publish. Default is dry-run.")
+    ap.add_argument(
+        "--shopify",
+        action="store_true",
+        help="Also publish a Shopify blog article first, then set Pinterest destination link to the Shopify article URL.",
+    )
+    ap.add_argument(
+        "--shopify-draft",
+        action="store_true",
+        help="Create Shopify article as draft (unpublished). Still uses the computed URL for Pinterest if available.",
+    )
+    ap.add_argument(
+        "--platforms",
+        type=str,
+        default="tiktok,facebook,pinterest",
+        help="Comma-separated platforms to publish. Example: shopify_blog,pinterest",
+    )
     ap.add_argument(
         "--ideas-file",
         type=str,
@@ -639,6 +968,37 @@ async def main() -> int:
         help="Dedup threshold: minimum Jaccard similarity (on keyword tokens) when shared-keywords threshold is met.",
     )
     args = ap.parse_args()
+
+    raw_platforms = [p.strip().lower() for p in str(args.platforms or "").split(",") if p.strip()]
+    # Allow a couple of friendly aliases.
+    normalized: list[str] = []
+    for p in raw_platforms:
+        if p in ("shopify", "shopifyblog", "shopify_blog"):
+            normalized.append("shopify_blog")
+            continue
+        if p in ("fb", "facebook"):
+            normalized.append("facebook")
+            continue
+        if p in ("pin", "pinterest"):
+            normalized.append("pinterest")
+            continue
+        if p in ("tt", "tiktok"):
+            normalized.append("tiktok")
+            continue
+        normalized.append(p)
+    # De-dupe while keeping order.
+    platforms: list[str] = []
+    for p in normalized:
+        if p not in platforms:
+            platforms.append(p)
+
+    # If --shopify is enabled, ensure shopify_blog is included and that it runs before pinterest (for link matching).
+    if args.shopify and ("shopify_blog" not in platforms):
+        platforms = ["shopify_blog"] + platforms
+    if "shopify_blog" in platforms and "pinterest" in platforms:
+        # Ensure order: shopify_blog then pinterest.
+        platforms = [p for p in platforms if p not in ("shopify_blog", "pinterest")] \
+            + ["shopify_blog", "pinterest"]
 
     if args.refresh_db:
         print(f"[AUTO] Refreshing niche_hunter.db via mode={args.refresh_db}...")
@@ -682,6 +1042,7 @@ async def main() -> int:
             f"  Publer dedup: pages={args.publer_pages}, per_page={args.publer_per_page}, min_overlap={args.publer_min_overlap}, min_shared={args.publer_min_shared}, min_jaccard={args.publer_min_jaccard}"
         )
     print(f"  Mode: {'PUBLISH' if args.publish else 'DRY-RUN'}")
+    print(f"  Platforms: {', '.join(platforms) if platforms else '(none)'}")
     print("=" * 70)
 
     if not topics:
@@ -704,7 +1065,12 @@ async def main() -> int:
             review_score = float(cp.get("_review_score", 0.0) or 0.0)
             print(f"  ✓ Generated: {title[:90]} ({chars} chars, review={review_score:.1f}/10)")
 
-            results = await _publish_all(cp)
+            results = await _publish_all(
+                cp,
+                platforms=platforms,
+                publish_shopify=bool(args.shopify),
+                shopify_draft=bool(args.shopify_draft),
+            )
             for pf, r in results.items():
                 ok = bool(r.get("success"))
                 if ok and r.get("scheduled"):
@@ -714,20 +1080,62 @@ async def main() -> int:
                     msg = "OK" if ok else f"FAIL: {str(r.get('error', '?'))[:140]}"
                 print(f"    {'✓' if ok else '✗'} {pf}: {msg}")
 
+            # Print match summary (Shopify URL ↔ Pinterest pin link)
+            shop = results.get("shopify_blog") or {}
+            pin = results.get("pinterest") or {}
+            shop_url = str(shop.get("post_url") or "").strip()
+            shop_admin = str(shop.get("admin_url") or "").strip()
+            pin_link = str(pin.get("post_link") or "").strip()
+            pin_dest = str(pin.get("url") or "").strip()
+            pin_post_id = ""
+            if isinstance(pin, dict):
+                # Prefer matched_post_id, then created_post_ids, then job_id/post_id.
+                pin_post_id = str(pin.get("matched_post_id") or "").strip()
+                if not pin_post_id:
+                    cids = pin.get("created_post_ids") or []
+                    if isinstance(cids, list) and cids:
+                        pin_post_id = str(cids[0] or "").strip()
+                if not pin_post_id:
+                    pin_post_id = str(pin.get("post_id") or "").strip()
+            if (not pin_link) or (not pin_dest):
+                created_posts = pin.get("created_posts") or []
+                if isinstance(created_posts, list) and created_posts and isinstance(created_posts[0], dict):
+                    if not pin_link:
+                        pin_link = str(created_posts[0].get("post_link") or "").strip()
+                    if not pin_dest:
+                        pin_dest = str(created_posts[0].get("url") or "").strip()
+            if shop_url:
+                print(f"      shopify_url: {shop_url}")
+            if shop_admin:
+                print(f"      shopify_admin: {shop_admin}")
+            if pin_link:
+                print(f"      pinterest_pin: {pin_link}")
+            if pin_dest:
+                print(f"      pinterest_dest: {pin_dest}")
+            if (not pin_link) and pin_post_id:
+                print(f"      pinterest_post_id: {pin_post_id}")
+
             # Persist only if ALL platform publishes succeeded.
             all_ok = all(bool(r.get("success")) for r in results.values())
             if all_ok:
                 _log_published_to_viralops_db(
                     cp,
-                    platforms=["tiktok", "facebook", "pinterest"],
-                    extra={"topic": topic, "picked_score": score, "picked_niche": niche, "picked_hook": hook},
+                    platforms=platforms,
+                    extra={
+                        "topic": topic,
+                        "picked_score": score,
+                        "picked_niche": niche,
+                        "picked_hook": hook,
+                        "shopify_post_url": (results.get("shopify_blog") or {}).get("post_url", ""),
+                        "pinterest_dest_url": (results.get("shopify_blog") or {}).get("post_url", "") or cp.get("destination_url") or cp.get("url") or "",
+                    },
                 )
                 _mark_topic_used(topic, source=niche or "")
             else:
                 # Record a failure entry (for debugging) but do NOT mark topic used.
                 _log_published_to_viralops_db(
                     {"title": cp.get("title", ""), "content_formatted": cp.get("content_formatted", ""), "universal_caption_block": cp.get("universal_caption_block", "")},
-                    platforms=["tiktok", "facebook", "pinterest"],
+                    platforms=platforms,
                     extra={
                         "topic": topic,
                         "picked_score": score,

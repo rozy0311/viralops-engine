@@ -1337,9 +1337,226 @@ def _review_quality_content(pack: Dict[str, Any]) -> Optional[Dict]:
     content = pack.get("content_formatted", "")
     content_len = len(content)
 
+    def _clamp_score(v: float) -> float:
+        try:
+            v = float(v)
+        except Exception:
+            return 0.0
+        return max(0.0, min(10.0, v))
+
+    def _count_number_expressions(text: str) -> int:
+        if not text:
+            return 0
+        # Count numeric expressions rather than raw digits.
+        # Examples: $2, 2-3, 350°F, 4x8, 1/2, 16 plants/sqft, 10%.
+        num_re = re.compile(
+            r"(?i)(?:\$\s*)?\b\d+(?:[\.,]\d+)?(?:\s*[x×]\s*\d+(?:[\.,]\d+)?)?"
+            r"(?:\s*[-–]\s*\d+(?:[\.,]\d+)?)?"
+            r"(?:\s*(?:%|°[cf]|f|c|lb|lbs|kg|g|oz|ft|in|inch|inches|cm|mm|hrs?|hours?|mins?|minutes?|days?|weeks?|months?|sqft|/sqft))?\b"
+        )
+        return len(num_re.findall(text))
+
+    def _count_numbered_list_items(text: str) -> int:
+        if not text:
+            return 0
+        lines = [ln.strip() for ln in str(text).splitlines() if ln.strip()]
+        item_re = re.compile(r"^\d{1,3}\s*[\.)]\s+\S")
+        return sum(1 for ln in lines if item_re.match(ln))
+
+    def _has_regret_line(text: str) -> bool:
+        if not text:
+            return False
+        # Regret/trial-error signals.
+        regret_re = re.compile(
+            r"(?i)\b(wish|regret|should\s+have|should've|learned\s+the\s+hard\s+way|ruined|messed\s+up|first\s+batch\s+(?:mold|moldy|failed))\b"
+        )
+        return bool(regret_re.search(text))
+
+    def _has_cta_and_ladder(text: str) -> bool:
+        if not text:
+            return False
+        # We want a 3-step ladder: Start tiny → weekly → monthly (or equivalent).
+        lowered = text.lower()
+        if "expansion ladder" in lowered:
+            return True
+        # Require at least 2 arrows and the anchor words.
+        arrow_count = lowered.count("→")
+        if arrow_count >= 2 and ("start" in lowered) and ("weekly" in lowered) and ("monthly" in lowered):
+            return True
+        # Fallback: accept a 3-step pattern without arrows.
+        ladder_re = re.compile(r"(?is)\bstart\b.{0,120}\bweekly\b.{0,120}\bmonthly\b")
+        return bool(ladder_re.search(lowered))
+
+    def _has_low_cost_and_zero_alt(text: str) -> bool:
+        if not text:
+            return False
+        lowered = text.lower()
+        has_money = ("$" in text) or bool(re.search(r"\b\d+\s*(?:usd|dollars)\b", lowered))
+        zero_alt = any(k in lowered for k in ["free", "reuse", "zero-cost", "no fancy", "no equipment", "pickle jar", "old jar", "already have"])
+        return bool(has_money and zero_alt)
+
+    def _has_forbidden_markdown(text: str) -> bool:
+        if not text:
+            return False
+        if "**" in text:
+            return True
+        # Any markdown heading markers at line start.
+        if re.search(r"(?m)^\s*#{2,}\s+", text):
+            return True
+        return False
+
+    def _deterministic_micro_niche_audit(*, title: str, topic: str, content: str) -> Dict[str, Any]:
+        title = str(title or "").strip()
+        topic = str(topic or "").strip()
+        content = str(content or "")
+
+        hard_fail_reasons: List[str] = []
+
+        numbers = _count_number_expressions(content)
+        list_items = _count_numbered_list_items(content)
+        regret_early = _has_regret_line(content[:900])
+        regret_any = _has_regret_line(content)
+        cta_ladder = _has_cta_and_ladder(content)
+        low_cost = _has_low_cost_and_zero_alt(content)
+        forbidden_md = _has_forbidden_markdown(content)
+
+        if forbidden_md:
+            hard_fail_reasons.append("Found forbidden Markdown markers (** or ## headings).")
+        if not regret_early:
+            hard_fail_reasons.append("Missing concrete regret/trial-error line early (within first ~900 chars).")
+        if list_items < 15:
+            hard_fail_reasons.append(f"Numbered variations list too short ({list_items} < 15 items).")
+        if not cta_ladder:
+            hard_fail_reasons.append("Missing CTA + 3-step expansion ladder (Start → weekly → monthly).")
+        if not low_cost:
+            hard_fail_reasons.append("Missing explicit low-cost + zero-cost alternative (needs $ + free/reuse/no-gear).")
+        if numbers < 15:
+            hard_fail_reasons.append(f"Not enough exact numbers ({numbers} < 15).")
+
+        # Scores (0-10) — conservative, used as a floor/ceiling depending on merge.
+        rubric_scores: Dict[str, float] = {}
+
+        # 1) Hyper-specific niche
+        specificity_signals = 0
+        combined = (title + "\n" + content).lower()
+        if re.search(r"\bzone\s*\d[a-z]?\b", combined):
+            specificity_signals += 1
+        if re.search(r"\b(?:illinois|houston|miami|chicago|staunton|apartment|balcony|clay\s+soil|flood|freeze)\b", combined):
+            specificity_signals += 1
+        if _count_number_expressions(title) >= 1:
+            specificity_signals += 1
+        rubric_scores["hyper_specific_niche"] = 10.0 if specificity_signals >= 3 else (8.0 if specificity_signals == 2 else (6.0 if specificity_signals == 1 else 3.0))
+
+        # 2) Personal story regret
+        rubric_scores["personal_story_regret"] = 10.0 if regret_early else (7.0 if regret_any else 2.0)
+
+        # 3) Numbered list variations
+        rubric_scores["numbered_list_variations"] = 10.0 if list_items >= 20 else (9.0 if list_items >= 15 else (6.0 if list_items >= 10 else 2.0))
+
+        # 4) Practical steps measurable
+        unit_signals = len(re.findall(r"(?i)\b(?:°[cf]|%|lb|lbs|kg|g|oz|ft|in|inch|inches|cm|mm|hrs?|hours?|mins?|minutes?|days?)\b", content))
+        rubric_scores["practical_steps_measurable"] = 10.0 if (numbers >= 15 and unit_signals >= 5) else (8.0 if numbers >= 12 else (6.0 if numbers >= 8 else 3.0))
+
+        # 5) Quantifiable value
+        value_signals = 0
+        if re.search(r"(?i)\b(save|saved|saving|cuts|slash|reduce|drops)\b", content) and numbers >= 8:
+            value_signals += 1
+        if re.search(r"(?i)(?:\$|\b\d+\s*%\b|\blbs?\b)", content):
+            value_signals += 1
+        rubric_scores["quantifiable_value"] = 10.0 if value_signals >= 2 else (8.0 if value_signals == 1 else 4.0)
+
+        # 6) Low cost / no gear
+        rubric_scores["low_cost_no_gear"] = 10.0 if low_cost else (6.0 if ("$" in content or "cheap" in combined) else 2.0)
+
+        # 7) Visual / engaging format
+        emoji_headers = len(re.findall(r"(?m)^\s*[🌿🫙❌✅🫘]\b", content))
+        short_lines = sum(1 for ln in content.splitlines() if 0 < len(ln.strip()) <= 60)
+        rubric_scores["visual_engaging_format"] = 10.0 if (emoji_headers >= 3 and short_lines >= 25) else (8.0 if emoji_headers >= 2 else 5.0)
+
+        # 8) SEO longtail keywords
+        if topic:
+            normalized_topic = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", " ", topic.lower())).strip()
+            topic_hits = 0
+            if normalized_topic:
+                topic_hits = combined.count(normalized_topic)
+            rubric_scores["seo_longtail_keywords"] = 10.0 if topic_hits >= 3 else (8.0 if topic_hits >= 2 else (6.0 if topic_hits >= 1 else 4.0))
+        else:
+            rubric_scores["seo_longtail_keywords"] = 6.0
+
+        # 9) CTA / expansion ladder
+        rubric_scores["cta_expansion_ladder"] = 10.0 if cta_ladder else (6.0 if re.search(r"(?i)\b(comment|save|follow|try\s+this)\b", content) else 2.0)
+
+        # 10) Length & scannability
+        if 3200 <= len(content) <= 4100 and short_lines >= 25:
+            rubric_scores["length_scannability"] = 10.0
+        elif 3000 <= len(content) <= 4300:
+            rubric_scores["length_scannability"] = 8.0
+        else:
+            rubric_scores["length_scannability"] = 5.0
+
+        # Ensure all values are within 0-10.
+        rubric_scores = {k: _clamp_score(v) for k, v in rubric_scores.items()}
+
+        return {
+            "rubric_scores": rubric_scores,
+            "hard_fail_reasons": hard_fail_reasons,
+            "numbers": numbers,
+            "numbered_list_items": list_items,
+        }
+
     # Gate thresholds — keep TikTok avg on /10 scale, add micro-niche rubric on /100 scale
     TIKTOK_MIN_AVG = 9.0
     RUBRIC_MIN_100 = 92
+
+    def _audit_micro_niche(text: str) -> Dict[str, Any]:
+        import re as _re
+
+        # Regret / trial-error signal
+        has_regret = bool(
+            _re.search(
+                r"\b(wish|regret|should\s+have|if\s+i\s+knew|i\s+learned\s+the\s+hard\s+way|mistake\s+i\s+made)\b",
+                text,
+                flags=_re.IGNORECASE,
+            )
+        )
+
+        # Numbered variations list (15+)
+        list_item_re = _re.compile(
+            r"^\s*(?:\d{1,2}[\.)]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]|(?:\d️⃣))\s+",
+            flags=_re.MULTILINE,
+        )
+        numbered_items = len(list_item_re.findall(text))
+
+        # Specific numbers (15+)
+        number_re = _re.compile(r"(?<![A-Za-z])\$?\d+(?:[\.,]\d+)?(?:%|°[CF])?", flags=0)
+        numbers = number_re.findall(text)
+        numeric_count = len(numbers)
+
+        # Low/no-cost
+        has_low_cost = bool(
+            _re.search(r"\$\s*\d|\b(free|cheap|under\s*\$|no\s+fancy\s+gear|no\s+special\s+tools|reuse|repurpose)\b", text, flags=_re.IGNORECASE)
+        )
+
+        # CTA + Expansion ladder
+        has_expansion_ladder = bool(
+            _re.search(
+                r"\b(expansion\s+ladder|start\s+small|scale\s+up|next\s+week|week\s*1|month\s*1|year\s*1)\b|→|\-\>",
+                text,
+                flags=_re.IGNORECASE,
+            )
+        )
+
+        # Markdown markers that TikTok renders poorly
+        has_markdown = ("**" in text) or ("###" in text) or ("##" in text)
+
+        return {
+            "has_regret": has_regret,
+            "numbered_items": numbered_items,
+            "numeric_count": numeric_count,
+            "has_low_cost": has_low_cost,
+            "has_expansion_ladder": has_expansion_ladder,
+            "has_markdown": has_markdown,
+        }
     
     review_prompt = f"""You are a STRICT content quality reviewer. Score honestly — 9 or 10 means EXCELLENT.
 
@@ -1468,19 +1685,120 @@ PASS RULE:
             avg = sum(scores.values()) / len(scores)
             review["avg"] = round(avg, 1)
 
+        # Deterministic micro-niche audit — acts as a hard guardrail.
+        det = _deterministic_micro_niche_audit(
+            title=str(pack.get("title", "") or ""),
+            topic=str(pack.get("_topic", "") or ""),
+            content=str(content or ""),
+        )
+        review["_deterministic"] = {
+            "numbers": det.get("numbers", 0),
+            "numbered_list_items": det.get("numbered_list_items", 0),
+            "hard_fail_reasons": det.get("hard_fail_reasons", []),
+        }
+
         rubric_scores = review.get("rubric_scores", {})
-        if isinstance(rubric_scores, dict) and rubric_scores:
-            try:
-                rubric_avg = sum(float(v) for v in rubric_scores.values()) / len(rubric_scores)
-                review["rubric_total_100"] = int(round(rubric_avg * 10))
-            except Exception:
-                review["rubric_total_100"] = float(review.get("rubric_total_100", 0.0) or 0.0)
-        else:
+        det_scores = det.get("rubric_scores", {}) if isinstance(det.get("rubric_scores"), dict) else {}
+
+        # Merge rubric: take the minimum of (LLM score, deterministic score) per criterion.
+        rubric_keys = [
+            "hyper_specific_niche",
+            "personal_story_regret",
+            "numbered_list_variations",
+            "practical_steps_measurable",
+            "quantifiable_value",
+            "low_cost_no_gear",
+            "visual_engaging_format",
+            "seo_longtail_keywords",
+            "cta_expansion_ladder",
+            "length_scannability",
+        ]
+        merged_rubric: Dict[str, float] = {}
+        for k in rubric_keys:
+            llm_v = rubric_scores.get(k, None) if isinstance(rubric_scores, dict) else None
+            det_v = det_scores.get(k, None)
+            if llm_v is None and det_v is None:
+                merged_rubric[k] = 0.0
+            elif llm_v is None:
+                merged_rubric[k] = _clamp_score(det_v)
+            elif det_v is None:
+                merged_rubric[k] = _clamp_score(llm_v)
+            else:
+                merged_rubric[k] = min(_clamp_score(llm_v), _clamp_score(det_v))
+
+        review["rubric_scores"] = merged_rubric
+        try:
+            rubric_avg = sum(float(v) for v in merged_rubric.values()) / len(merged_rubric)
+            review["rubric_total_100"] = int(round(rubric_avg * 10))
+        except Exception:
             review["rubric_total_100"] = float(review.get("rubric_total_100", 0.0) or 0.0)
 
         review["pass"] = (float(review.get("avg", 0.0) or 0.0) >= TIKTOK_MIN_AVG) and (
             float(review.get("rubric_total_100", 0.0) or 0.0) >= RUBRIC_MIN_100
         )
+
+        # Hard-fail if deterministic requirements are missing.
+        det_fail = det.get("hard_fail_reasons", []) if isinstance(det, dict) else []
+        if det_fail:
+            review["pass"] = False
+            fb_existing = str(review.get("feedback", "") or "").strip()
+            fb_det = "Deterministic gate failed: " + "; ".join(det_fail)
+            review["feedback"] = (fb_det + (" " + fb_existing if fb_existing else "")).strip()
+
+        # Deterministic micro-niche audit — prevents "LLM said pass" when key winner-pattern parts are missing.
+        audit = _audit_micro_niche(content)
+        review["_deterministic_audit"] = audit
+
+        rubric_scores = review.get("rubric_scores")
+        if not isinstance(rubric_scores, dict):
+            rubric_scores = {}
+
+        hard_fail_reasons: List[str] = []
+
+        if not audit["has_regret"]:
+            rubric_scores["personal_story_regret"] = float(min(float(rubric_scores.get("personal_story_regret", 10) or 10), 6.0))
+            hard_fail_reasons.append("missing regret/trial-error line (use 'wish/regret/mistake I made' early)")
+        if int(audit["numbered_items"] or 0) < 15:
+            rubric_scores["numbered_list_variations"] = float(min(float(rubric_scores.get("numbered_list_variations", 10) or 10), 6.0))
+            hard_fail_reasons.append("numbered Variations/Layouts/Uses list < 15 items")
+        if not audit["has_low_cost"]:
+            rubric_scores["low_cost_no_gear"] = float(min(float(rubric_scores.get("low_cost_no_gear", 10) or 10), 6.0))
+            hard_fail_reasons.append("missing low/no-cost + no-fancy-gear alternative")
+        if not audit["has_expansion_ladder"]:
+            rubric_scores["cta_expansion_ladder"] = float(min(float(rubric_scores.get("cta_expansion_ladder", 10) or 10), 6.0))
+            hard_fail_reasons.append("missing CTA/Expansion Ladder (start small → scale)")
+        if int(audit["numeric_count"] or 0) < 15:
+            # Keep this as a soft fail on TikTok specificity + micro-niche quantifiable value.
+            if isinstance(scores, dict):
+                scores["specificity"] = float(min(float(scores.get("specificity", 10) or 10), 8.0))
+                review["scores"] = scores
+                avg = sum(scores.values()) / len(scores)
+                review["avg"] = round(avg, 1)
+            rubric_scores["quantifiable_value"] = float(min(float(rubric_scores.get("quantifiable_value", 10) or 10), 7.0))
+            hard_fail_reasons.append("not enough specific numbers (need 15+)")
+        if audit["has_markdown"]:
+            if isinstance(scores, dict):
+                scores["formatting"] = float(min(float(scores.get("formatting", 10) or 10), 7.0))
+                review["scores"] = scores
+                avg = sum(scores.values()) / len(scores)
+                review["avg"] = round(avg, 1)
+            hard_fail_reasons.append("contains Markdown markers (**/##/###)")
+
+        # Recompute rubric_total_100 from (possibly adjusted) rubric_scores.
+        if rubric_scores:
+            try:
+                rubric_avg = sum(float(v) for v in rubric_scores.values()) / len(rubric_scores)
+                review["rubric_total_100"] = int(round(rubric_avg * 10))
+            except Exception:
+                pass
+        review["rubric_scores"] = rubric_scores
+
+        # Apply hard fail if any winner-pattern requirement is missing.
+        if hard_fail_reasons:
+            review["pass"] = False
+            fb_existing = str(review.get("feedback", "") or "").strip()
+            fb_prefix = "Deterministic micro-niche audit failed: " + "; ".join(hard_fail_reasons) + "."
+            review["feedback"] = (fb_prefix + (" " + fb_existing if fb_existing else "")).strip()
 
         # Deterministic hard-fail: forbidden hook openers.
         import re as _re

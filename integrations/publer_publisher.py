@@ -582,6 +582,12 @@ class PublerPublisher:
                     "type": content_type,
                     "text": caption,
                 }
+
+                # Destination link (Pinterest Pin URL). Publer stores this as post.url.
+                if publer_network == "pinterest":
+                    dest_url = str(content.get("url", "") or "").strip()
+                    if dest_url:
+                        network_data["url"] = dest_url
                 # Add title for article/blog types
                 title = content.get("title", "")
                 if title and content_type in ("article", "pin"):
@@ -927,6 +933,36 @@ class PublerPublisher:
         except Exception as e:
             logger.error("Publer get_posts error: %s", e)
             return []
+
+    async def get_post(self, post_id: str) -> dict | None:
+        """Get a single post by ID.
+
+        Endpoint: GET /posts/{id}
+        Returns the post dict (commonly under key `data`) or None.
+        """
+        pid = str(post_id or "").strip()
+        if not pid:
+            return None
+        if not self._connected:
+            await self.connect()
+        if not self._connected:
+            return None
+
+        try:
+            resp = await self._request("GET", f"posts/{pid}")
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            if isinstance(data, dict) and isinstance(data.get("data"), dict):
+                return data["data"]
+            if isinstance(data, dict) and isinstance(data.get("post"), dict):
+                return data["post"]
+            if isinstance(data, dict):
+                return data
+            return None
+        except Exception as e:
+            logger.error("Publer get_post error: %s", e)
+            return None
 
     async def delete_post(self, post_id: str) -> bool:
         """Delete a post by ID."""

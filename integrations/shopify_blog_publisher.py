@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import time
+import base64
 from datetime import datetime, timezone
 from typing import Any
 
@@ -42,6 +43,8 @@ class ShopifyBlogPublisher:
         self._shop: str | None = None
         self._token: str | None = None
         self._blog_id: str | None = None
+        self._blog_handle: str | None = None
+        self._public_domain: str | None = None
         self._base_url: str | None = None
         self._connected = False
         self._client: httpx.AsyncClient | None = None
@@ -60,6 +63,15 @@ class ShopifyBlogPublisher:
         self._blog_id = os.environ.get(
             f"{prefix}_BLOG_ID", os.environ.get("SHOPIFY_BLOG_ID")
         )
+
+        public_domain = os.environ.get(
+            f"{prefix}_PUBLIC_DOMAIN",
+            os.environ.get(
+                "SHOPIFY_PUBLIC_DOMAIN",
+                os.environ.get("SHOPIFY_CUSTOM_DOMAIN", ""),
+            ),
+        )
+        self._public_domain = (public_domain or "").strip() or None
 
         if not all([self._shop, self._token, self._blog_id]):
             logger.error(
@@ -95,6 +107,7 @@ class ShopifyBlogPublisher:
             resp.raise_for_status()
             blog_data = resp.json().get("blog", {})
             blog_title = blog_data.get("title", "Unknown")
+            self._blog_handle = (blog_data.get("handle") or "").strip() or None
 
             self._connected = True
             logger.info(
@@ -199,11 +212,28 @@ class ShopifyBlogPublisher:
             article["author"] = content["author"]
 
         # Featured image
+        # Shopify accepts either a public `src` or a base64 `attachment`.
         if content.get("image_url"):
             article["image"] = {
                 "src": content["image_url"],
                 "alt": content.get("image_alt", title),
             }
+        else:
+            image_local_path = str(content.get("image_local_path", "") or "").strip()
+            if image_local_path and os.path.isfile(image_local_path):
+                try:
+                    encoded = base64.b64encode(open(image_local_path, "rb").read()).decode("utf-8")
+                    article["image"] = {
+                        "attachment": encoded,
+                        "filename": os.path.basename(image_local_path),
+                        "alt": str(content.get("image_alt", title) or title)[:255],
+                    }
+                except Exception as e:
+                    logger.warning(
+                        "Shopify [%s]: Failed to read/encode local image: %s",
+                        self.account_id,
+                        str(e)[:200],
+                    )
 
         # SEO metafields
         if content.get("seo_title"):
@@ -219,22 +249,207 @@ class ShopifyBlogPublisher:
 
         payload = {"article": article}
 
-        try:
-            resp = await self._rate_limited_post(
-                f"{self._base_url}/blogs/{self._blog_id}/articles.json",
-                json=payload,
+        def _inject_inline_image(html: str, *, src: str, alt: str) -> str:
+            """Inject a single inline figure+img after the first paragraph."""
+            if not html or not src:
+                return html
+            safe_alt = (alt or "").replace('"', "&quot;")
+            block = (
+                "<figure>"
+                f"<img src=\"{src}\" alt=\"{safe_alt}\" loading=\"lazy\" />"
+                f"<figcaption>{safe_alt}</figcaption>"
+                "</figure>"
+            )
+            # If already has an image, don't duplicate.
+            if re.search(r"<img\b", html, re.IGNORECASE):
+                return html
+            m = re.search(r"</p>", html, re.IGNORECASE)
+            if m:
+                return html[: m.end()] + "\n" + block + html[m.end() :]
+            return block + "\n" + html
+
+        def _build_public_url(article_handle: str) -> str:
+            domain = (self._public_domain or self._shop or "").strip()
+            if domain.startswith("http://") or domain.startswith("https://"):
+                domain = domain.split("//", 1)[-1]
+            blog_handle = (self._blog_handle or "").strip()
+            if domain and blog_handle and article_handle:
+                return f"https://{domain}/blogs/{blog_handle}/{article_handle}"
+            # Fallback (admin domain always exists; public path may still resolve)
+            if self._shop and article_handle:
+                return f"https://{self._shop}/blogs/{self._blog_id}/{article_handle}"
+            return ""
+
+        async def _upsert_article_metafield(
+            *,
+            article_id: str,
+            namespace: str,
+            key: str,
+            value: str,
+            value_type: str = "single_line_text_field",
+        ) -> bool:
+            """Upsert an article metafield (REST). Used for SEO fields like global.description_tag."""
+            if not self._connected or not self._client or not self._base_url:
+                return False
+            aid = str(article_id or "").strip()
+            if not aid:
+                return False
+            ns = str(namespace or "").strip() or "global"
+            k = str(key or "").strip()
+            v = str(value or "").strip()
+            if not k or not v:
+                return False
+
+            # 1) List current metafields on the article
+            resp = await self._rate_limited_get(
+                f"{self._base_url}/articles/{aid}/metafields.json"
             )
             resp.raise_for_status()
-            data = resp.json().get("article", {})
+            metafields = (resp.json() or {}).get("metafields", [])
+            existing = None
+            if isinstance(metafields, list):
+                for mf in metafields:
+                    if not isinstance(mf, dict):
+                        continue
+                    if str(mf.get("namespace") or "").strip() == ns and str(mf.get("key") or "").strip() == k:
+                        existing = mf
+                        break
+
+            payload = {"metafield": {"namespace": ns, "key": k, "value": v, "type": value_type}}
+
+            # 2) Update or create
+            if isinstance(existing, dict) and existing.get("id"):
+                mf_id = str(existing.get("id"))
+                resp2 = await self._rate_limited_put(
+                    f"{self._base_url}/metafields/{mf_id}.json",
+                    json={"metafield": {"id": int(mf_id), "value": v, "type": value_type}},
+                )
+                resp2.raise_for_status()
+                return True
+
+            resp3 = await self._rate_limited_post(
+                f"{self._base_url}/articles/{aid}/metafields.json",
+                json=payload,
+            )
+            resp3.raise_for_status()
+            return True
+
+        try:
+            url = f"{self._base_url}/blogs/{self._blog_id}/articles.json"
+
+            try:
+                resp = await self._rate_limited_post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json().get("article", {})
+            except httpx.HTTPStatusError as e:
+                # Handle collision: retry once with a unique handle suffix.
+                status = e.response.status_code
+                detail = (e.response.text or "")[:500]
+                is_handle_taken = (
+                    status == 422
+                    and ("handle" in detail.lower())
+                    and ("taken" in detail.lower() or "already" in detail.lower())
+                )
+                if not is_handle_taken:
+                    raise
+
+                unique_handle = f"{article['handle']}-{int(time.time())}"
+                payload2 = {"article": dict(article, handle=unique_handle)}
+                resp = await self._rate_limited_post(url, json=payload2)
+                resp.raise_for_status()
+                data = resp.json().get("article", {})
 
             article_id = str(data.get("id", ""))
             article_handle = data.get("handle", handle)
-            # Build public URL
-            store_domain = self._shop.replace(".myshopify.com", "")
-            post_url = f"https://{self._shop}/blogs/{self._blog_id}/{article_handle}"
 
-            # If store has custom domain, URL might differ
-            # But myshopify.com URL always works for admin
+            # If an image was provided (src or attachment), Shopify may return a CDN src.
+            uploaded_src = ""
+            try:
+                img = data.get("image") if isinstance(data, dict) else None
+                if isinstance(img, dict):
+                    uploaded_src = str(img.get("src") or img.get("url") or "").strip()
+            except Exception:
+                uploaded_src = ""
+
+            # If we have a CDN src, update article: inject inline <img alt=...>
+            if uploaded_src:
+                try:
+                    new_html = _inject_inline_image(
+                        body_html,
+                        src=uploaded_src,
+                        alt=str(content.get("image_alt", title) or title),
+                    )
+                    update_article: dict[str, Any] = {
+                        "id": int(article_id),
+                        "body_html": new_html,
+                    }
+                    # Best-effort: set SEO fields on update too (some Shopify API variants
+                    # don't persist them reliably on create).
+                    if content.get("seo_title"):
+                        update_article["metafields_global_title_tag"] = content.get("seo_title")
+                    if content.get("seo_description"):
+                        update_article["metafields_global_description_tag"] = content.get("seo_description")
+                    await self._rate_limited_put(
+                        f"{self._base_url}/articles/{article_id}.json",
+                        json={
+                            "article": {
+                                **update_article,
+                            }
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Shopify [%s]: Post-create update failed: %s",
+                        self.account_id,
+                        str(e)[:200],
+                    )
+            else:
+                # If no uploaded_src was returned (no inline injection), still set SEO via update.
+                try:
+                    if content.get("seo_title") or content.get("seo_description"):
+                        update_article: dict[str, Any] = {"id": int(article_id)}
+                        if content.get("seo_title"):
+                            update_article["metafields_global_title_tag"] = content.get("seo_title")
+                        if content.get("seo_description"):
+                            update_article["metafields_global_description_tag"] = content.get("seo_description")
+                        await self._rate_limited_put(
+                            f"{self._base_url}/articles/{article_id}.json",
+                            json={"article": update_article},
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "Shopify [%s]: SEO update skipped: %s",
+                        self.account_id,
+                        str(e)[:200],
+                    )
+
+            # Shopify SEO for Articles is stored as metafields in namespace `global`.
+            # Ensure these are set so the Admin "Search engine listing" shows a good snippet.
+            try:
+                seo_title = str(content.get("seo_title") or "").strip()
+                seo_desc = str(content.get("seo_description") or "").strip()
+                if seo_title:
+                    await _upsert_article_metafield(
+                        article_id=article_id,
+                        namespace="global",
+                        key="title_tag",
+                        value=seo_title[:255],
+                    )
+                if seo_desc:
+                    await _upsert_article_metafield(
+                        article_id=article_id,
+                        namespace="global",
+                        key="description_tag",
+                        value=seo_desc[:1000],
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Shopify [%s]: SEO metafields update skipped: %s",
+                    self.account_id,
+                    str(e)[:200],
+                )
+
+            post_url = _build_public_url(article_handle)
             admin_url = (
                 f"https://{self._shop}/admin/articles/{article_id}"
             )
@@ -256,6 +471,8 @@ class ShopifyBlogPublisher:
                 metadata={
                     "admin_url": admin_url,
                     "handle": article_handle,
+                    "blog_handle": self._blog_handle,
+                    "public_domain": self._public_domain,
                     "published": content.get("published", True),
                 },
             )

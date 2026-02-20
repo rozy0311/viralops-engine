@@ -2479,6 +2479,16 @@ async def _prepare_pinterest_content(content_pack: dict) -> dict:
     # Pinterest title: max 100 chars
     pin_title = title[:97] + "..." if len(title) > 100 else title
 
+    # Destination URL (clickable link on the Pin)
+    dest_url = (
+        content_pack.get("destination_url")
+        or content_pack.get("link_url")
+        or content_pack.get("url")
+        or os.environ.get("VIRALOPS_PINTEREST_DEST_URL", "")
+        or os.environ.get("VIRALOPS_DEFAULT_DEST_URL", "")
+    )
+    dest_url = str(dest_url or "").strip()
+
     # Pinterest description: max 500 chars — use compact version
     long_content = ""
     if universal_caption and len(universal_caption) > 200:
@@ -2492,6 +2502,20 @@ async def _prepare_pinterest_content(content_pack: dict) -> dict:
 
     # Prevent duplicate title at the top and duplicate hashtag tails.
     long_content = _strip_duplicate_title_and_hashtags(title=title, text=long_content)
+
+    # Ensure we carry image alt text in the pin description (best-effort).
+    # Pinterest/ Publer API may not expose a dedicated alt_text field; this keeps it visible.
+    alt_text = str(
+        content_pack.get("image_alt")
+        or content_pack.get("alt_text")
+        or content_pack.get("image_alt_text")
+        or ""
+    ).strip()
+    if not alt_text:
+        alt_text = str(title or "").strip()
+    alt_text = alt_text[:140].strip()
+    if alt_text:
+        long_content = f"{long_content}\n\nImage: {alt_text}".strip()
 
     # Build description: truncate to 500 chars with hashtags
     tag_str = " ".join(hashtags[:5])
@@ -2535,6 +2559,8 @@ async def _prepare_pinterest_content(content_pack: dict) -> dict:
         "hashtags": [],  # already in description
         "content_type": "pin",
     }
+    if dest_url:
+        result["url"] = dest_url
     if media_url.startswith(("http://", "https://")):
         result["media_url"] = media_url
     else:
