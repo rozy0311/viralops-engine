@@ -1744,6 +1744,73 @@ async def _publish_shopify_blog(cp: dict[str, Any], *, draft: bool) -> dict:
     }
 
 
+async def _ensure_ai_image_in_pack(cp: dict[str, Any]) -> dict[str, Any]:
+    """Ensure the pack has a local image path we can reuse across platforms.
+
+    Why:
+      - Shopify featured image (and inline injection) needs either a public URL
+        or an attachment base64 — we use a local file path for attachment.
+      - FB/Pinterest already generate images on-demand, but that generation is
+        scoped to each formatter and doesn't flow back into the shared pack.
+      - By generating once and storing it in `_ai_image_path`/`media_local_path`,
+        Shopify/FB/Pinterest can all reuse the same image.
+    """
+    import tempfile
+    import uuid as _uuid
+
+    def _as_local_path(val: Any) -> str:
+        v = str(val or "").strip()
+        if not v:
+            return ""
+        if v.startswith(("http://", "https://")):
+            return ""
+        return v if os.path.isfile(v) else ""
+
+    # If we already have a usable local file path, normalize keys and return.
+    existing_local = (
+        _as_local_path(cp.get("_ai_image_path"))
+        or _as_local_path(cp.get("media_local_path"))
+        or _as_local_path(cp.get("image_local_path"))
+        or _as_local_path(cp.get("media_url"))
+        or _as_local_path(cp.get("image_url"))
+    )
+    if existing_local:
+        out = dict(cp)
+        out["_ai_image_path"] = existing_local
+        out["media_local_path"] = existing_local
+        return out
+
+    # If there's a public URL already, keep it as-is (Shopify can use image_url).
+    existing_url = str(cp.get("image_url") or cp.get("media_url") or "").strip()
+    if existing_url.startswith(("http://", "https://")):
+        return cp
+
+    prompt = str(cp.get("image_prompt") or "").strip()
+    if not prompt:
+        return cp
+
+    try:
+        from llm_content import generate_ai_image
+
+        output_dir = tempfile.mkdtemp(prefix="viralops_shared_img_")
+        # Use png (Pollinations/LLM generators commonly produce png) but the
+        # generator may write jpeg depending on backend; we only care about path.
+        output_path = os.path.join(
+            output_dir, f"shared_{_uuid.uuid4().hex[:8]}.png"
+        )
+        img_path = await asyncio.to_thread(generate_ai_image, prompt, output_path)
+        img_path = str(img_path or "").strip()
+        if img_path and os.path.isfile(img_path):
+            out = dict(cp)
+            out["_ai_image_path"] = img_path
+            out["media_local_path"] = img_path
+            return out
+    except Exception:
+        pass
+
+    return cp
+
+
 async def _publish_all(
     cp: dict[str, Any],
     *,
@@ -1752,6 +1819,10 @@ async def _publish_all(
     shopify_draft: bool,
 ) -> dict[str, dict]:
     results: dict[str, dict] = {}
+
+    # Ensure Shopify has an image available. (FB/Pinterest can also reuse it.)
+    if publish_shopify and ("shopify_blog" in platforms):
+        cp = await _ensure_ai_image_in_pack(cp)
 
     if "tiktok" in platforms:
         # TikTok multi-account: publish DISTINCT variants per account to avoid

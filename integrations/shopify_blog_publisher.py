@@ -17,6 +17,7 @@ SETUP:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -248,6 +249,7 @@ class ShopifyBlogPublisher:
             article["template_suffix"] = content["template_suffix"]
 
         payload = {"article": article}
+        sent_image = bool(article.get("image"))
 
         def _inject_inline_image(html: str, *, src: str, alt: str) -> str:
             """Inject a single inline figure+img after the first paragraph."""
@@ -370,6 +372,29 @@ class ShopifyBlogPublisher:
                     uploaded_src = str(img.get("src") or img.get("url") or "").strip()
             except Exception:
                 uploaded_src = ""
+
+            # Some Shopify API variants (or async CDN processing) don't return
+            # `image.src` immediately in the create response, even if the image
+            # was accepted. Poll the article a few times to fetch the CDN URL.
+            if (not uploaded_src) and sent_image and article_id:
+                for _ in range(5):
+                    try:
+                        await asyncio.sleep(1.0)
+                        art_resp = await self._rate_limited_get(
+                            f"{self._base_url}/articles/{article_id}.json"
+                        )
+                        if art_resp.status_code != 200:
+                            continue
+                        art = (art_resp.json() or {}).get("article", {})
+                        img2 = art.get("image") if isinstance(art, dict) else None
+                        if isinstance(img2, dict):
+                            uploaded_src = str(
+                                img2.get("src") or img2.get("url") or ""
+                            ).strip()
+                        if uploaded_src:
+                            break
+                    except Exception:
+                        continue
 
             # If we have a CDN src, update article: inject inline <img alt=...>
             if uploaded_src:
