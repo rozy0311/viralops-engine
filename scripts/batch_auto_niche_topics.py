@@ -2106,6 +2106,11 @@ async def main() -> int:
         if not idea:
             return pack
 
+        hook_title = str(pack.get("_hook_title") or "").strip()
+        hook_line = ""
+        if hook_title and hook_title.strip().lower() != idea.strip().lower():
+            hook_line = hook_title
+
         cf = str(pack.get("content_formatted") or "")
         ucb = str(pack.get("universal_caption_block") or "")
 
@@ -2119,15 +2124,21 @@ async def main() -> int:
 
         out = dict(pack)
         out["_idea_line"] = idea
+        out["_hook_title"] = hook_title
+
+        prefix = idea
+        if hook_line:
+            prefix = f"{prefix}\n{hook_line}"
+
         if cf and (not _already_has(cf)):
-            out["content_formatted"] = f"{idea}\n\n{cf.lstrip()}"
+            out["content_formatted"] = f"{prefix}\n\n{cf.lstrip()}"
         elif not cf:
-            out["content_formatted"] = idea
+            out["content_formatted"] = prefix
 
         if ucb and (not _already_has(ucb)):
-            out["universal_caption_block"] = f"{idea}\n\n{ucb.lstrip()}"
+            out["universal_caption_block"] = f"{prefix}\n\n{ucb.lstrip()}"
         elif not ucb:
-            out["universal_caption_block"] = idea
+            out["universal_caption_block"] = prefix
 
         return out
 
@@ -2233,6 +2244,13 @@ async def main() -> int:
                 # If this topic comes from the curated ideas list, copy/paste the
                 # exact idea line into the article BEFORE the GenAI answer.
                 if _is_ideas_niche(niche):
+                    # Treat the idea line as the canonical title.
+                    # Preserve the generated hook title so we can include it as line 2.
+                    prev_title = str(cp.get("title") or "").strip()
+                    if prev_title:
+                        cp["_hook_title"] = prev_title
+                    cp["title"] = str(topic).strip()
+                    cp["_topic"] = str(topic).strip()
                     cp = _prepend_idea_line_to_pack(cp, idea_line=topic)
             title = cp.get("title", "?")
             chars = len(cp.get("content_formatted", ""))
