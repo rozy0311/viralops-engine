@@ -2094,17 +2094,62 @@ async def main() -> int:
             print(f"[IDEAS] Reset topic_history: deleted={deleted} rows (source in ideas_file*)")
         seed_keywords = _seed_keywords_from_ideas([t for (t, *_rest) in ideas_candidates])
 
-    # In --direct-only mode, do NOT fall back to niche_hunter.db.
-    if args.direct_only:
-        candidates = list(ideas_candidates)
-    else:
-        db_candidates = _pick_topics(limit=max(20, args.limit * 10), min_score=args.min_score)
-        if seed_keywords:
-            db_candidates = _rank_db_candidates_by_seed(db_candidates, seed_keywords)
-        # Combine: ideas first, then DB fallback.
-        candidates = ideas_candidates + db_candidates
+    def _is_ideas_niche(n: str | None) -> bool:
+        return (str(n or "").strip().lower() in ("ideas_file", "ideas_file_table", "ideas_file_text"))
+
+    def _prepend_idea_line_to_pack(pack: dict[str, Any], idea_line: str) -> dict[str, Any]:
+        """Copy/paste the exact idea line into the post BEFORE the GenAI answer.
+
+        This applies only to ideas-file topics (not direct-post blocks).
+        """
+        idea = str(idea_line or "").strip()
+        if not idea:
+            return pack
+
+        cf = str(pack.get("content_formatted") or "")
+        ucb = str(pack.get("universal_caption_block") or "")
+
+        def _already_has(text: str) -> bool:
+            t = (text or "").strip()
+            if not t:
+                return False
+            # Consider it present if the idea line appears in the first ~400 chars.
+            head = t[:400].lower()
+            return idea.lower() in head
+
+        out = dict(pack)
+        out["_idea_line"] = idea
+        if cf and (not _already_has(cf)):
+            out["content_formatted"] = f"{idea}\n\n{cf.lstrip()}"
+        elif not cf:
+            out["content_formatted"] = idea
+
+        if ucb and (not _already_has(ucb)):
+            out["universal_caption_block"] = f"{idea}\n\n{ucb.lstrip()}"
+        elif not ucb:
+            out["universal_caption_block"] = idea
+
+        return out
+
+    # Candidate selection policy:
+    # - If there are any unused ideas remaining, publish ONLY from ideas list.
+    # - Only after the ideas list is exhausted, fall back to niche_hunter.db.
+    # - In --direct-only mode, never fall back.
+    candidates: list[tuple[str, float, str, str]] = []
+
+    # Always allow forcing a topic first.
     if forced_topic:
-        candidates = [(forced_topic, 10.0, "forced_topic", "")] + candidates
+        candidates.append((forced_topic, 10.0, "forced_topic", ""))
+
+    if args.direct_only:
+        candidates.extend(list(ideas_candidates))
+    elif active_ideas_files and ideas_candidates:
+        # Start with ideas only; if none remain after history filter, we'll load DB below.
+        candidates.extend(list(ideas_candidates))
+    else:
+        # No ideas file configured; use DB.
+        db_candidates = _pick_topics(limit=max(20, args.limit * 10), min_score=args.min_score)
+        candidates.extend(db_candidates)
 
     if active_ideas_files:
         print(f"[IDEAS] Active ideas file(s): {' | '.join(active_ideas_files)}")
@@ -2112,13 +2157,26 @@ async def main() -> int:
 
     # Filter out already-used topics (persisted history)
     candidates = [c for c in candidates if not _topic_already_used(c[0])]
+
+    # If we have an ideas file configured, enforce "use up ideas first" strictly.
     if active_ideas_files:
-        remaining_ideas = sum(
-            1
-            for c in candidates
-            if (c[2] or "").strip().lower() in ("ideas_file", "ideas_file_table", "ideas_file_text", "ideas_direct_post")
-        )
+        remaining_ideas = sum(1 for c in candidates if _is_ideas_niche(c[2]))
+        # NOTE: ideas_direct_post is handled by --direct-only. In normal mode we
+        # treat it as a non-ideas candidate (it can still be published if explicitly selected).
         print(f"[IDEAS] Remaining (unused) ideas after history filter: {remaining_ideas}")
+
+        if (not args.direct_only) and remaining_ideas > 0:
+            # Remove DB candidates (and keep forced_topic if any).
+            candidates = [c for c in candidates if (c[2] == "forced_topic") or _is_ideas_niche(c[2])]
+        elif (not args.direct_only) and remaining_ideas == 0:
+            # Ideas exhausted: now load DB fallback.
+            db_candidates = _pick_topics(limit=max(20, args.limit * 10), min_score=args.min_score)
+            if seed_keywords:
+                db_candidates = _rank_db_candidates_by_seed(db_candidates, seed_keywords)
+            # Keep forced_topic (already first) + DB.
+            # Also keep any remaining non-ideas candidates that might still be in list.
+            forced = [c for c in candidates if c[2] == "forced_topic"]
+            candidates = forced + db_candidates
 
     if args.direct_only and not candidates:
         print("[DIRECT] No unused tui:/genAI: direct-post blocks found.")
@@ -2171,6 +2229,11 @@ async def main() -> int:
                     cp["_topic"] = str(topic)
             else:
                 cp = await _generate_content(topic, score=9.0)
+
+                # If this topic comes from the curated ideas list, copy/paste the
+                # exact idea line into the article BEFORE the GenAI answer.
+                if _is_ideas_niche(niche):
+                    cp = _prepend_idea_line_to_pack(cp, idea_line=topic)
             title = cp.get("title", "?")
             chars = len(cp.get("content_formatted", ""))
             review_score = float(cp.get("_review_score", 0.0) or 0.0)
