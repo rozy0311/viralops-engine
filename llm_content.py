@@ -1436,6 +1436,44 @@ Return PLAIN TEXT only."""
 
             else:
                 print("  [QUALITY] Repair pass skipped (LLM failed)")
+
+        # ── Deterministic safety-net: ensure low-cost/$0 survives trimming ──
+        # Sometimes the LLM adds low-cost lines near the end and trim removes them.
+        content = str(pack.get("content_formatted", "") or "")
+        if content and (not _has_low_cost_zero_alt(content)):
+            lines = content.splitlines()
+            insert_at = 1
+            if len(lines) >= 2:
+                insert_at = 2
+            low_cost_block = [
+                "✅ Low-cost gear (no fancy stuff):",
+                "- $15 setup: 1 small tote + coco coir. $0 option: reuse a free bucket + shredded cardboard/newspaper.",
+            ]
+            lines[insert_at:insert_at] = low_cost_block
+            content = "\n".join(lines)
+
+            # If we overshoot, shorten the numbered list tail but keep >=15 items.
+            def _count_items(txt: str) -> int:
+                if not txt:
+                    return 0
+                return sum(1 for ln in txt.splitlines() if re.match(r"^\d{1,3}\s*[\.)]\s+\S", ln.strip()))
+
+            while len(content) > 4000 and _count_items(content) > 15:
+                lines2 = content.splitlines()
+                # Remove the last numbered item line.
+                for i in range(len(lines2) - 1, -1, -1):
+                    if re.match(r"^\d{1,3}\s*[\.)]\s+\S", lines2[i].strip()):
+                        lines2.pop(i)
+                        break
+                content = "\n".join(lines2)
+
+            if len(content) > 4200:
+                # Last resort: keep within range without losing the injected low-cost lines.
+                content = content[:4000].rstrip() + "…"
+
+            pack["content_formatted"] = _ensure_section_breaks(_strip_markdown(content.strip()))
+            content_len = len(pack["content_formatted"])
+            print(f"  [QUALITY] Injected low-cost safety-net. New length: {content_len} chars")
         
         # ── Phase 2: ReconcileGPT — Quality Review ──
         review = _review_quality_content(pack)
