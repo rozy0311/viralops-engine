@@ -793,6 +793,8 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
                 "tìm các micro niche",
                 "write in english only",
                 "micro niche and nano niche topics similar",
+                "micro niche ideas",
+                "nano niche ideas",
                 "gửi tui prompt",
                 "context:",
                 "quy tắc",
@@ -824,7 +826,7 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
             s = re.sub(r"\s+", " ", b.strip())
             s = _strip_md_links(s)
             s = re.sub(r"\s+", " ", s).strip()
-            s = s.strip("-• ").strip().rstrip(".")
+            s = s.strip("-• ").strip().rstrip(". ").rstrip("—–- ")
 
             if not s or len(s) < 18:
                 continue
@@ -843,6 +845,10 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
                 continue
 
             low = s.lower()
+            # Drop meta/explanatory paragraphs that describe the idea list itself.
+            # These frequently appear in part-2 files and should never be published.
+            if low.startswith(("micro niche ideas", "nano niche ideas")):
+                continue
             # Require at least one domain keyword OR digits (e.g., "20 ... designs") to be considered an idea.
             if not idea_kw.search(s) and not re.search(r"\d", s):
                 continue
