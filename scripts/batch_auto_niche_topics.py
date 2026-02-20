@@ -2137,6 +2137,48 @@ async def main() -> int:
 
         return out
 
+    def _strip_generated_hook_line(pack: dict[str, Any], generated_title_line: str) -> dict[str, Any]:
+        """Remove the LLM-generated hook/title line that is embedded as the first line of the body.
+
+        For ideas-list posts, user wants heading/title to be ONLY the idea line.
+        The LLM still writes a hook as the first line of content_formatted; strip it.
+        """
+
+        gen = str(generated_title_line or "").strip()
+        if not gen:
+            return pack
+
+        def _norm(s: str) -> str:
+            s = re.sub(r"\s+", " ", str(s or "").strip().lower())
+            return s
+
+        def _strip(text: str) -> str:
+            t = str(text or "")
+            if not t.strip():
+                return t
+            lines = t.splitlines()
+            if not lines:
+                return t
+            # Find first non-empty line
+            idx0 = 0
+            while idx0 < len(lines) and not lines[idx0].strip():
+                idx0 += 1
+            if idx0 >= len(lines):
+                return t
+            first = lines[idx0].strip()
+            if _norm(first) == _norm(gen):
+                # Drop that line and any immediately following blank lines
+                j = idx0 + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                return "\n".join(lines[:idx0] + lines[j:]).strip()
+            return t
+
+        out = dict(pack)
+        out["content_formatted"] = _strip(out.get("content_formatted", ""))
+        out["universal_caption_block"] = _strip(out.get("universal_caption_block", ""))
+        return out
+
     # Candidate selection policy:
     # - If there are any unused ideas remaining, publish ONLY from ideas list.
     # - Only after the ideas list is exhausted, fall back to niche_hunter.db.
@@ -2244,8 +2286,11 @@ async def main() -> int:
                 # exact idea line into the article BEFORE the GenAI answer.
                 if _is_ideas_niche(niche):
                     # Treat the idea line as the canonical title.
+                    generated_hook_title = str(cp.get("title") or "").strip()
                     cp["title"] = str(topic).strip()
                     cp["_topic"] = str(topic).strip()
+                    # Remove the LLM hook line embedded in the body.
+                    cp = _strip_generated_hook_line(cp, generated_title_line=generated_hook_title)
                     cp = _prepend_idea_line_to_pack(cp, idea_line=topic)
             title = cp.get("title", "?")
             chars = len(cp.get("content_formatted", ""))
