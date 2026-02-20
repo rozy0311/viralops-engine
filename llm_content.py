@@ -945,6 +945,7 @@ def generate_quality_post(
     score: float = 8.0,
     location: str = "",
     season: str = "",
+    idea_line: str = "",
 ) -> Optional[Dict[str, Any]]:
     """
     Generate a FULL quality content pack matching the spec format.
@@ -1251,6 +1252,12 @@ CRITICAL:
         content = _strip_markdown(pack.get("content_formatted", ""))
         content = _ensure_section_breaks(content)
         pack["content_formatted"] = content
+
+        # If this post comes from a curated ideas list, store the verbatim idea line
+        # early so image generation can align to it (build_image_prompt prefers _idea_line).
+        if idea_line and isinstance(idea_line, str):
+            pack.setdefault("_idea_line", idea_line.strip())
+            pack.setdefault("_topic", idea_line.strip())
         content_len = len(content)
         print(f"  [QUALITY] Content length: {content_len} chars (target: 3500-4000)")
         

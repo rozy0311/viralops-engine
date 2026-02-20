@@ -1293,7 +1293,7 @@ async def _dedup_against_publer(
     return kept
 
 
-async def _generate_content(topic: str, score: float) -> dict[str, Any]:
+async def _generate_content(topic: str, score: float, *, idea_line: str = "") -> dict[str, Any]:
     from llm_content import generate_quality_post
 
     # Season is computed by month inside generate_quality_post().
@@ -1304,6 +1304,7 @@ async def _generate_content(topic: str, score: float) -> dict[str, Any]:
         topic=topic,
         score=score,
         season=season_override,
+        idea_line=idea_line,
     )
     if not pack or not pack.get("content_formatted"):
         raise ValueError(f"Failed generate: {topic[:80]}")
@@ -2233,7 +2234,11 @@ async def main() -> int:
                     cp["title"] = str(topic)[:120]
                     cp["_topic"] = str(topic)
             else:
-                cp = await _generate_content(topic, score=9.0)
+                cp = await _generate_content(
+                    topic,
+                    score=9.0,
+                    idea_line=topic if _is_ideas_niche(niche) else "",
+                )
 
                 # If this topic comes from the curated ideas list, copy/paste the
                 # exact idea line into the article BEFORE the GenAI answer.
