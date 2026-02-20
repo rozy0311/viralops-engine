@@ -2158,6 +2158,69 @@ def _strip_duplicate_title_and_hashtags(*, title: str, text: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _normalize_hashtag_key(tag: str) -> str:
+    """Canonicalize a hashtag token for comparisons.
+
+    - Case-insensitive
+    - Strips trailing punctuation (e.g. "#Tag," == "#tag")
+    - Keeps only the leading hashtag word chars (A-Z, 0-9, underscore)
+    """
+    import re as _re
+
+    s = str(tag or "").strip()
+    if not s.startswith("#"):
+        return ""
+    m = _re.match(r"^#([A-Za-z0-9_]+)", s)
+    if not m:
+        return ""
+    return "#" + m.group(1).lower()
+
+
+def _dedupe_hashtags_in_text(text: str) -> str:
+    """Remove duplicate hashtag tokens from text (case-insensitive).
+
+    Preserves first occurrence order. Designed for Facebook caption hygiene.
+    """
+    import re as _re
+
+    seen: set[str] = set()
+    out_lines: list[str] = []
+    for line in str(text or "").splitlines():
+        if not line.strip():
+            out_lines.append("")
+            continue
+
+        parts = _re.split(r"(\s+)", line)
+        rebuilt: list[str] = []
+        for part in parts:
+            if not part or part.isspace():
+                rebuilt.append(part)
+                continue
+
+            # Accept hashtag tokens with optional trailing punctuation: "#tag," "#tag." etc.
+            m = _re.match(r"^(#[A-Za-z0-9_]+)(.*)$", part)
+            if m:
+                tag = m.group(1)
+                suffix = m.group(2) or ""
+                key = _normalize_hashtag_key(tag)
+                if key and key in seen:
+                    # Drop duplicate tag but keep suffix punctuation if any.
+                    if suffix.strip():
+                        rebuilt.append(suffix)
+                    continue
+                if key:
+                    seen.add(key)
+                rebuilt.append(tag + suffix)
+            else:
+                rebuilt.append(part)
+
+        line_out = "".join(rebuilt)
+        line_out = _re.sub(r"\s{2,}", " ", line_out).strip()
+        out_lines.append(line_out)
+
+    return "\n".join(out_lines).strip()
+
+
 async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") -> dict:
     """
     Adapt a raw content_pack into a Publer/TikTok-ready publish dict.
@@ -2376,10 +2439,23 @@ async def _prepare_facebook_content(content_pack: dict) -> dict:
     import uuid as _uuid
 
     title = content_pack.get("title", "")
+    is_direct_post = str(content_pack.get("_source", "") or "").strip().lower() == "ideas_direct_post"
     content_formatted = content_pack.get("content_formatted", "")
     universal_caption = content_pack.get("universal_caption_block", "")
     hashtags = content_pack.get("hashtags", [])
-    hashtags = [f"#{t.lstrip('#')}" for t in hashtags if t.strip()]
+    hashtags = [f"#{t.lstrip('#')}" for t in hashtags if str(t).strip()]
+
+    # De-dupe hashtags (LLMs sometimes return duplicates / casing variants).
+    # Preserve order; compare case-insensitively.
+    _seen = set()
+    _deduped = []
+    for _t in hashtags:
+        _k = str(_t).strip().lower()
+        if not _k or _k in _seen:
+            continue
+        _seen.add(_k)
+        _deduped.append(str(_t).strip())
+    hashtags = _deduped
 
     # Use the best available content — FB supports full rich text
     long_content = ""
@@ -2407,14 +2483,33 @@ async def _prepare_facebook_content(content_pack: dict) -> dict:
 
     # Build caption: title + content + hashtags
     caption_parts = []
-    if title:
+    # For direct-post content (tui:/genAI: blocks), keep it as-is.
+    # Adding a title header makes it look like duplicated text.
+    if title and (not is_direct_post):
         caption_parts.append(f"🌿 {title}")
     if long_content:
         caption_parts.append(long_content)
-    tag_str = " ".join(hashtags[:10])
+
+    # Avoid duplicating hashtags already present in long_content.
+    # NOTE: normalize punctuation variants (#TagOne, vs #TagOne) so we don't re-add.
+    import re as _re
+    _existing = set(
+        _normalize_hashtag_key(t)
+        for t in _re.findall(r"#[^\s#]+", long_content or "")
+        if _normalize_hashtag_key(t)
+    )
+    _to_add = [
+        t for t in hashtags
+        if (k := _normalize_hashtag_key(t)) and k not in _existing
+    ]
+    tag_str = " ".join(_to_add[:10])
     if tag_str:
         caption_parts.append(tag_str)
     caption = "\n\n".join(caption_parts)
+
+    # Final safety-net: remove any repeated hashtag tokens that may already be
+    # present in the LLM-generated long_content.
+    caption = _dedupe_hashtags_in_text(caption)
 
     # ── Generate image if needed ──
     media_url = (content_pack.get("media_url", "")
@@ -2470,11 +2565,205 @@ async def _prepare_pinterest_content(content_pack: dict) -> dict:
     import tempfile
     import uuid as _uuid
 
-    title = content_pack.get("title", "")
+    import re as _re
+
+    title = str(content_pack.get("title", "") or "").strip()
     content_formatted = content_pack.get("content_formatted", "")
     universal_caption = content_pack.get("universal_caption_block", "")
     hashtags = content_pack.get("hashtags", [])
     hashtags = [f"#{t.lstrip('#')}" for t in hashtags if t.strip()]
+    alt_text_override = ""
+    hashtags_locked = False
+
+    # ── Pinterest-only: Master Prompt v2 formatting + runtime hashtag research ──
+    # This is intentionally scoped to Pinterest and does NOT affect Shopify/TikTok/Facebook.
+    use_master = str(os.environ.get("VIRALOPS_PINTEREST_MASTER_PROMPT", "1")).strip().lower() in ("1", "true", "yes", "on")
+    voice = str(os.environ.get("VIRALOPS_PINTEREST_VOICE", "cozy_authority")).strip() or "cozy_authority"
+    tone = str(os.environ.get("VIRALOPS_PINTEREST_TONE", "warm")).strip() or "warm"
+    try:
+        tags_max = int(os.environ.get("VIRALOPS_PINTEREST_TAGS_MAX", "5"))
+    except Exception:
+        tags_max = 5
+    tags_max = max(3, min(8, tags_max))
+    strict_no_years = str(os.environ.get("VIRALOPS_PINTEREST_STRICT_NO_YEARS", "true")).strip().lower() in ("1", "true", "yes", "on")
+    flag_lite = str(os.environ.get("VIRALOPS_PINTEREST_FLAG_LITE", "false")).strip().lower() in ("1", "true", "yes", "on")
+    geo_loc = str(os.environ.get("VIRALOPS_PINTEREST_GEO_LOC", "")).strip()
+
+    def _strip_years(s: str) -> str:
+        return _re.sub(r"\b(19|20)\d{2}\b", "", str(s or ""))
+
+    def _strip_links(s: str) -> str:
+        # No URLs inside Pinterest description.
+        s = _re.sub(r"https?://\S+", "", str(s or ""))
+        s = _re.sub(r"www\.\S+", "", s)
+        return _re.sub(r"\s+", " ", s).strip()
+
+    def _extract_hashtags(text: str) -> list[str]:
+        raw = _re.findall(r"#([A-Za-z][A-Za-z0-9_]{1,30})", str(text or ""))
+        seen: set[str] = set()
+        out: list[str] = []
+        for t in raw:
+            tag = "#" + t
+            k = tag.lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(tag)
+        return out
+
+    def _looks_ymyl(topic_text: str) -> bool:
+        s = (topic_text or "").lower()
+        return any(k in s for k in (
+            "blood", "diabetes", "cancer", "pregnan", "supplement", "dose", "medication",
+            "injury", "safety", "hazard", "poison", "toxic",
+            "invest", "stock", "crypto", "loan", "mortgage", "insurance", "tax",
+        ))
+
+    def _pinterest_format_llm(topic_text: str, source_points: str) -> dict:
+        """Return {title, description, alt_text, hashtags(list)}. Best-effort."""
+        try:
+            from llm_content import call_llm
+
+            ymyl = _looks_ymyl(topic_text)
+            # Keep prompt tight (Pinterest only); output is plain blocks (not JSON).
+            system = "You are a Pinterest Growth Editor. English only. No URLs inside description. No fabrication."
+            prompt = f"""Using these rules, write ONLY these blocks (no extra commentary):
+
+Title: (<=100 chars, keyword first, no leading emoji)
+Description: (<=500 chars; start with a 40-55 word direct answer; optional 1 micro-story <=120 chars if VOICE=cozy_authority; then 1 value sentence; end with hashtags; NO URLs)
+Alt text: (80-140 chars, literal visual description; no marketing)
+Hashtags: (3-{tags_max} hashtags; niche first; no #fyp/#viral)
+
+Inputs:
+TOPIC={topic_text}
+SOURCE_POINTS={source_points}
+AUDIENCE=people who save how-to garden layouts and micro-niche tips
+GOAL=how-to
+TONE={tone}
+VOICE={voice}
+FLAG_LITE={flag_lite}
+STRICT_NO_YEARS={strict_no_years}
+YMYL={"true" if ymyl else "false"}
+GEO_LOC={geo_loc}
+
+Self-check internally: no_links_in_desc, direct_answer_40_55_ok, lengths ok.
+"""
+
+            res = call_llm(prompt, system=system, max_tokens=700, temperature=0.35)
+            txt = (res.text or "").strip()
+
+            def grab(label: str) -> str:
+                m = _re.search(rf"(?im)^{_re.escape(label)}\s*:\s*(.+?)\s*(?=^\w[\w ]{{0,20}}\s*:\s*|\Z)", txt, flags=_re.M)
+                return (m.group(1).strip() if m else "")
+
+            t = grab("Title")
+            d = grab("Description")
+            a = grab("Alt text")
+            hs = grab("Hashtags")
+
+            tags = _extract_hashtags(hs)
+            return {
+                "title": t,
+                "description": d,
+                "alt_text": a,
+                "hashtags": tags,
+                "provider": res.provider,
+            }
+        except Exception:
+            return {}
+
+    def _pinterest_research_hashtags(topic_text: str) -> list[str]:
+        """Best-effort: use Perplexity (web-enabled) if available, else fallback to LLM guess."""
+        try:
+            from llm_content import call_llm
+
+            prompt = f"""Give {tags_max} popular Pinterest hashtags for this topic.
+Topic: {topic_text}
+Rules:
+- Return ONLY hashtags separated by spaces.
+- Must be real/common on Pinterest; avoid #fyp #viral.
+- Mix niche-first then 1-2 broader tags.
+"""
+            # Prefer Perplexity for web-aware selection.
+            res = call_llm(prompt, system="You are a Pinterest hashtag researcher.", max_tokens=120, temperature=0.2, providers=["perplexity", "github_models", "openai"])
+            tags = _extract_hashtags(res.text)
+            if tags:
+                return tags[:tags_max]
+
+            # Fallback: lightweight live web search (no API key) to extract hashtag candidates.
+            # Note: this is best-effort and may return fewer tags depending on search results.
+            try:
+                import urllib.parse as _urlparse
+                import httpx as _httpx
+
+                q = _urlparse.quote_plus(f"pinterest hashtags {topic_text}")
+                url = f"https://duckduckgo.com/html/?q={q}"
+                r = _httpx.get(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                    timeout=8.0,
+                    follow_redirects=True,
+                )
+                if r.status_code == 200:
+                    tags2 = _extract_hashtags(r.text)
+                    if tags2:
+                        return tags2[:tags_max]
+            except Exception:
+                pass
+
+            return []
+        except Exception:
+            return []
+
+    def _first_sentence(text: str, max_len: int = 100) -> str:
+        s = _re.sub(r"\s+", " ", str(text or "").strip())
+        if not s:
+            return ""
+        parts = _re.split(r"(?<=[.!?])\s+", s)
+        out = (parts[0] if parts else s).strip()
+        return out[:max_len].strip()
+
+    def _derive_micro_hashtags(seed: str) -> list[str]:
+        s = (seed or "").lower()
+        tags: list[str] = []
+
+        # Core micro-niche markers
+        m = _re.search(r"\bzone\s*(\d+[a-z]?)\b", s)
+        if m:
+            tags.append(f"#Zone{m.group(1)}")
+        if "clay" in s:
+            tags.append("#ClaySoil")
+        if "raised bed" in s or "raised beds" in s or "raisedbed" in s:
+            tags.append("#RaisedBedGarden")
+        if _re.search(r"\b4\s*[x×]\s*8\b", s):
+            tags.append("#4x8RaisedBed")
+        if "potager" in s:
+            tags.append("#PotagerGarden")
+        if "flood" in s or "flood-prone" in s or "flooding" in s:
+            tags.append("#FloodProofGardening")
+        if "vertical" in s:
+            tags.append("#VerticalGardening")
+        if "balcony" in s:
+            tags.append("#BalconyGarden")
+        if "microgreen" in s:
+            tags.append("#Microgreens")
+        if "herb" in s:
+            tags.append("#HerbGarden")
+
+        # De-dupe preserve order
+        seen: set[str] = set()
+        out: list[str] = []
+        for t in tags:
+            k = t.lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(t)
+        return out
+
+    if not title:
+        # Fall back to first sentence of content
+        title = _first_sentence(universal_caption or content_formatted, max_len=100) or "Micro Niche Tip"
 
     # Pinterest title: max 100 chars
     pin_title = title[:97] + "..." if len(title) > 100 else title
@@ -2500,29 +2789,141 @@ async def _prepare_pinterest_content(content_pack: dict) -> dict:
         hook = content_pack.get("hook", "")
         long_content = hook or body or title
 
+    # Apply Pinterest Master Prompt formatting (optional). This overrides only Pinterest fields.
+    if use_master:
+        topic_text = str(content_pack.get("topic") or content_pack.get("title") or title or "").strip()
+        source_points = str(
+            content_pack.get("source_points")
+            or content_pack.get("points")
+            or universal_caption
+            or content_formatted
+            or content_pack.get("body", "")
+            or ""
+        )
+        # Keep source bounded.
+        source_points = _strip_links(source_points)[:1200]
+        blocks = _pinterest_format_llm(topic_text=topic_text, source_points=source_points)
+        if isinstance(blocks, dict) and blocks:
+            t2 = str(blocks.get("title") or "").strip()
+            d2 = str(blocks.get("description") or "").strip()
+            a2 = str(blocks.get("alt_text") or "").strip()
+            hs2 = blocks.get("hashtags") or []
+
+            if strict_no_years:
+                t2 = _strip_years(t2)
+                d2 = _strip_years(d2)
+                a2 = _strip_years(a2)
+
+            # Enforce no links in description.
+            d2 = _strip_links(d2)
+            if t2:
+                title = t2[:100].strip()
+            if d2:
+                long_content = d2
+            if a2:
+                alt_text_override = a2
+
+            # Runtime hashtag research (Pinterest-only). If the LLM output did not include
+            # enough tags, replace/augment with researched tags.
+            tags = [str(x).strip() for x in hs2 if str(x).strip()]
+            tags = [t if t.startswith("#") else ("#" + t.lstrip("#")) for t in tags]
+            if len(tags) < 3:
+                tags = _pinterest_research_hashtags(topic_text)
+            if tags:
+                hashtags = tags[:tags_max]
+                hashtags_locked = True
+
     # Prevent duplicate title at the top and duplicate hashtag tails.
     long_content = _strip_duplicate_title_and_hashtags(title=title, text=long_content)
 
     # Ensure we carry image alt text in the pin description (best-effort).
     # Pinterest/ Publer API may not expose a dedicated alt_text field; this keeps it visible.
-    alt_text = str(
-        content_pack.get("image_alt")
-        or content_pack.get("alt_text")
-        or content_pack.get("image_alt_text")
-        or ""
-    ).strip()
+    alt_text = str(alt_text_override or "").strip()
+    if not alt_text:
+        alt_text = str(
+            content_pack.get("image_alt")
+            or content_pack.get("alt_text")
+            or content_pack.get("image_alt_text")
+            or ""
+        ).strip()
     if not alt_text:
         alt_text = str(title or "").strip()
     alt_text = alt_text[:140].strip()
     if alt_text:
+        # Keep it as a natural line, not an "ALT:" header.
         long_content = f"{long_content}\n\nImage: {alt_text}".strip()
 
+    # Pinterest UI can show an empty/missing "title" for API-created pins.
+    # To make the title reliably visible, prefix it as the first line of the
+    # description (best-effort), while avoiding duplication.
+    title_line = str(pin_title or title or "").strip()
+    if title_line:
+        norm = _re.sub(r"\s+", " ", str(long_content or "").strip()).lower()
+        if not norm.startswith(title_line.lower()):
+            long_content = f"{title_line}\n\n{long_content}".strip()
+
+    # Hashtags: either (A) researched/LLM-provided (locked) or (B) derived + existing.
+    if hashtags_locked:
+        merged_tags: list[str] = []
+        seen_tag: set[str] = set()
+        for t in hashtags:
+            t = str(t or "").strip()
+            if not t:
+                continue
+            if not t.startswith("#"):
+                t = "#" + t.lstrip("#")
+            k = t.lower()
+            if k in seen_tag:
+                continue
+            seen_tag.add(k)
+            merged_tags.append(t)
+            if len(merged_tags) >= tags_max:
+                break
+        hashtags = merged_tags
+    else:
+        # Add micro-niche hashtags (derived) + existing (dedup), keep max TAGS_MAX.
+        derived_tags = _derive_micro_hashtags(f"{title} {long_content}")
+        merged_tags = []
+        seen_tag = set()
+        for t in (hashtags + derived_tags):
+            t = str(t or "").strip()
+            if not t:
+                continue
+            if not t.startswith("#"):
+                t = "#" + t.lstrip("#")
+            k = t.lower()
+            if k in seen_tag:
+                continue
+            seen_tag.add(k)
+            merged_tags.append(t)
+            if len(merged_tags) >= tags_max:
+                break
+        hashtags = merged_tags
+
     # Build description: truncate to 500 chars with hashtags
-    tag_str = " ".join(hashtags[:5])
+    tag_str = " ".join(hashtags[:tags_max])
     max_desc = 500 - len(tag_str) - 2 if tag_str else 500
-    desc = long_content[:max_desc].rsplit(" ", 1)[0] if len(long_content) > max_desc else long_content
+
+    # Pinterest UI can show an empty/missing "title" for API-created pins.
+    # Bulletproof fallback: include the title as the first line of the description.
+    title_line = (pin_title or "").strip()
+    prefix = ""
+    if title_line:
+        norm_desc = _re.sub(r"\s+", " ", str(long_content or "").strip()).lower()
+        norm_title = _re.sub(r"\s+", " ", title_line).strip().lower()
+        if norm_title and not norm_desc.startswith(norm_title):
+            prefix = f"{title_line}\n\n"
+
+    # Reserve space for prefix within the 500-char budget.
+    body_budget = max_desc - len(prefix)
+    if body_budget < 0:
+        body_budget = 0
+    body = long_content[:body_budget]
+    if len(long_content) > body_budget:
+        body = body.rsplit(" ", 1)[0]
+    desc = f"{prefix}{body}".strip()
     if tag_str:
-        desc = f"{desc} {tag_str}"
+        desc = f"{desc} {tag_str}".strip()
 
     # ── Image is REQUIRED for Pinterest pins ──
     media_url = (content_pack.get("media_url", "")
@@ -2545,6 +2946,46 @@ async def _prepare_pinterest_content(content_pack: dict) -> dict:
                     logger.info("pinterest.image_generated", path=img_path)
             except Exception as e:
                 logger.warning("pinterest.image_gen_error", error=str(e))
+
+    # Pinterest best practice: 2:3 aspect ratio (e.g., 1000x1500).
+    # Best-effort: if we have a local image, center-crop to 2:3 and resize.
+    try:
+        if media_url and (not str(media_url).startswith(("http://", "https://"))) and os.path.isfile(str(media_url)):
+            try:
+                from PIL import Image
+
+                in_path = str(media_url)
+                with Image.open(in_path) as im:
+                    im = im.convert("RGB")
+                    w, h = im.size
+                    target_ratio = 2 / 3
+                    cur_ratio = w / h if h else target_ratio
+
+                    if abs(cur_ratio - target_ratio) > 0.02:
+                        # Center crop
+                        if cur_ratio > target_ratio:
+                            # too wide
+                            new_w = int(h * target_ratio)
+                            x0 = max(0, (w - new_w) // 2)
+                            box = (x0, 0, x0 + new_w, h)
+                        else:
+                            # too tall
+                            new_h = int(w / target_ratio)
+                            y0 = max(0, (h - new_h) // 2)
+                            box = (0, y0, w, y0 + new_h)
+                        im = im.crop(box)
+
+                    im = im.resize((1000, 1500), Image.LANCZOS)
+
+                    out_dir = tempfile.mkdtemp(prefix="viralops_pin_23_")
+                    out_path = os.path.join(out_dir, f"pin_23_{_uuid.uuid4().hex[:8]}.jpg")
+                    im.save(out_path, format="JPEG", quality=92, optimize=True)
+                    media_url = out_path
+                    logger.info("pinterest.image_resized_2x3", path=out_path)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     if not media_url:
         logger.warning("pinterest.no_image_skipping",

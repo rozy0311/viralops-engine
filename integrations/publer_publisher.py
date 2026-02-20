@@ -592,6 +592,10 @@ class PublerPublisher:
                 title = content.get("title", "")
                 if title and content_type in ("article", "pin"):
                     network_data["title"] = title
+                    # Pinterest pins sometimes ignore `title` depending on API/version.
+                    # Include a compatibility field as well.
+                    if publer_network == "pinterest":
+                        network_data.setdefault("name", title)
 
                 # Add media references (pre-uploaded)
                 media_ids = content.get("media_ids", [])

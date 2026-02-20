@@ -303,6 +303,44 @@ class TestPublerPublish:
         assert "#test" in text
         assert "#already" in text
 
+    @pytest.mark.asyncio
+    async def test_publish_pinterest_pin_includes_title_fields(self, publisher):
+        """Pinterest pins should include title fields in the networks payload."""
+        publisher._connected = True
+        publisher._accounts = [
+            {"id": "acc-1", "name": "Pinterest", "type": "pinterest"},
+        ]
+
+        captured_body = {}
+
+        async def capture_request(method, endpoint, **kwargs):
+            if "posts" in endpoint:
+                captured_body.update(kwargs.get("json_data", {}))
+                resp = MagicMock()
+                resp.status_code = 200
+                resp.json.return_value = {"data": {"job_id": "j-pin-1"}}
+                return resp
+            elif "job_status" in endpoint:
+                resp = MagicMock()
+                resp.status_code = 200
+                resp.json.return_value = {"data": {"status": "complete"}}
+                return resp
+
+        with patch.object(publisher, "_request", side_effect=capture_request):
+            await publisher.publish({
+                "caption": "My pin description",
+                "title": "My Pin Title",
+                "platforms": ["pinterest"],
+                "content_type": "pin",
+            })
+
+        posts = captured_body.get("bulk", {}).get("posts", [])
+        assert len(posts) == 1
+        net = posts[0]["networks"]["pinterest"]
+        assert net.get("type") == "pin"
+        assert net.get("title") == "My Pin Title"
+        assert net.get("name") == "My Pin Title"
+
 
 # ── Job Polling Tests ──
 
