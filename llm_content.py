@@ -938,6 +938,81 @@ def generate_quality_post(
       Phase 2 (ReconcileGPT): Review + improve
     """
     import random as _rng
+
+    def _infer_location_from_topic(t: str) -> str:
+        tt = str(t or "")
+        if not tt:
+            return ""
+        # Minimal, high-signal geo inference to prevent drifting from the idea line.
+        # Prefer explicit states/regions mentioned in the topic.
+        states = [
+            "Illinois", "Indiana", "Iowa", "Michigan", "Minnesota", "Missouri",
+            "Wisconsin", "Ohio", "Kentucky", "Tennessee", "Georgia", "Florida",
+            "Texas", "California", "New York", "Colorado", "Oregon", "Washington",
+            "Massachusetts", "Pennsylvania", "Virginia", "North Carolina", "South Carolina",
+            "Arizona", "Nevada", "Utah",
+        ]
+        for s in states:
+            if re.search(rf"\b{re.escape(s)}\b", tt, flags=re.IGNORECASE):
+                return s
+        # A few common city anchors we see in the training docs.
+        for city in ("Staunton", "Chicago", "Houston", "Miami", "Portland", "Seattle", "Austin", "Boston", "Denver", "Phoenix", "NYC", "LA"):
+            if re.search(rf"\b{re.escape(city)}\b", tt, flags=re.IGNORECASE):
+                return city
+        return ""
+
+    def _extract_topic_constraints(t: str) -> list[str]:
+        """Extract must-keep constraints from the topic line.
+
+        Examples:
+          - Zone 6a
+          - flood-prone Illinois
+          - LED shelves / countertop / apartment
+        """
+        tt = str(t or "").strip()
+        if not tt:
+            return []
+
+        constraints: list[str] = []
+
+        # Zone pattern
+        m = re.search(r"\bZone\s*\d{1,2}\s*[a-z]\b", tt, flags=re.IGNORECASE)
+        if m:
+            constraints.append(m.group(0))
+
+        # Geo (state/city)
+        loc = _infer_location_from_topic(tt)
+        if loc:
+            constraints.append(loc)
+
+        # High-signal qualifiers
+        qualifiers = [
+            "flood-prone", "heavy clay", "clay soil", "no-backache", "zero-lot-line",
+            "countertop", "apartment", "balcony", "raised bed", "4x8", "6x3",
+            "keyhole", "compost hub", "LED", "microgreens", "microgreen", "herb shelves",
+        ]
+        for q in qualifiers:
+            if re.search(rf"\b{re.escape(q)}\b", tt, flags=re.IGNORECASE):
+                # Preserve original casing where possible by pulling from topic
+                mm = re.search(rf"\b{re.escape(q)}\b", tt, flags=re.IGNORECASE)
+                if mm:
+                    constraints.append(mm.group(0))
+
+        # De-dup while preserving order
+        seen = set()
+        out: list[str] = []
+        for c in constraints:
+            key = c.strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(c.strip())
+        return out[:10]
+
+    # If the topic already contains a location, do NOT randomize a different one.
+    inferred_location = _infer_location_from_topic(topic)
+    if inferred_location and not location:
+        location = inferred_location
     
     if not location:
         locations = ["Chicago", "NYC", "LA", "Houston", "Phoenix", "Denver",
@@ -1058,6 +1133,7 @@ TOPIC: {topic}
 NICHE SCORE: {score}/10
 LOCATION: {location}
 SEASON: {season}
+    {"" if not _extract_topic_constraints(topic) else """\nCONSTRAINTS (MUST KEEP — do NOT generalize):\n- You MUST keep ALL constraints implied by the TOPIC line (zone/state/soil/space/tech).\n- You MUST include these phrases (verbatim, case-insensitive) somewhere in the post (title or body):\n  """ + "\n  ".join(f"- {c}" for c in _extract_topic_constraints(topic)) + "\n- If TOPIC includes a specific place (e.g., Illinois), do NOT switch to another place (e.g., Miami).\n"""}
 {feedback_block}
 You are answering someone who asked "{topic}". Give them the REAL, COMPLETE answer with personality.
 
