@@ -2486,7 +2486,11 @@ async def _prepare_facebook_content(content_pack: dict) -> dict:
     # For direct-post content (tui:/genAI: blocks), keep it as-is.
     # Adding a title header makes it look like duplicated text.
     if title and (not is_direct_post):
-        caption_parts.append(f"🌿 {title}")
+        # For curated ideas-list posts, the title must match the idea line 100%.
+        if str(content_pack.get("_idea_line") or "").strip():
+            caption_parts.append(str(title))
+        else:
+            caption_parts.append(f"🌿 {title}")
     if long_content:
         caption_parts.append(long_content)
 
