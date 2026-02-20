@@ -1302,6 +1302,140 @@ Return the TRIMMED answer as PLAIN TEXT (3500-4000 chars). No JSON wrapper. No m
         print(f"  [QUALITY] Title: {pack.get('title', '?')}")
         print(f"  [QUALITY] Provider: {result.provider}/{result.model}")
         print(f"  [QUALITY] Hashtags: {' '.join(pack['hashtags'])}")
+
+        # ── Deterministic repair pass (before review) ──
+        # If the caption misses required winner-pattern elements, patch the existing text
+        # instead of regenerating from scratch. This improves pass rate under strict gates.
+        def _count_numbered_items(txt: str) -> int:
+            if not txt:
+                return 0
+            lines = [ln.strip() for ln in str(txt).splitlines() if ln.strip()]
+            return sum(1 for ln in lines if re.match(r"^\d{1,3}\s*[\.)]\s+\S", ln))
+
+        def _has_regret_early(txt: str) -> bool:
+            if not txt:
+                return False
+            head = txt[:900]
+            return bool(re.search(r"(?i)\b(wish|regret|should\s+have|should've|learned\s+the\s+hard\s+way|ruined|messed\s+up|first\s+batch\s+(?:mold|moldy|failed))\b", head))
+
+        def _has_cta_ladder(txt: str) -> bool:
+            if not txt:
+                return False
+            low = txt.lower()
+            if "expansion ladder" in low:
+                return True
+            if low.count("→") >= 2 and ("start" in low) and ("weekly" in low) and ("monthly" in low):
+                return True
+            return bool(re.search(r"(?is)\bstart\b.{0,120}\bweekly\b.{0,120}\bmonthly\b", low))
+
+        def _has_low_cost_zero_alt(txt: str) -> bool:
+            if not txt:
+                return False
+            low = txt.lower()
+            has_money = ("$" in txt) or bool(re.search(r"\b\d+\s*(?:usd|dollars)\b", low))
+            zero_alt = any(k in low for k in ["free", "reuse", "zero-cost", "no fancy", "no equipment", "pickle jar", "old jar", "$0"])
+            return bool(has_money and zero_alt)
+
+        def _emoji_headers(txt: str) -> int:
+            if not txt:
+                return 0
+            return len(re.findall(r"(?m)^\s*[🌿🫙❌✅🫘]\b", txt))
+
+        repair_issues: list[str] = []
+        content = str(pack.get("content_formatted", "") or "")
+        if _count_numbered_items(content) < 15:
+            repair_issues.append("Add/extend a numbered Variations/Layouts/Uses list to at least 15 items (each 1 short line).")
+        if not _has_regret_early(content):
+            repair_issues.append("Add a concrete trial-error regret line within the first 900 chars (use 'wish/regret/ruined/learned the hard way' + a number).")
+        if not _has_low_cost_zero_alt(content):
+            repair_issues.append("Add explicit low-cost + $0 alternative (reuse jar / no fancy gear) including at least one $ amount and one $0/free reuse line.")
+        if not _has_cta_ladder(content):
+            repair_issues.append("Add CTA + 3-step Expansion Ladder (Start tiny → weekly → monthly) near the end.")
+        if _emoji_headers(content) < 3:
+            repair_issues.append("Ensure emoji section headers exist on their own lines (at least 3 of: 🌿 🫙 ❌ ✅).")
+
+        if repair_issues:
+            print(f"  [QUALITY] Repair pass: {len(repair_issues)} missing elements — patching caption...")
+            repair_prompt = f"""You are editing a TikTok plain-text caption to match a strict micro-niche 'winner post' spec.
+
+FIX ONLY these issues (do NOT add anything else):
+{chr(10).join([f"- {x}" for x in repair_issues])}
+
+HARD RULES:
+- Output PLAIN TEXT ONLY (no JSON, no markdown, no code fences).
+- Must be 3500-4000 characters.
+- ABSOLUTELY NEVER use ** or ###.
+- Keep the existing topic, facts, numbers, and tone. Do not change meaning.
+- Keep it scannable: short lines, spacing, lists.
+
+CURRENT CAPTION (patch this):
+{content}
+"""
+
+            repair_result = call_llm(repair_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=6000, temperature=0.35)
+            if repair_result.success and repair_result.text:
+                repaired = _ensure_section_breaks(_strip_markdown(repair_result.text.strip()))
+                pack["content_formatted"] = repaired
+                content = repaired
+                content_len = len(content)
+                print(f"  [QUALITY] Repaired length: {content_len} chars")
+
+                # If repair overshoots, re-run trim loop (reuse the same safe fallback logic).
+                if content_len > 4200:
+                    print(f"  [QUALITY] Repaired content long ({content_len} > 4200). Trimming...")
+                    # Small local hard-trim fallback
+                    def _hard_trim_plaintext2(txt: str, *, min_len: int = 3400, max_len: int = 4000) -> str:
+                        if not txt:
+                            return ""
+                        s = str(txt)
+                        if len(s) <= max_len:
+                            return s
+                        head = s[:max_len]
+                        for pat in [r"\n\n", r"\n", r"[\.!\?]\s"]:
+                            m = list(re.finditer(pat, head))
+                            if not m:
+                                continue
+                            cut = m[-1].end()
+                            if cut >= min_len:
+                                return head[:cut].rstrip()
+                        cut = head.rfind(" ")
+                        if cut >= min_len:
+                            return head[:cut].rstrip() + "…"
+                        return head.rstrip() + "…"
+
+                    # One LLM trim try + fallback.
+                    trim_prompt2 = f"""This answer is {content_len} characters but MUST be 3500-4000 characters.
+
+TRIM it to 3500-4000 chars. Keep all required sections (emoji headers, numbered variations list, CTA ladder, low-cost $0 line, regret early).
+Never use ** or ###.
+
+Content to trim:
+{content}
+
+Return PLAIN TEXT only."""
+                    trim2 = call_llm(trim_prompt2, system=QUALITY_CONTENT_SYSTEM, max_tokens=5000, temperature=0.25)
+                    if trim2.success and trim2.text:
+                        trimmed2 = _ensure_section_breaks(_strip_markdown(trim2.text.strip()))
+                        if 3200 < len(trimmed2) < 4200:
+                            pack["content_formatted"] = trimmed2
+                            content = trimmed2
+                            content_len = len(content)
+                            print(f"  [QUALITY] Trimmed (repair) to: {content_len} chars")
+                        else:
+                            hard2 = _hard_trim_plaintext2(trimmed2)
+                            pack["content_formatted"] = _ensure_section_breaks(_strip_markdown(hard2.strip()))
+                            content = pack["content_formatted"]
+                            content_len = len(content)
+                            print(f"  [QUALITY] Hard-trim (repair) to: {content_len} chars")
+                    else:
+                        hard2 = _hard_trim_plaintext2(content)
+                        pack["content_formatted"] = _ensure_section_breaks(_strip_markdown(hard2.strip()))
+                        content = pack["content_formatted"]
+                        content_len = len(content)
+                        print(f"  [QUALITY] Hard-trim (repair) to: {content_len} chars")
+
+            else:
+                print("  [QUALITY] Repair pass skipped (LLM failed)")
         
         # ── Phase 2: ReconcileGPT — Quality Review ──
         review = _review_quality_content(pack)
