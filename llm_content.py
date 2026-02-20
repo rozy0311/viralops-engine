@@ -461,24 +461,46 @@ def build_image_prompt(pack: Dict[str, Any]) -> str:
     Build a realistic image prompt from a content pack.
     Follows user's style: "create realistic image for the answer (image size 9:16)"
     """
-    title = pack.get("title", "")
+    title = str(pack.get("title", "") or "").strip()
     topic = title.split("—")[0].split(":")[0].strip() if title else ""
-    pain_point = pack.get("pain_point", "")
-    image_title = pack.get("image_title", topic)
-    
-    # Determine visual subject from content
+    pain_point = str(pack.get("pain_point", "") or "").strip()
+
+    # For curated ideas-list topics, keep the image tightly aligned to the
+    # idea line (copy/pasted verbatim into the content). This prevents the
+    # image from following a clickbait hook instead of the actual topic.
+    idea_line = str(pack.get("_idea_line", "") or "").strip()
+    base_topic = idea_line or str(pack.get("_topic", "") or "").strip() or topic
+
+    def _clean_subject(s: str) -> str:
+        ss = re.sub(r"\s+", " ", str(s or "").strip())
+        # Strip surrounding quotes and overly long tails.
+        ss = ss.strip('"\'')
+        if len(ss) > 110:
+            ss = ss[:110].rsplit(" ", 1)[0]
+        return ss
+
+    # Prefer an explicit image_title only when we are NOT in ideas mode.
+    # In ideas mode, force the subject to be derived from base_topic.
+    image_title = str(pack.get("image_title", "") or "").strip()
+    if idea_line:
+        image_title = _clean_subject(base_topic)
+    else:
+        image_title = _clean_subject(image_title or base_topic)
+
+    # Determine visual subject from content (unused but kept for future tuning)
     content = pack.get("content_formatted", "")
     
     # Build hyper-detailed cinematic prompt for maximum realism
+    scene_context = _clean_subject(pain_point or base_topic)
     prompt = (
         f"Ultra-realistic photograph, shot on Sony A7IV with 85mm f/1.4 lens. "
         f"Subject: {image_title}. "
-        f"Scene context: {pain_point[:120]}. "
+        f"Scene context: {scene_context[:140]}. "
         f"Style: Editorial food/lifestyle photography for a premium magazine. "
         f"Warm golden-hour natural lighting streaming through a window, casting soft shadows. "
         f"Shallow depth of field with creamy bokeh background. "
         f"Rich vibrant colors, visible textures and fine details on every surface. "
-        f"Wooden cutting board, fresh herbs, rustic kitchen counter, linen napkin — organic props. "
+        f"Props: fresh herbs, potting mix, garden tools, rustic potting bench, linen cloth — organic, realistic. "
         f"Vertical 9:16 portrait composition with rule-of-thirds framing. "
         f"8K resolution quality, hyper-detailed, photorealistic, no CGI look. "
         f"ABSOLUTELY NO TEXT, NO LETTERS, NO WORDS, NO NUMBERS, NO WATERMARKS, NO LOGOS in the image. "
