@@ -1903,7 +1903,13 @@ async def api_account_health_safe(platform: str, account_id: str = ""):
 TIKTOK_MAX_CAPTION = 4000
 
 
-async def _reformat_for_tiktok(title: str, long_content: str, hashtags: list[str]) -> str:
+async def _reformat_for_tiktok(
+    title: str,
+    long_content: str,
+    hashtags: list[str],
+    *,
+    strict_title: bool = False,
+) -> str:
     """Reformat blog-style content into clump-proof TikTok caption (3500-4000 chars).
 
     TikTok API strips ALL line breaks when posting via scheduler tools.
@@ -1914,6 +1920,14 @@ async def _reformat_for_tiktok(title: str, long_content: str, hashtags: list[str
     tag_str = " ".join(f"#{t.lstrip('#')}" for t in hashtags[:5] if t.strip())
     tag_budget = len(tag_str) + 2
     char_budget = TIKTOK_MAX_CAPTION - tag_budget - 50  # aim 3500-3950
+
+    title_rule = (
+        "3. Start with the provided TITLE EXACTLY as the first characters of the caption. "
+        "Do NOT add any emoji, punctuation, or dash before/after it. After the title, add a single space, then continue.\n"
+        if strict_title
+        else
+        "3. Start with the provided TITLE as the first line (keep it recognizable), then \"—\" dash, then 2-3 sentence direct answer.\n"
+    )
 
     reformat_prompt = f"""Reformat this blog content into a TikTok-friendly caption.
 
@@ -1932,7 +1946,7 @@ RULES — FOLLOW EXACTLY:
    You are REFORMATTING, not SUMMARIZING. Keep EVERY detail, EVERY tip, EVERY example.
    If the original is 3800 chars, your output should also be ~3800 chars.
    Count your characters — if below 3400, you MUST add more detail from the original.
-3. Start with the provided TITLE as the first line (keep it recognizable), then "—" dash, then 2-3 sentence direct answer.
+{title_rule.strip()}
 4. Use emoji (🌿 🫙 ❌ ✅ 🪴 💡 🔥 👉) as VISUAL SECTION MARKERS.
    Each new idea MUST start with an emoji so readers can see where sections begin
    even when everything is one giant block.
@@ -2049,7 +2063,7 @@ OUTPUT ONLY the full 3500-3900 character caption. No JSON, no code blocks."""
                 if norm_title and norm_title not in head:
                     # Leave room for hashtags already appended
                     max_len = TIKTOK_MAX_CAPTION
-                    prefix = f"{title} — "
+                    prefix = f"{title} " if strict_title else f"{title} — "
                     caption = (prefix + caption).strip()
                     if len(caption) > max_len:
                         caption = caption[:max_len].rsplit(" ", 1)[0]
@@ -2063,10 +2077,16 @@ OUTPUT ONLY the full 3500-3900 character caption. No JSON, no code blocks."""
         logger.warning("tiktok.reformat_llm_error", error=str(e)[:200])
 
     # ── FALLBACK: programmatic clump-proof reformat (no LLM available) ──
-    return _fallback_tiktok_clumpproof(title, long_content, hashtags)
+    return _fallback_tiktok_clumpproof(title, long_content, hashtags, strict_title=strict_title)
 
 
-def _fallback_tiktok_clumpproof(title: str, content: str, hashtags: list[str]) -> str:
+def _fallback_tiktok_clumpproof(
+    title: str,
+    content: str,
+    hashtags: list[str],
+    *,
+    strict_title: bool = False,
+) -> str:
     """Programmatic fallback: make existing content clump-proof without LLM.
 
     Strategy: collapse all newlines → spaces, clean up spacing,
@@ -2076,7 +2096,7 @@ def _fallback_tiktok_clumpproof(title: str, content: str, hashtags: list[str]) -
     tag_str = " ".join(f"#{t.lstrip('#')}" for t in hashtags[:5] if t.strip())
 
     # Start with title
-    caption = f"{title} — " if title else ""
+    caption = (f"{title} " if (title and strict_title) else f"{title} — ") if title else ""
 
     # Collapse all newlines → single spaces
     flat = _re.sub(r'\s*\n\s*', ' ', content)
@@ -2241,6 +2261,7 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
 
     # ── 1. Build caption — reformat for TikTok (clump-proof) ──
     title = content_pack.get("title", "")
+    is_ideas = bool(str(content_pack.get("_idea_line") or "").strip())
     content_formatted = content_pack.get("content_formatted", "")
     universal_caption = content_pack.get("universal_caption_block", "")
     hashtags = content_pack.get("hashtags", [])
@@ -2275,7 +2296,12 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
     # ── Reformat: make content clump-proof for TikTok ──
     # Always reformat — even "short" content needs emoji separators
     if long_content and len(long_content) > 200:
-        caption = await _reformat_for_tiktok(title, long_content, hashtags)
+        caption = await _reformat_for_tiktok(
+            title,
+            long_content,
+            hashtags,
+            strict_title=is_ideas,
+        )
     else:
         caption = long_content.strip()
         tag_str = " ".join(hashtags[:5])
