@@ -1063,7 +1063,40 @@ async def main() -> int:
             title = cp.get("title", "?")
             chars = len(cp.get("content_formatted", ""))
             review_score = float(cp.get("_review_score", 0.0) or 0.0)
+            rubric_total = float(cp.get("_rubric_total_100", 0.0) or 0.0)
+            review_pass = bool(cp.get("_review_pass"))
             print(f"  ✓ Generated: {title[:90]} ({chars} chars, review={review_score:.1f}/10)")
+
+            # Hard gate: never publish if quality review didn't pass.
+            if not review_pass:
+                fb = str(cp.get("_review_feedback", "") or "").strip()
+                print(
+                    f"  ⚠ SKIP PUBLISH: quality gate failed (review_pass={review_pass}, "
+                    f"tiktok_avg={review_score:.1f}/10, rubric={rubric_total:.0f}/100)."
+                )
+                if fb:
+                    print(f"  Feedback: {fb[:220]}")
+
+                _log_published_to_viralops_db(
+                    {
+                        "title": cp.get("title", ""),
+                        "content_formatted": cp.get("content_formatted", ""),
+                        "universal_caption_block": cp.get("universal_caption_block", ""),
+                    },
+                    platforms=platforms,
+                    extra={
+                        "topic": topic,
+                        "picked_score": score,
+                        "picked_niche": niche,
+                        "picked_hook": hook,
+                        "review_pass": review_pass,
+                        "tiktok_avg": review_score,
+                        "rubric_total_100": rubric_total,
+                        "feedback": fb,
+                    },
+                    status="failed",
+                )
+                continue
 
             results = await _publish_all(
                 cp,

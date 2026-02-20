@@ -1195,6 +1195,30 @@ Return the FULL expanded answer as PLAIN TEXT (3500-4000 chars). Count carefully
         if content_len > 4200:
             # Too long — ask AI to trim to 3500-4000 without losing meaning
             print(f"  [QUALITY] Content long ({content_len} > 4200). Trimming...")
+            def _hard_trim_plaintext(txt: str, *, min_len: int = 3200, max_len: int = 4000) -> str:
+                """Last-resort safe trim: keep within [min_len, max_len] without cutting mid-sentence."""
+                if not txt:
+                    return ""
+                s = str(txt)
+                if len(s) <= max_len:
+                    return s
+
+                head = s[:max_len]
+                # Prefer double-newline (section boundary), then newline, then sentence punctuation.
+                for pat in [r"\n\n", r"\n", r"[\.!\?]\s"]:
+                    m = list(re.finditer(pat, head))
+                    if not m:
+                        continue
+                    cut = m[-1].end()
+                    if cut >= min_len:
+                        return head[:cut].rstrip()
+
+                # Fallback: word boundary.
+                cut = head.rfind(" ")
+                if cut >= min_len:
+                    return head[:cut].rstrip() + "…"
+                return head.rstrip() + "…"
+
             trim_prompt = f"""This answer is {content_len} characters but MUST be 3500-4000 characters.
 
 TRIM it to 3500-4000 chars by:
@@ -1209,12 +1233,48 @@ Content to trim:
 {content}
 
 Return the TRIMMED answer as PLAIN TEXT (3500-4000 chars). No JSON wrapper. No markdown."""
-            
-            trim_result = call_llm(trim_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=5000, temperature=0.3)
-            if trim_result.success and 3200 < len(trim_result.text) < 4200:
-                pack["content_formatted"] = _ensure_section_breaks(_strip_markdown(trim_result.text.strip()))
-                content_len = len(pack["content_formatted"])
-                print(f"  [QUALITY] Trimmed to: {content_len} chars")
+
+            # Try up to 3 trim passes (LLMs often under-trim on first try).
+            for tpass in range(3):
+                trim_result = call_llm(trim_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=5000, temperature=0.25)
+                if trim_result.success:
+                    trimmed = _ensure_section_breaks(_strip_markdown(trim_result.text.strip()))
+                    if 3200 < len(trimmed) < 4200:
+                        pack["content_formatted"] = trimmed
+                        content = trimmed
+                        content_len = len(trimmed)
+                        print(f"  [QUALITY] Trimmed to: {content_len} chars")
+                        break
+
+                # If still too long, ask again with the updated length.
+                content = pack.get("content_formatted", content)
+                content_len = len(content)
+                if content_len <= 4200:
+                    break
+                trim_prompt = f"""This answer is {content_len} characters but MUST be 3500-4000 characters.
+
+TRIM it to 3500-4000 chars by:
+- Removing redundant sentences and filler words
+- Cutting less important examples (keep the best ones)
+- Making sentences more concise
+- DO NOT remove key facts, specific numbers, or practical steps
+- Keep the MEANING and FLOW intact
+- NEVER add **bold** or ### headings — this is for TikTok (plain text only)
+
+Content to trim:
+{content}
+
+Return the TRIMMED answer as PLAIN TEXT (3500-4000 chars). No JSON wrapper. No markdown."""
+
+            # Last resort: deterministic trim to keep pipeline moving.
+            content = pack.get("content_formatted", content)
+            content_len = len(content)
+            if content_len > 4200:
+                hard = _hard_trim_plaintext(content, min_len=3400, max_len=4000)
+                pack["content_formatted"] = _ensure_section_breaks(_strip_markdown(hard.strip()))
+                content = pack["content_formatted"]
+                content_len = len(content)
+                print(f"  [QUALITY] Hard-trim fallback to: {content_len} chars")
         
         # ── Hashtags: 3 micro + 2 broad = exactly 5 ──
         raw_micro = pack.get("hashtags", [])[:3]
