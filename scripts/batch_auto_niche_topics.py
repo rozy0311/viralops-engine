@@ -36,6 +36,8 @@ import uuid
 import sqlite3
 import sys
 import time
+import logging
+import shutil
 from datetime import datetime, timezone
 from datetime import timedelta
 from typing import Any
@@ -43,6 +45,10 @@ from typing import Any
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Avoid noisy dotenv parsing warnings (do not print potentially sensitive lines).
+logging.getLogger("dotenv").setLevel(logging.ERROR)
+logging.getLogger("dotenv.main").setLevel(logging.ERROR)
 
 load_dotenv(override=True)
 
@@ -130,6 +136,42 @@ def _auto_detect_default_ideas_file() -> str:
             return candidate
 
     return ""
+
+
+def _strip_hashtags_text(text: str) -> str:
+    """Remove hashtag tokens from text (e.g. #Tag) while preserving readability."""
+    t = str(text or "")
+    if not t:
+        return t
+    t = re.sub(r"(?<!\w)#\w+", "", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip()
+
+
+def _persist_image_to_artifacts(*, image_path: str, kind: str) -> str:
+    """Copy a temp-generated image into artifacts/ so it doesn't disappear.
+
+    Returns the copied path (or empty string if not copied).
+    """
+    src = str(image_path or "").strip()
+    if not src or (not os.path.isfile(src)):
+        return ""
+    try:
+        proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        out_dir = os.path.join(proj_root, "artifacts")
+        os.makedirs(out_dir, exist_ok=True)
+
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        ext = os.path.splitext(src)[1] or ".jpg"
+        stamped = os.path.join(out_dir, f"{kind}_{ts}{ext}")
+        last = os.path.join(out_dir, f"last_{kind}{ext}")
+
+        shutil.copy2(src, stamped)
+        shutil.copy2(src, last)
+        return last
+    except Exception:
+        return "" 
 
 
 async def _get_tiktok_accounts() -> list[tuple[str, str]]:
@@ -632,6 +674,95 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
     if "part 1" in base and "winner post" in base:
         enable_paragraphs = False
 
+    def _looks_like_meta_instruction(text: str) -> bool:
+        s = str(text or "").strip()
+        if not s:
+            return True
+        low = s.lower().strip()
+        # Normalize common markdown escapes that appear in these idea files.
+        # Example: "1\. Generate 8-10 ideas ..." (backslash escapes the dot)
+        low = low.replace("\\.", ".").replace("\\)", ")").replace("\\(", "(")
+        low = low.replace("\\-", "-")
+        # If there are still stray backslashes from copy/paste, remove them.
+        low = low.replace("\\", "")
+
+        # Strip common markdown list prefixes for better detection.
+        low2 = low.lstrip("-• ").strip()
+
+        # Guardrails / training-log lines that must never become publishable topics.
+        if "tool call" in low2 or "tool calls" in low2:
+            return True
+        if "conversation knowledge" in low2 or "memory conversation" in low2:
+            return True
+        if "example_article" in low2 or "example article" in low2:
+            return True
+        if re.match(r"^(?:\(?\s*\d{1,3}\s*[\.)]\s*)?no\b", low2) and re.search(r"\b(tool|api|call|calls)\b", low2):
+            return True
+        if "prompt" in low2 and re.search(r"\b(memory|knowledge|output|generic|style|thi[eế]u|vi\s*d\s*u|example|original)\b", low2):
+            return True
+        if "khi generate" in low2 and re.search(r"\bidea\b|\bideas\b", low2):
+            return True
+        if ("tự hiểu" in low2 or "tu hieu" in low2) and ("context" in low2 or "style" in low2):
+            return True
+        if ("context" in low2 and "style" in low2) and re.search(r"\b(90%|100%)\b", low2):
+            return True
+        if low2.startswith((
+            "nếu thiếu style",
+            "neu thieu style",
+            "if missing style",
+        )):
+            return True
+
+        # Fast kill-switches for known rubric/spec artifacts found in part 2.
+        if re.search(r"\bcite\s*\[web:\d+\]", low2):
+            return True
+        if "english only" in low2:
+            return True
+        if "specificity" in low2 and ("=" in low2 or ":" in low2):
+            return True
+        if "liên quan context" in low2 or "context trước" in low2:
+            return True
+        if re.match(r"^idea\s*\d+\s*[:\-]", low2):
+            return True
+        if re.match(r"^\d+\s*[\.)]\s*idea\s*\d+\s*[:\-]", low2):
+            return True
+        if "[style" in low2 or "style original" in low2:
+            return True
+        if "[web:" in low2 or "web:" in low2:
+            return True
+        if low2.startswith((
+            "format rules",
+            "rules:",
+            "goal",
+            "usage",
+            "example:",
+        )):
+            return True
+
+        # Common prompt/instruction lines accidentally pasted into ideas files.
+        # Example that caused a bad publish: "1. Generate 8-10 ideas chia 2-3 categories (Micro/Nano/Other)"
+        m = re.match(
+            r"^(?:\(?\s*\d{1,3}\s*[\.)]\s*)?(generate|write|create|list|produce|brainstorm|find)\b",
+            low2,
+        )
+        if m and re.search(r"\b(idea|ideas|topic|topics|category|categories|prompt)\b", low2):
+            return True
+        if m and ("chia" in low2 or "micro/nano" in low2 or "nano/micro" in low2):
+            return True
+
+        if low2.startswith((
+            "prompt:",
+            "instruction:",
+            "context:",
+            "quy tắc",
+            "gửi tui",
+            "hãy ",
+            "hãy",
+        )):
+            return True
+
+        return False
+
     def _maybe_parse_score(text: str) -> float | None:
         # Examples: "T:9 D:9 LC:8 US:9 → 8.75" or "8.5" or "Score: 9.25"
         s = str(text or "").strip()
@@ -725,7 +856,7 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
 
                 topic = _strip_md_links(cell(topic_col))
                 topic = re.sub(r"\s+", " ", topic).strip().rstrip(".")
-                if topic and len(topic) >= 18:
+                if topic and len(topic) >= 18 and not _looks_like_meta_instruction(topic):
                     hook_raw = _strip_md_links(cell(hook_col))
                     hook_raw = re.sub(r"\s+", " ", hook_raw).strip()
                     # If multiple hooks are present separated by ';', pick the first.
@@ -833,6 +964,10 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
             if looks_like_heading(s):
                 continue
 
+            # Drop prompt/spec paragraphs even if they contain domain keywords.
+            if _looks_like_meta_instruction(s):
+                continue
+
             # Skip obvious table headers / schema rows
             low = s.lower()
             if low.startswith(("niche level", "category", "material source")):
@@ -849,8 +984,14 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
             # These frequently appear in part-2 files and should never be published.
             if low.startswith(("micro niche ideas", "nano niche ideas")):
                 continue
-            # Require at least one domain keyword OR digits (e.g., "20 ... designs") to be considered an idea.
-            if not idea_kw.search(s) and not re.search(r"\d", s):
+            # Require at least one domain keyword OR meaningful digits (e.g., "20 ... designs", "4x8 ...").
+            # Avoid treating simple list numbering ("7. ...") as an idea signal.
+            s_gate = re.sub(r"^\(?\s*\d{1,3}\s*[\.)]\s*", "", s).strip()
+            has_meaningful_digits = bool(
+                re.search(r"\b\d{2,}\b", s_gate)
+                or re.search(r"\b\d+\s*(?:x|×)\s*\d+\b", s_gate, re.IGNORECASE)
+            )
+            if not idea_kw.search(s_gate) and not has_meaningful_digits:
                 continue
 
             out.append(s)
@@ -1104,12 +1245,18 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
         if len(idea) < 18:
             continue
 
+        if _looks_like_meta_instruction(idea):
+            continue
+
         bullet_candidates.append(idea)
 
     # 2) Paragraph-style idea parsing (winner post part 2 is often written like this)
     paragraph_candidates: list[str] = []
     if enable_paragraphs:
-        paragraph_candidates = _extract_plain_paragraph_ideas(raw)
+        paragraph_candidates = [
+            p for p in _extract_plain_paragraph_ideas(raw)
+            if not _looks_like_meta_instruction(p)
+        ]
 
     # 3) Inline numbered list extraction (common in copied “25 layouts” style blocks)
     inline_numbered: list[str] = []
@@ -1117,6 +1264,7 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
         if ln.strip().lower().startswith(("tui:", "user:", "genai:", "gen ai:", "assistant:")):
             continue
         inline_numbered.extend(_split_inline_numbered_list(ln))
+    inline_numbered = [x for x in inline_numbered if not _looks_like_meta_instruction(x)]
 
     # Merge: direct posts first, then table items, then bullets, then inline numbered, then paragraphs
     merged: list[str] = []
@@ -1145,6 +1293,8 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
                 continue
             if "\t" in s and s.count("\t") >= 2:
                 continue
+            if _looks_like_meta_instruction(s):
+                continue
             # Keep sentence-like lines
             if (s.endswith(".") or s.endswith(")") or ("," in s) or ("–" in s) or ("-" in s)):
                 loose.append(_strip_md_links(s).strip().rstrip("."))
@@ -1154,6 +1304,8 @@ def _pick_topics_from_single_ideas_file(file_path: str, limit: int) -> list[tupl
     seen: set[str] = set()
     uniq: list[str] = []
     for c in merged:
+        if _looks_like_meta_instruction(c):
+            continue
         key = c.lower()
         if key in seen:
             continue
@@ -1300,18 +1452,34 @@ async def _dedup_against_publer(
 
 
 async def _generate_content(topic: str, score: float, *, idea_line: str = "") -> dict[str, Any]:
-    from llm_content import generate_quality_post
+    raw_mode = str(os.environ.get("VIRALOPS_RAW_GENAI_ANSWER", "") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if raw_mode:
+        from llm_content import generate_raw_genai_answer_pack
+    else:
+        from llm_content import generate_quality_post
 
     # Season is computed by month inside generate_quality_post().
     # Optional override: set VIRALOPS_SEASON=Winter|Spring|Summer|Fall
     season_override = os.environ.get("VIRALOPS_SEASON", "").strip()
-    pack = await asyncio.to_thread(
-        generate_quality_post,
-        topic=topic,
-        score=score,
-        season=season_override,
-        idea_line=idea_line,
-    )
+    if raw_mode:
+        pack = await asyncio.to_thread(
+            generate_raw_genai_answer_pack,
+            topic=topic,
+            idea_line=idea_line,
+        )
+    else:
+        pack = await asyncio.to_thread(
+            generate_quality_post,
+            topic=topic,
+            score=score,
+            season=season_override,
+            idea_line=idea_line,
+        )
     if not pack or not pack.get("content_formatted"):
         raise ValueError(f"Failed generate: {topic[:80]}")
     return pack
@@ -1421,6 +1589,13 @@ async def _publish_pinterest(cp: dict[str, Any]) -> dict:
     from web.app import _prepare_pinterest_content
     from integrations.publer_publisher import PublerPublisher
 
+    use_direct = str(os.environ.get("VIRALOPS_PINTEREST_DIRECT_API", "") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
     # Pass alt text through to the Pinterest formatter (web/app.py) without
     # polluting the top of the pin description with an "ALT:" prefix.
     alt = str(
@@ -1438,6 +1613,62 @@ async def _publish_pinterest(cp: dict[str, Any]) -> dict:
     pc = await _prepare_pinterest_content(cp)
     if not pc:
         return {"success": False, "error": "Pinterest no image"}
+
+    # Persist generated Pinterest image to artifacts/ (temp folders get cleaned).
+    try:
+        imgp = str(pc.get("media_local_path") or "").strip()
+        if imgp and os.path.isfile(imgp):
+            _persist_image_to_artifacts(image_path=imgp, kind="pinterest_pin")
+    except Exception:
+        pass
+
+    if use_direct:
+        # Direct Pinterest API publishing (ensures real Pin title + alt_text fields).
+        try:
+            from integrations.pinterest_api import PinterestClient
+
+            title = str(pc.get("title") or cp.get("title") or "").strip()
+            description = str(pc.get("caption") or "").strip()
+            link = str(pc.get("url") or cp.get("destination_url") or cp.get("url") or "").strip()
+
+            # Prefer a PUBLIC image URL. Shopify publisher exposes this under results metadata.
+            image_url = str(cp.get("pinterest_image_url") or cp.get("image_url") or "").strip()
+            if (not image_url) and isinstance(cp.get("_shopify"), dict):
+                image_url = str((cp.get("_shopify") or {}).get("image_url") or "").strip()
+
+            # Alt text: literal description; fall back to idea line/title.
+            alt_text = str(
+                cp.get("image_alt_text")
+                or cp.get("image_alt")
+                or cp.get("_idea_line")
+                or cp.get("title")
+                or title
+                or ""
+            ).strip()
+
+            client = PinterestClient()
+            board_id = await client.pick_board_id_by_name("blogs")
+            created = await client.create_pin(
+                board_id=board_id,
+                title=title,
+                description=description,
+                link=link,
+                image_url=image_url,
+                alt_text=alt_text,
+            )
+
+            pin_id = str(created.get("id") or "").strip()
+            pin_url = str(created.get("url") or "").strip()
+            return {
+                "success": True,
+                "method": "pinterest_direct_api",
+                "board_id": board_id,
+                "pin_id": pin_id,
+                "pin_url": pin_url,
+            }
+        except Exception as e:
+            return {"success": False, "error": f"Pinterest direct API failed: {str(e)[:220]}"}
+
     pc["platforms"] = ["pinterest"]
 
     pub = PublerPublisher()
@@ -1462,12 +1693,37 @@ async def _publish_pinterest(cp: dict[str, Any]) -> dict:
         pc["album_id"] = album_override
     else:
         try:
+            want_album = str(os.environ.get("VIRALOPS_PINTEREST_ALBUM_NAME", "blogs") or "blogs").strip().lower()
             accounts = await pub.get_accounts()
             target_id = (pc.get("account_ids") or [""])[0]
             acc = next((a for a in (accounts or []) if str(a.get("id", a.get("_id", ""))) == str(target_id)), None)
             albums = (acc or {}).get("albums") or []
-            if albums and isinstance(albums, list) and isinstance(albums[0], dict) and albums[0].get("id"):
-                pc["album_id"] = str(albums[0].get("id"))
+            chosen_id = ""
+            if albums and isinstance(albums, list):
+                # Prefer album by name match (e.g. board 'blogs').
+                for al in albums:
+                    if not isinstance(al, dict):
+                        continue
+                    nm = str(al.get("name") or al.get("title") or "").strip().lower()
+                    if want_album and nm == want_album:
+                        chosen_id = str(al.get("id") or "").strip()
+                        break
+                if not chosen_id and want_album:
+                    for al in albums:
+                        if not isinstance(al, dict):
+                            continue
+                        nm = str(al.get("name") or al.get("title") or "").strip().lower()
+                        if want_album in nm and (al.get("id") is not None):
+                            chosen_id = str(al.get("id") or "").strip()
+                            break
+                # Final fallback: first album.
+                if not chosen_id:
+                    for al in albums:
+                        if isinstance(al, dict) and al.get("id"):
+                            chosen_id = str(al.get("id") or "").strip()
+                            break
+            if chosen_id:
+                pc["album_id"] = chosen_id
         except Exception:
             pass
 
@@ -1741,13 +1997,17 @@ async def _publish_shopify_blog(cp: dict[str, Any], *, draft: bool) -> dict:
 
     if not getattr(res, "success", False):
         return {"success": False, "error": getattr(res, "error", "Shopify publish failed")}
+    meta = getattr(res, "metadata", {}) or {}
     return {
         "success": True,
         "post_url": getattr(res, "post_url", ""),
         "post_id": getattr(res, "post_id", ""),
-        "admin_url": (getattr(res, "metadata", {}) or {}).get("admin_url", ""),
-        "handle": (getattr(res, "metadata", {}) or {}).get("handle", ""),
-        "published": (getattr(res, "metadata", {}) or {}).get("published", True),
+        "admin_url": meta.get("admin_url", ""),
+        "handle": meta.get("handle", ""),
+        "published": meta.get("published", True),
+        # Expose public image URL for Pinterest Direct API.
+        "image_url": meta.get("image_url", ""),
+        "image_alt": meta.get("image_alt", ""),
     }
 
 
@@ -1883,6 +2143,12 @@ async def _publish_all(
                 pin_pack = dict(cp)
                 pin_pack["destination_url"] = shop["post_url"]
                 pin_pack["url"] = shop["post_url"]
+                # Carry Shopify publish result for Pinterest Direct API (public image URL + alt).
+                pin_pack["_shopify"] = dict(shop)
+                if shop.get("image_url"):
+                    pin_pack["pinterest_image_url"] = shop.get("image_url")
+                if shop.get("image_alt") and (not pin_pack.get("image_alt_text")):
+                    pin_pack["image_alt_text"] = shop.get("image_alt")
             else:
                 # Enforce 1-1 match: if Shopify failed, do NOT publish Pinterest with a wrong/missing link.
                 results["pinterest"] = {
@@ -1901,9 +2167,34 @@ async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--publish", action="store_true", help="Actually publish. Default is dry-run.")
     ap.add_argument(
+        "--preview",
+        action="store_true",
+        help="Generate + render platform-ready fields for review, without publishing.",
+    )
+    ap.add_argument(
         "--skip-quality-gate",
         action="store_true",
         help="Publish even if the quality gate fails (useful for quick smoke tests).",
+    )
+    ap.add_argument(
+        "--no-hashtags",
+        action="store_true",
+        help="Publish without hashtags (also strips #tags from generated text).",
+    )
+    ap.add_argument(
+        "--natural-winner",
+        action="store_true",
+        help="Use a more natural GenAI 'winner blog' style (less rigid, fewer forced numbers/lists).",
+    )
+    ap.add_argument(
+        "--raw-genai",
+        action="store_true",
+        help="Use a raw, natural GenAI answer for the blog body (no repair/expand/spec template).",
+    )
+    ap.add_argument(
+        "--pinterest-direct",
+        action="store_true",
+        help="Publish Pinterest via Pinterest API (auto-pick board name 'blogs') instead of Publer.",
     )
     ap.add_argument(
         "--shopify",
@@ -1983,6 +2274,41 @@ async def main() -> int:
         help="Dedup threshold: minimum Jaccard similarity (on keyword tokens) when shared-keywords threshold is met.",
     )
     args = ap.parse_args()
+
+    # User preference: never burn overlay captions into generated images.
+    # Keep this enforced at the batch entrypoint so a stale environment variable
+    # cannot accidentally re-enable the overlay.
+    os.environ["VIRALOPS_IMAGE_OVERLAY_CAPTION"] = "0"
+
+    if bool(args.preview) and bool(args.publish):
+        print("--preview cannot be used together with --publish")
+        return 2
+
+    if bool(args.natural_winner):
+        os.environ["VIRALOPS_NATURAL_WINNER_STYLE"] = "1"
+    if bool(args.raw_genai):
+        os.environ["VIRALOPS_RAW_GENAI_ANSWER"] = "1"
+        # Preference: mimic ChatGPT-UI style, but WITHOUT OpenAI API keys.
+        # So we prefer Gemini (strongest text/blog) first, then GitHub Models (Copilot).
+        os.environ.setdefault("LLM_PROVIDER_ORDER", "gemini,github_models,perplexity,openai")
+        os.environ.setdefault("DISABLE_OPENAI", "true")
+        # Keep GH Models as a free fallback. Use a broadly-available model cascade.
+        os.environ.setdefault(
+            "VIRALOPS_GH_TEXT_MODEL_CASCADE",
+            "openai/gpt-4.1,openai/gpt-4o-mini",
+        )
+    if bool(args.pinterest_direct):
+        os.environ["VIRALOPS_PINTEREST_DIRECT_API"] = "1"
+
+    if bool(args.no_hashtags):
+        os.environ["VIRALOPS_DISABLE_HASHTAGS"] = "1"
+
+    disable_hashtags = bool(args.no_hashtags) or str(os.environ.get("VIRALOPS_DISABLE_HASHTAGS", "") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
     raw_platforms = [p.strip().lower() for p in str(args.platforms or "").split(",") if p.strip()]
     # Allow a couple of friendly aliases.
@@ -2210,7 +2536,8 @@ async def main() -> int:
         print(f"[IDEAS] Parsed ideas candidates: {len(ideas_candidates)}")
 
     # Filter out already-used topics (persisted history)
-    candidates = [c for c in candidates if not _topic_already_used(c[0])]
+    # NOTE: --force-topic is used for retries/smoke tests, so it must bypass history.
+    candidates = [c for c in candidates if (c[2] == "forced_topic") or (not _topic_already_used(c[0]))]
 
     # If we have an ideas file configured, enforce "use up ideas first" strictly.
     if active_ideas_files:
@@ -2270,7 +2597,7 @@ async def main() -> int:
             print(f"  hook: {hook[:140]}")
         print(f"  topic: {topic}")
 
-        if not args.publish:
+        if (not args.publish) and (not args.preview):
             continue
 
         try:
@@ -2298,12 +2625,150 @@ async def main() -> int:
                     # Remove the LLM hook line embedded in the body.
                     cp = _strip_generated_hook_line(cp, generated_title_line=generated_hook_title)
                     cp = _prepend_idea_line_to_pack(cp, idea_line=topic)
+
+            if disable_hashtags:
+                cp = dict(cp)
+                cp["hashtags"] = []
+                cp["content_formatted"] = _strip_hashtags_text(cp.get("content_formatted", ""))
+                cp["universal_caption_block"] = _strip_hashtags_text(cp.get("universal_caption_block", ""))
             title = cp.get("title", "?")
             chars = len(cp.get("content_formatted", ""))
             review_score = float(cp.get("_review_score", 0.0) or 0.0)
             rubric_total = float(cp.get("_rubric_total_100", 0.0) or 0.0)
             review_pass = bool(cp.get("_review_pass"))
             print(f"  ✓ Generated: {title[:90]} ({chars} chars, review={review_score:.1f}/10)")
+
+            if args.preview:
+                print("  [PREVIEW] Shopify + Pinterest (no publish)")
+
+                preview_shopify_title = ""
+                preview_shopify_body = ""
+                preview_pin_title = ""
+                preview_pin_first_line = ""
+                preview_pin_desc = ""
+                preview_pin_img = ""
+
+                # Shopify preview (no API calls): title + first paragraph
+                if "shopify_blog" in platforms:
+                    body = str(cp.get("content_formatted") or cp.get("universal_caption_block") or "").strip()
+                    preview_shopify_body = body
+                    lead = body.split("\n\n", 1)[0].strip()
+                    if len(lead) > 260:
+                        lead = lead[:260].rsplit(" ", 1)[0] + "..."
+                    preview_shopify_title = str(cp.get('title') or '').strip()
+                    print(f"    Shopify title: {preview_shopify_title}")
+                    if lead:
+                        print(f"    Shopify lead: {lead}")
+
+                # Pinterest preview (uses formatter; ensures direct-answer first line)
+                if "pinterest" in platforms:
+                    try:
+                        from web.app import _prepare_pinterest_content
+
+                        cp_preview = dict(cp)
+
+                        # Ensure an image exists locally so Pinterest formatter doesn't skip.
+                        img_path = str(cp_preview.get("_ai_image_path") or "").strip()
+                        if (not img_path) or (not os.path.isfile(img_path)):
+                            try:
+                                import tempfile
+                                from PIL import Image
+
+                                out_dir = tempfile.mkdtemp(prefix="viralops_preview_pin_")
+                                out_path = os.path.join(out_dir, f"preview_{uuid.uuid4().hex[:8]}.jpg")
+                                Image.new("RGB", (1000, 1500), (245, 245, 245)).save(out_path, format="JPEG", quality=92)
+                                cp_preview["_ai_image_path"] = out_path
+                            except Exception:
+                                pass
+
+                        # Keep hashtags off in preview if requested.
+                        if disable_hashtags:
+                            cp_preview["hashtags"] = []
+
+                        pc = await _prepare_pinterest_content(cp_preview)
+                        if pc:
+                            pin_title = str(pc.get("title") or "").strip()
+                            pin_desc = str(pc.get("caption") or "").strip()
+                            pin_img = str(pc.get("media_local_path") or pc.get("media_url") or "").strip()
+                            if pin_img and (not pin_img.startswith(("http://", "https://"))) and os.path.isfile(pin_img):
+                                persisted = _persist_image_to_artifacts(image_path=pin_img, kind="pinterest_pin")
+                                if persisted:
+                                    pin_img = persisted
+                            first_line = pin_desc.splitlines()[0].strip() if pin_desc else ""
+                            preview_pin_title = pin_title
+                            preview_pin_first_line = first_line
+                            preview_pin_desc = pin_desc
+                            preview_pin_img = pin_img
+                            print(f"    Pinterest title: {pin_title}")
+                            print(f"    Pinterest first line: {first_line}")
+                            print("    Pinterest description:\n" + pin_desc)
+                            if pin_img:
+                                print(f"    Pinterest image path: {pin_img}")
+
+                            # Also generate the Publer UI copy/paste kit in preview mode.
+                            try:
+                                kit_link = str(
+                                    pc.get("url")
+                                    or cp_preview.get("destination_url")
+                                    or cp_preview.get("url")
+                                    or os.environ.get("VIRALOPS_PINTEREST_DEST_URL", "")
+                                    or os.environ.get("VIRALOPS_DEFAULT_DEST_URL", "")
+                                    or ""
+                                ).strip()
+                                kit_alt = str(
+                                    cp.get("image_alt_text")
+                                    or cp.get("image_alt")
+                                    or cp.get("_idea_line")
+                                    or cp.get("title")
+                                    or ""
+                                ).strip()
+                                kit_alt = re.sub(r"\s+", " ", kit_alt)[:500]
+                                kit_text = (
+                                    "PINTEREST MANUAL EDIT KIT\n"
+                                    f"Title: {pin_title}\n"
+                                    f"Alt text: {kit_alt}\n"
+                                    f"Link: {kit_link}\n"
+                                    "Description:\n"
+                                    f"{pin_desc}\n"
+                                )
+                                open("pinterest_manual_edit_last.txt", "w", encoding="utf-8").write(kit_text)
+                                print("    Pinterest manual edit kit saved: pinterest_manual_edit_last.txt")
+                            except Exception:
+                                pass
+                        else:
+                            print("    Pinterest: skipped (missing image or invalid pack)")
+                    except Exception as e:
+                        print(f"    Pinterest preview error: {e}")
+
+                # Save a preview kit for easy copy/paste + review.
+                try:
+                    idea_line = str(cp.get("_idea_line") or cp.get("_topic") or topic or "").strip()
+                    kit = (
+                        "VIRALOPS PREVIEW KIT (no publish)\n"
+                        f"GeneratedAtUTC: {datetime.now(timezone.utc).isoformat()}\n"
+                        f"Topic: {idea_line}\n"
+                        f"RawGenAI: {str(bool(args.raw_genai))}\n"
+                        f"NoHashtags: {str(disable_hashtags)}\n"
+                        "\n"
+                        "SHOPIFY\n"
+                        f"Title: {preview_shopify_title}\n"
+                        "Body:\n"
+                        f"{preview_shopify_body}\n"
+                        "\n"
+                        "PINTEREST\n"
+                        f"Title: {preview_pin_title}\n"
+                        f"FirstLine: {preview_pin_first_line}\n"
+                        "Description:\n"
+                        f"{preview_pin_desc}\n"
+                        f"ImagePath: {preview_pin_img}\n"
+                    )
+                    open("preview_last.md", "w", encoding="utf-8").write(kit)
+                    print("    Preview kit saved: preview_last.md")
+                except Exception:
+                    pass
+
+                # Preview only the first generated item.
+                break
 
             # Hard gate by default: never publish if quality review didn't pass.
             # For smoke tests, allow override.
@@ -2395,6 +2860,54 @@ async def main() -> int:
                 print(f"      pinterest_dest: {pin_dest}")
             if (not pin_link) and pin_post_id:
                 print(f"      pinterest_post_id: {pin_post_id}")
+
+            # Manual fallback: Pinterest UI Edit fields (Title + Alt text) are not reliably
+            # set via Publer for all accounts. Provide a copy/paste kit.
+            if ("pinterest" in platforms) and shop_url:
+                try:
+                    from web.app import _prepare_pinterest_content
+
+                    cp_preview = dict(cp)
+                    # Ensure destination URL matches Shopify for click-through traffic.
+                    cp_preview["destination_url"] = shop_url
+                    cp_preview["url"] = shop_url
+                    pc2 = await _prepare_pinterest_content(cp_preview)
+                    if isinstance(pc2, dict) and pc2:
+                        kit_title = str(pc2.get("title") or cp.get("title") or "").strip()
+                        kit_desc = str(pc2.get("caption") or "").strip()
+                        kit_alt = str(
+                            cp.get("image_alt_text")
+                            or cp.get("image_alt")
+                            or (shop.get("image_alt") if isinstance(shop, dict) else "")
+                            or cp.get("_idea_line")
+                            or cp.get("title")
+                            or ""
+                        ).strip()
+                        kit_alt = re.sub(r"\s+", " ", kit_alt)[:500]
+
+                        print("      pinterest_manual_edit_kit: saved to pinterest_manual_edit_last.txt")
+                        print("      --- PINTEREST EDIT (manual) ---")
+                        print(f"      Title: {kit_title}")
+                        print(f"      Alt text: {kit_alt}")
+                        print(f"      Link: {shop_url}")
+                        print("      Description:")
+                        for ln in kit_desc.splitlines():
+                            print(f"      {ln}")
+
+                        try:
+                            kit_text = (
+                                "PINTEREST MANUAL EDIT KIT\n"
+                                f"Title: {kit_title}\n"
+                                f"Alt text: {kit_alt}\n"
+                                f"Link: {shop_url}\n"
+                                "Description:\n"
+                                f"{kit_desc}\n"
+                            )
+                            open("pinterest_manual_edit_last.txt", "w", encoding="utf-8").write(kit_text)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
 
             # Persist only if ALL platform publishes succeeded.
             all_ok = all(bool(r.get("success")) for r in results.values())

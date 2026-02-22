@@ -585,18 +585,27 @@ def _get_gemini_api_keys() -> list[str]:
 
     Supports:
       - GEMINI_API_KEY
+      - GOOGLE_AI_STUDIO_API_KEY
       - FALLBACK_GEMINI_API_KEY
+      - FALLBACK_GOOGLE_AI_STUDIO_API_KEY
       - SECOND_FALLBACK_GEMINI_API_KEY
+      - SECOND_FALLBACK_GOOGLE_AI_STUDIO_API_KEY
+      - THIRD_FALLBACK_GEMINI_API_KEY
+      - THIRD_FALLBACK_GOOGLE_AI_STUDIO_API_KEY
     """
     keys: list[str] = []
-    for env_name in [
-        "GEMINI_API_KEY",
-        "FALLBACK_GEMINI_API_KEY",
-        "SECOND_FALLBACK_GEMINI_API_KEY",
-    ]:
-        val = os.environ.get(env_name, "").strip()
-        if val and val not in keys:
-            keys.append(val)
+    env_groups: list[list[str]] = [
+        ["GEMINI_API_KEY", "GOOGLE_AI_STUDIO_API_KEY"],
+        ["FALLBACK_GEMINI_API_KEY", "FALLBACK_GOOGLE_AI_STUDIO_API_KEY"],
+        ["SECOND_FALLBACK_GEMINI_API_KEY", "SECOND_FALLBACK_GOOGLE_AI_STUDIO_API_KEY"],
+        ["THIRD_FALLBACK_GEMINI_API_KEY", "THIRD_FALLBACK_GOOGLE_AI_STUDIO_API_KEY"],
+    ]
+    for group in env_groups:
+        for env_name in group:
+            val = os.environ.get(env_name, "").strip()
+            if val and val not in keys:
+                keys.append(val)
+                break
     return keys
 
 
@@ -655,7 +664,7 @@ def expand_niches_with_gemini(broad_niche: str, count: int = 20) -> list[dict]:
 
         api_keys = _get_gemini_api_keys()
         if not api_keys:
-            print("  No GEMINI_API_KEY(s)  using local database only")
+            print("  No Gemini API keys found — using local database only")
             return []
 
         prompt = build_niche_expansion_prompt(broad_niche, count)
@@ -982,7 +991,7 @@ def run_niche_hunter(
     print(f"    {len(seed_results)} seeds scored")
 
     # Step 3: Gemini AI expansion (cost-aware)
-    if use_gemini and GEMINI_API_KEY:
+    if use_gemini and _get_gemini_api_keys():
         for niche in broad_niches:
             print(f"\n Step 3: Gemini expanding '{niche}' ({gemini_count} ideas)...")
             ideas = expand_niches_with_gemini(niche, gemini_count)

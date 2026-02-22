@@ -1023,11 +1023,22 @@ def get_content_pack(mode: str = "auto") -> dict:
             print(f"  Score: {chosen['final_score'] if mode == 'pain_point' and pains else 'N/A'}")
 
             # Generate full content via Gemini using the high-scored topic
-            from google import genai
-            client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+            # Use the shared LLM pipeline so we get:
+            #   - key rotation: primary → fallback → fallback2 → fallback3
+            #   - model cascade: text/blog model lists
+            from llm_content import call_llm
             prompt = build_gemini_prompt(topic, location, season)
-            resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-            text = resp.text.strip()
+            result = call_llm(
+                prompt,
+                system="",
+                max_tokens=4000,
+                temperature=0.7,
+                providers=["gemini"],
+                gemini_profile="text",
+            )
+            if not result.success or not result.text:
+                raise RuntimeError(result.error or "Gemini call failed")
+            text = result.text.strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
@@ -1063,12 +1074,20 @@ def get_content_pack(mode: str = "auto") -> dict:
     print(f"  Niche: {niche}")
     print(f"  Location: {location} | Season: {season}")
 
-    from google import genai
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     prompt = build_gemini_prompt(niche, location, season)
 
-    resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-    text = resp.text.strip()
+    from llm_content import call_llm
+    result = call_llm(
+        prompt,
+        system="",
+        max_tokens=4000,
+        temperature=0.7,
+        providers=["gemini"],
+        gemini_profile="text",
+    )
+    if not result.success or not result.text:
+        raise RuntimeError(result.error or "Gemini call failed")
+    text = result.text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 

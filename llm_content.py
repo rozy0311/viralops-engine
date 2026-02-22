@@ -4,12 +4,10 @@ ViralOps Engine — Smart LLM Content Pipeline
 Multi-provider cascade with self-review (EMADS-PR pattern).
 
 Providers (cost-aware order):
-  1. Gemini cascade (free tier — 3 API keys × 7 models = 21 attempts)
-     Keys: GEMINI_API_KEY → FALLBACK_GEMINI_API_KEY → SECOND_FALLBACK_GEMINI_API_KEY
-     Models: 2.5 Flash → 2.5 Pro → 2.0 Flash → 2.5 Flash Lite → 2.0 Flash Lite → 2.0 Pro Exp
-  2. GitHub Models / gpt-4o-mini (free via Copilot)
-  3. Perplexity / sonar (has web search — great for trending content)
-  4. OpenAI / gpt-4o-mini (paid fallback)
+    1. OpenAI (ChatGPT-style) — primary (configurable via env)
+    2. GitHub Models (free via Copilot)
+    3. Perplexity / sonar (has web search — great for trending content)
+    4. Gemini cascade (fallback)
 
 Following Training Multi-Agent principles:
   - Cost-Aware Planning (doc 07)
@@ -85,8 +83,9 @@ class ProviderConfig:
 # When one model hits RPD/RPM quota, auto-cascade to the next.
 # Order matches user preference: smart models first, budget models last.
 GEMINI_TEXT_MODELS = [
-    "gemini-2.5-flash",       # Primary — 5 RPM, 250K TPM, 20 RPD
-    "gemini-2.5-pro",         # 15 RPM, Unlimited TPM, 1.5K RPD
+    # Default (fast + reliable) first.
+    "gemini-2.5-flash",       # Fast default — 5 RPM, 250K TPM, 20 RPD
+    "gemini-2.5-pro",         # Stronger writing — 15 RPM, Unlimited TPM, 1.5K RPD
     "gemini-2.0-flash",       # 15 RPM, Unlimited TPM, 1.5K RPD
     "gemini-2.5-flash-lite",  # 10 RPM, 250K TPM, 20 RPD
     "gemini-2.0-flash-lite",  # 15 RPM, Unlimited TPM, 1.5K RPD
@@ -94,23 +93,77 @@ GEMINI_TEXT_MODELS = [
 ]
 
 # ── Multi-key Gemini API key rotation ──────────────────────────────────
-# Supports up to 3 Gemini API keys for quota spreading.
-# Env vars: GEMINI_API_KEY, FALLBACK_GEMINI_API_KEY, SECOND_FALLBACK_GEMINI_API_KEY
+# Supports up to 4 Gemini API keys for quota spreading.
+#
+# Preferred env vars:
+#   - GEMINI_API_KEY
+#   - FALLBACK_GEMINI_API_KEY
+#   - SECOND_FALLBACK_GEMINI_API_KEY
+#   - THIRD_FALLBACK_GEMINI_API_KEY
+#
+# Also supports legacy/alias names (treated equivalently):
+#   - GOOGLE_AI_STUDIO_API_KEY
+#   - FALLBACK_GOOGLE_AI_STUDIO_API_KEY
+#   - SECOND_FALLBACK_GOOGLE_AI_STUDIO_API_KEY
+#   - THIRD_FALLBACK_GOOGLE_AI_STUDIO_API_KEY
 
 def _get_gemini_api_keys() -> List[Tuple[str, str]]:
     """Gather all available Gemini API keys (label, key) — deduped."""
     keys: List[Tuple[str, str]] = []
     seen = set()
-    for label, env_var in [
-        ("primary", "GEMINI_API_KEY"),
-        ("fallback", "FALLBACK_GEMINI_API_KEY"),
-        ("fallback2", "SECOND_FALLBACK_GEMINI_API_KEY"),
-    ]:
-        k = os.environ.get(env_var, "").strip()
+    env_pairs: list[tuple[str, list[str]]] = [
+        ("primary", ["GEMINI_API_KEY", "GOOGLE_AI_STUDIO_API_KEY"]),
+        ("fallback", ["FALLBACK_GEMINI_API_KEY", "FALLBACK_GOOGLE_AI_STUDIO_API_KEY"]),
+        ("fallback2", ["SECOND_FALLBACK_GEMINI_API_KEY", "SECOND_FALLBACK_GOOGLE_AI_STUDIO_API_KEY"]),
+        ("fallback3", ["THIRD_FALLBACK_GEMINI_API_KEY", "THIRD_FALLBACK_GOOGLE_AI_STUDIO_API_KEY"]),
+    ]
+
+    for label, env_vars in env_pairs:
+        k = ""
+        for env_var in env_vars:
+            k = os.environ.get(env_var, "").strip()
+            if k:
+                break
         if k and k not in seen:
             keys.append((label, k))
             seen.add(k)
     return keys
+
+
+def _get_gemini_text_models(profile: str = "text") -> List[str]:
+    """Get Gemini model cascade for a given profile (env-overridable, deduped)."""
+    profile = str(profile or "text").strip().lower()
+
+    # Allow explicit cascade override for quick tuning.
+    # - text: VIRALOPS_GEMINI_TEXT_MODELS
+    # - blog: VIRALOPS_GEMINI_BLOG_MODELS
+    env_key = "VIRALOPS_GEMINI_BLOG_MODELS" if profile == "blog" else "VIRALOPS_GEMINI_TEXT_MODELS"
+    raw = str(os.environ.get(env_key, "") or "").strip()
+    if raw:
+        models = [m.strip() for m in re.split(r"[\n,;]+", raw) if m.strip()]
+    else:
+        models = list(GEMINI_TEXT_MODELS)
+
+    # Optional: force a preferred model to be tried first (common for blog quality).
+    if profile == "blog":
+        preferred = str(os.environ.get("GEMINI_BLOG_MODEL", "") or "").strip()
+        if not preferred:
+            preferred = str(os.environ.get("GEMINI_MODEL", "") or "").strip()
+    else:
+        preferred = str(os.environ.get("GEMINI_MODEL", "") or "").strip()
+    if preferred:
+        models = [preferred] + [m for m in models if m != preferred]
+
+    # Dedupe while preserving order.
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in models:
+        mm = str(m or "").strip()
+        if not mm or mm in seen:
+            continue
+        seen.add(mm)
+        out.append(mm)
+    return out
 
 # Track which Gemini (model, key_index) combos are quota-exhausted.
 # Entries expire after GEMINI_QUOTA_RESET_SECS so recovered quotas are retried.
@@ -146,22 +199,22 @@ def _get_gemini_client(api_key: str):
     return _gemini_client
 
 
-# Provider cascade — cheapest working first
+# Provider cascade — user-preference first (override with env LLM_PROVIDER_ORDER)
 PROVIDERS = [
     ProviderConfig(
-        name="gemini",
-        api_key_env="GEMINI_API_KEY",
-        base_url="",  # Uses SDK
-        model="gemini-2.5-flash",  # Initial model (overridden by cascade)
-        cost_per_1k_input=0.0,
-        cost_per_1k_output=0.0,
-        is_openai_compatible=False,
-        is_gemini=True,
+        name="openai",
+        api_key_env="OPENAI_API_KEY",
+        base_url="https://api.openai.com/v1/chat/completions",
+        # Override at runtime via env VIRALOPS_OPENAI_TEXT_MODEL.
+        model="gpt-4o-mini",
+        cost_per_1k_input=0.00015,
+        cost_per_1k_output=0.0006,
     ),
     ProviderConfig(
         name="github_models",
         api_key_env="GH_MODELS_API_KEY",
         base_url="https://models.github.ai/inference/chat/completions",
+        # Override at runtime via env VIRALOPS_GH_TEXT_MODEL.
         model="openai/gpt-4o-mini",
         cost_per_1k_input=0.0,  # Free via Copilot
         cost_per_1k_output=0.0,
@@ -175,12 +228,14 @@ PROVIDERS = [
         cost_per_1k_output=0.001,
     ),
     ProviderConfig(
-        name="openai",
-        api_key_env="OPENAI_API_KEY",
-        base_url="https://api.openai.com/v1/chat/completions",
-        model="gpt-4o-mini",
-        cost_per_1k_input=0.00015,
-        cost_per_1k_output=0.0006,
+        name="gemini",
+        api_key_env="GEMINI_API_KEY",
+        base_url="",  # Uses SDK
+        model="gemini-2.5-flash",  # Initial model (overridden by cascade)
+        cost_per_1k_input=0.0,
+        cost_per_1k_output=0.0,
+        is_openai_compatible=False,
+        is_gemini=True,
     ),
 ]
 
@@ -195,6 +250,8 @@ def call_llm(
     max_tokens: int = 4000,
     temperature: float = 0.7,
     providers: Optional[List[str]] = None,
+    *,
+    gemini_profile: str = "text",
 ) -> ProviderResult:
     """
     Call LLM using cascade — tries each provider until one works.
@@ -209,12 +266,26 @@ def call_llm(
     Returns:
         ProviderResult with text and metadata
     """
-    provider_order = os.environ.get("LLM_PROVIDER_ORDER", "gemini,github_models,perplexity,openai")
+    provider_order = os.environ.get("LLM_PROVIDER_ORDER", "openai,github_models,perplexity,gemini")
     allowed = providers or provider_order.split(",")
     
     errors = []
     
-    for pconfig in PROVIDERS:
+    def _runtime_model_override(cfg: ProviderConfig) -> ProviderConfig:
+        """Apply env overrides to avoid editing code when switching models."""
+        out = cfg
+        if cfg.name == "openai":
+            m = str(os.environ.get("VIRALOPS_OPENAI_TEXT_MODEL", "") or "").strip()
+            if m:
+                out = ProviderConfig(**{**cfg.__dict__, "model": m})
+        elif cfg.name == "github_models":
+            m = str(os.environ.get("VIRALOPS_GH_TEXT_MODEL", "") or "").strip()
+            if m:
+                out = ProviderConfig(**{**cfg.__dict__, "model": m})
+        return out
+
+    for pconfig0 in PROVIDERS:
+        pconfig = _runtime_model_override(pconfig0)
         if pconfig.name not in allowed:
             continue
             
@@ -236,9 +307,40 @@ def call_llm(
         
         try:
             if pconfig.is_gemini:
-                result = _call_gemini(pconfig, gemini_keys, prompt, system, max_tokens, temperature)
+                result = _call_gemini(
+                    pconfig,
+                    gemini_keys,
+                    prompt,
+                    system,
+                    max_tokens,
+                    temperature,
+                    model_profile=gemini_profile,
+                )
             else:
-                result = _call_openai_compatible(pconfig, api_key, prompt, system, max_tokens, temperature)
+                # Optional: GitHub Models can cascade across multiple model names
+                # (e.g., GPT-5 -> GPT-4.1 fallback) without switching providers.
+                if pconfig.name == "github_models":
+                    raw = str(os.environ.get("VIRALOPS_GH_TEXT_MODEL_CASCADE", "") or "").strip()
+                    if raw:
+                        models = [m.strip() for m in re.split(r"[\n,;]+", raw) if m.strip()]
+                    else:
+                        models = []
+
+                    if models:
+                        last = ProviderResult(text="", provider=pconfig.name, model=pconfig.model, success=False, error="")
+                        for m in models:
+                            cfg2 = ProviderConfig(**{**pconfig.__dict__, "model": m})
+                            last = _call_openai_compatible(cfg2, api_key, prompt, system, max_tokens, temperature)
+                            last.latency_ms = (time.time() - start_time) * 1000
+                            if last.success:
+                                print(f"  [LLM] {pconfig.name}/{m} — OK ({last.latency_ms:.0f}ms)")
+                                return last
+                            print(f"  [LLM] {pconfig.name}/{m} — FAIL: {str(last.error or '')[:100]}")
+                        result = last
+                    else:
+                        result = _call_openai_compatible(pconfig, api_key, prompt, system, max_tokens, temperature)
+                else:
+                    result = _call_openai_compatible(pconfig, api_key, prompt, system, max_tokens, temperature)
             
             result.latency_ms = (time.time() - start_time) * 1000
             
@@ -265,16 +367,18 @@ def call_llm(
 
 def _call_gemini(
     config: ProviderConfig,
-    api_keys: List[Tuple[str, str]],
+    api_keys: Optional[List[Tuple[str, str]]],
     prompt: str,
     system: str,
     max_tokens: int,
     temperature: float,
+    *,
+    model_profile: str = "text",
 ) -> ProviderResult:
     """
     Call Google Gemini via genai SDK with automatic model + key fallback.
 
-    Cascades through GEMINI_TEXT_MODELS × api_keys.
+    Cascades through Gemini text models × api_keys.
     For each model, tries all available API keys before moving to the next model.
     Tracks exhausted (model, key) pairs per session so subsequent calls skip instantly.
     """
@@ -285,12 +389,19 @@ def _call_gemini(
         return ProviderResult(text="", provider=config.name, model=config.model,
                              success=False, error="google-genai not installed")
 
+    if not api_keys or not isinstance(api_keys, list):
+        api_keys = _get_gemini_api_keys()
+    if not api_keys:
+        return ProviderResult(text="", provider=config.name, model=config.model,
+                             success=False, error="No Gemini API keys configured")
+
     full_prompt = f"{system}\n\n{prompt}" if system else prompt
-    total_models = len(GEMINI_TEXT_MODELS)
+    models_to_try = _get_gemini_text_models(profile=model_profile)
+    total_models = len(models_to_try)
     total_keys = len(api_keys)
 
     last_error = ""
-    for model_name in GEMINI_TEXT_MODELS:
+    for model_name in models_to_try:
         for key_idx, (key_label, api_key) in enumerate(api_keys):
             # Skip combos we already know are exhausted (with 1-hour expiry)
             if _is_gemini_exhausted(model_name, key_idx):
@@ -389,9 +500,17 @@ def _call_openai_compatible(
     payload = {
         "model": config.model,
         "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
     }
+
+    # Some newer OpenAI(-compatible) models (including GPT-5 on GitHub Models)
+    # reject `max_tokens` and require `max_completion_tokens`.
+    model_name = str(config.model or "").strip().lower()
+    if model_name.startswith("openai/gpt-5") or model_name.startswith("gpt-5"):
+        # GPT-5 deployments may reject `temperature`; rely on provider defaults.
+        payload["max_completion_tokens"] = max_tokens
+    else:
+        payload["temperature"] = temperature
+        payload["max_tokens"] = max_tokens
     
     # Retry once on 429 with exponential backoff
     for _attempt in range(2):
@@ -442,7 +561,7 @@ def _call_openai_compatible(
 
 # Cascade of image-generation models (try in order, skip quota-exhausted)
 # Gemini models share one quota pool; Imagen models have a separate quota pool.
-# 3 Gemini models × 3 keys = 9 attempts; 2 Imagen models × 3 keys = 6 attempts → 15 total cloud
+# 3 Gemini models × 4 keys = 12 attempts; 2 Imagen models × 4 keys = 8 attempts → 20 total cloud
 IMAGE_MODELS_GEMINI = [
     "gemini-2.0-flash-exp-image-generation",
     "gemini-2.5-flash-image",
@@ -487,25 +606,84 @@ def build_image_prompt(pack: Dict[str, Any]) -> str:
     else:
         image_title = _clean_subject(image_title or base_topic)
 
-    # Determine visual subject from content (unused but kept for future tuning)
-    content = pack.get("content_formatted", "")
+    # Use the actual GenAI answer text as grounding for visuals.
+    # Prefer universal_caption_block (often the fullest), then content_formatted.
+    content = str(pack.get("universal_caption_block") or "")
+    if len(content.strip()) < 200:
+        content = str(pack.get("content_formatted") or "")
+
+    def _extract_visual_elements(text: str) -> list[str]:
+        """Extract concrete materials/objects from the answer to guide the photo."""
+        t = (text or "")
+        # Keep only the first part (most specific), and flatten whitespace.
+        t = re.sub(r"\s+", " ", t).strip()
+        t = t[:1800]
+
+        candidates: list[str] = []
+
+        # Pull bullet-ish fragments (they often contain concrete items).
+        for m in re.finditer(r"(?:\b(?:use|need|grab|mix|add|coat|soak|plant|fill|spray|layer)\b[^.]{0,80})", t, flags=re.IGNORECASE):
+            frag = m.group(0).strip(" -•:\t")
+            if 12 <= len(frag) <= 90:
+                candidates.append(frag)
+
+        # Also pull some nouny phrases from the topic itself.
+        for w in re.split(r"[,;()]+", base_topic):
+            w = w.strip()
+            if 4 <= len(w) <= 60:
+                candidates.append(w)
+
+        # Dedupe while preserving order.
+        out: list[str] = []
+        seen: set[str] = set()
+        for c in candidates:
+            key = re.sub(r"\s+", " ", c.lower()).strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(c)
+            if len(out) >= 8:
+                break
+        return out
     
-    # Build hyper-detailed cinematic prompt for maximum realism
+    def _props_from_topic(t: str) -> str:
+        tl = (t or "").lower()
+        if any(k in tl for k in ("biochar", "char", "bamboo")):
+            return "bamboo shoots, crushed biochar, dark soil, clay clods, herb seedlings in raised bed"
+        if any(k in tl for k in ("seed paper", "linen", "flax", "planting tags", "labels")):
+            return "seed paper tags, flax fibers, herb seeds, scissors, twine, raised bed soil"
+        if any(k in tl for k in ("succulent", "fairy garden", "bioplastic", "cornstarch")):
+            return "mini succulents, tiny gravel, moss, small decorative stones, compostable plant-fiber pots"
+        if any(k in tl for k in ("straw bale", "lime plaster", "microgreens", "tower")):
+            return "straw bale tower, lime plaster texture, microgreen trays, spray bottle, seed packets"
+        return "garden tools, potting mix, seedlings, natural materials on a workbench"
+
+    extracted = _extract_visual_elements(content)
+    extracted_str = "; ".join(extracted[:6])
+
+    # ChatGPT UI-style photo prompts tend to look better when they are:
+    # - specific about real materials
+    # - documentary / phone-camera realism
+    # - no forced generic props that don't match the topic
     scene_context = _clean_subject(pain_point or base_topic)
-    prompt = (
-        f"Ultra-realistic photograph, shot on Sony A7IV with 85mm f/1.4 lens. "
-        f"Subject: {image_title}. "
-        f"Scene context: {scene_context[:140]}. "
-        f"Style: Editorial food/lifestyle photography for a premium magazine. "
-        f"Warm golden-hour natural lighting streaming through a window, casting soft shadows. "
-        f"Shallow depth of field with creamy bokeh background. "
-        f"Rich vibrant colors, visible textures and fine details on every surface. "
-        f"Props: fresh herbs, potting mix, garden tools, rustic potting bench, linen cloth — organic, realistic. "
-        f"Vertical 9:16 portrait composition with rule-of-thirds framing. "
-        f"8K resolution quality, hyper-detailed, photorealistic, no CGI look. "
-        f"ABSOLUTELY NO TEXT, NO LETTERS, NO WORDS, NO NUMBERS, NO WATERMARKS, NO LOGOS in the image. "
-        f"No human faces, no hands. Raw authentic aesthetic."
-    )
+    props = _props_from_topic(base_topic)
+    parts = [
+        f"Ultra-realistic vertical photo (9:16), documentary lifestyle photography. ",
+        f"Subject: {image_title}. ",
+        f"Scene: {scene_context[:160]}. ",
+        f"Include: {props}. ",
+    ]
+    if extracted_str:
+        parts.append(f"Grounding details from the answer: {extracted_str}. ")
+    parts.extend([
+        "Lighting: soft natural window light, true-to-life colors, subtle film grain, realistic textures. ",
+        "Camera feel: high-end smartphone photo (crisp but natural, not over-smoothed). ",
+        "Composition: clean background, subject centered with shallow depth of field. ",
+        "No people. No faces. No body parts. ",
+        "ABSOLUTELY NO TEXT, NO LETTERS, NO WORDS, NO NUMBERS, NO WATERMARKS, NO LOGOS. ",
+        "No CGI, no cartoon, no illustration — photorealistic only.",
+    ])
+    prompt = "".join(parts)
     
     return prompt
 
@@ -531,17 +709,26 @@ def generate_ai_image(
     
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     
-    # ── PRIMARY: Pollinations API (Flux model, free) ──────────────────────
+    # ── OPTIONAL: OpenAI Images (opt-in) ─────────────────────────────────
+    # Only used if explicitly enabled to avoid unexpected API calls.
+    enable_openai_image = os.environ.get("ENABLE_OPENAI_IMAGE", "").strip().lower() in ("1", "true", "yes", "on")
+    disable_openai_image = os.environ.get("DISABLE_OPENAI_IMAGE", "").strip().lower() in ("1", "true", "yes", "on")
+    if enable_openai_image and not disable_openai_image and os.environ.get("OPENAI_API_KEY", "").strip():
+        result = _try_openai_image(prompt, output_path)
+        if result:
+            return result
+
+    # ── FALLBACK: Pollinations API (Flux model, free) ─────────────────────
     result = _try_pollinations(prompt, output_path, max_retries=max_retries)
     if result:
         return result
     
     # ── FALLBACK 1: Gemini / Imagen cascade ───────────────────────────────
-    # Triple API key rotation: primary → fallback → fallback2
+    # Multi-key rotation: primary → fallback → fallback2 → fallback3
     api_keys = _get_gemini_api_keys()
     
     if not api_keys:
-        print("  [IMAGE] No GEMINI_API_KEY — skipping Gemini/Imagen fallback")
+        print("  [IMAGE] No Gemini API keys found — skipping Gemini/Imagen fallback")
         print("  [IMAGE] All AI image providers failed — will use PIL gradient fallback")
         return None
     
@@ -550,10 +737,21 @@ def generate_ai_image(
         gemini_img_exhausted = False
         imagen_exhausted = False
         print(f"  [IMAGE] Trying Gemini/Imagen with {key_label} API key...")
-        for model in IMAGE_MODELS:
+        # Optional model override(s)
+        gemini_models = list(IMAGE_MODELS_GEMINI)
+        imagen_models = list(IMAGE_MODELS_IMAGEN)
+        preferred_img = str(os.environ.get("GEMINI_IMAGE_MODEL", "") or "").strip()
+        if preferred_img:
+            if preferred_img.lower().startswith("imagen"):
+                imagen_models = [preferred_img] + [m for m in imagen_models if m != preferred_img]
+            else:
+                gemini_models = [preferred_img] + [m for m in gemini_models if m != preferred_img]
+        models = gemini_models + imagen_models
+
+        for model in models:
             # Check per-pool quota skip
-            is_gemini_model = model in IMAGE_MODELS_GEMINI
-            is_imagen_model = model in IMAGE_MODELS_IMAGEN
+            is_gemini_model = model in gemini_models
+            is_imagen_model = model in imagen_models
             if is_gemini_model and gemini_img_exhausted:
                 print(f"  [IMAGE] Skipping {model} — Gemini image quota exhausted")
                 continue
@@ -639,6 +837,66 @@ def generate_ai_image(
     return None
 
 
+def _try_openai_image(prompt: str, output_path: str) -> Optional[str]:
+    """Try generating a photorealistic image via OpenAI Images API."""
+    import base64
+
+    try:
+        from openai import OpenAI
+    except Exception as e:
+        print(f"  [IMAGE] OpenAI SDK not available: {e}")
+        return None
+
+    model = str(os.environ.get("VIRALOPS_OPENAI_IMAGE_MODEL", "gpt-image-1") or "gpt-image-1").strip()
+    size = str(os.environ.get("VIRALOPS_OPENAI_IMAGE_SIZE", "1024x1792") or "1024x1792").strip()
+
+    try:
+        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        print(f"  [IMAGE] Trying OpenAI Images ({model}, size={size})…")
+        t0 = time.time()
+        resp = client.images.generate(model=model, prompt=prompt, size=size)
+        elapsed = time.time() - t0
+
+        data = getattr(resp, "data", None) or []
+        if not data:
+            print("  [IMAGE] OpenAI Images returned no data")
+            return None
+        first = data[0]
+        b64 = getattr(first, "b64_json", None) or (first.get("b64_json") if isinstance(first, dict) else None)
+        url = getattr(first, "url", None) or (first.get("url") if isinstance(first, dict) else None)
+
+        if b64:
+            img_bytes = base64.b64decode(b64)
+            # PNG is the most common for base64 payloads.
+            if not output_path.lower().endswith(".png"):
+                output_path = output_path.rsplit(".", 1)[0] + ".png"
+            with open(output_path, "wb") as f:
+                f.write(img_bytes)
+        elif url:
+            # Some SDK/model variants return a hosted URL instead of base64.
+            r = httpx.get(str(url), timeout=90)
+            if r.status_code != 200 or not r.content:
+                print(f"  [IMAGE] OpenAI Images URL fetch failed: {r.status_code}")
+                return None
+            # Best-effort extension based on content-type
+            ct = str(r.headers.get("content-type") or "").lower()
+            ext = "png" if "png" in ct else ("jpg" if ("jpeg" in ct or "jpg" in ct) else "png")
+            if not output_path.lower().endswith(f".{ext}"):
+                output_path = output_path.rsplit(".", 1)[0] + f".{ext}"
+            with open(output_path, "wb") as f:
+                f.write(r.content)
+        else:
+            print("  [IMAGE] OpenAI Images returned no b64 payload or URL")
+            return None
+        fsize = os.path.getsize(output_path)
+        print(f"  [IMAGE] ✓ OpenAI generated! {fsize:,} bytes in {elapsed:.1f}s")
+        print(f"  [IMAGE] Saved: {output_path}")
+        return output_path
+    except Exception as e:
+        print(f"  [IMAGE] OpenAI image error: {str(e)[:200]}")
+        return None
+
+
 def _try_pollinations(
     prompt: str,
     output_path: str,
@@ -664,12 +922,20 @@ def _try_pollinations(
     if not pollinations_url:
         return None
     
+    # Higher-res 9:16 defaults (can override via env).
+    try:
+        w = int(os.environ.get("VIRALOPS_POLLINATIONS_WIDTH", "832") or "832")
+        h = int(os.environ.get("VIRALOPS_POLLINATIONS_HEIGHT", "1472") or "1472")
+    except Exception:
+        w, h = 832, 1472
+
     for attempt in range(max_retries):
         try:
             encoded = urllib.parse.quote(prompt[:1500])  # URL limit safety
+            seed = str(int(time.time()))
             img_url = (
                 f"{pollinations_url.rstrip('/')}/{encoded}"
-                f"?width=768&height=1365&model={model_name}&nologo=true&enhance=true"
+                f"?width={w}&height={h}&model={model_name}&nologo=true&enhance=true&seed={seed}"
             )
             headers = {}
             if pollinations_key:
@@ -737,8 +1003,121 @@ def generate_image_for_pack(
     if result:
         pack["_ai_image_path"] = result
         pack["_image_prompt"] = prompt
+
+        # Optional: overlay a short readable caption ourselves (crisp typography).
+        # Default OFF (user preference: no caption on image). Turn on with:
+        #   VIRALOPS_IMAGE_OVERLAY_CAPTION=1
+        try:
+            enable_overlay = str(os.environ.get("VIRALOPS_IMAGE_OVERLAY_CAPTION", "0") or "0").strip().lower() in ("1", "true", "yes", "on")
+            if enable_overlay:
+                caption = _derive_overlay_caption_from_topic(str(pack.get("_idea_line") or pack.get("_topic") or pack.get("title") or ""))
+                if caption:
+                    _overlay_caption_on_image(result, caption)
+                    pack["_image_overlay_caption"] = caption
+        except Exception:
+            pass
     
     return result
+
+
+def _derive_overlay_caption_from_topic(topic_text: str) -> str:
+    """Create a short caption suitable for clean overlay typography (few words)."""
+    t = str(topic_text or "").strip()
+    tl = t.lower()
+    if any(k in tl for k in ("biochar", "bamboo")):
+        return "Biochar Mulch Fix"
+    if any(k in tl for k in ("seed paper", "flax", "linen", "planting tags", "labels")):
+        return "Seed Paper Tags"
+    if any(k in tl for k in ("succulent", "fairy garden")):
+        return "Fairy Garden DIY"
+    if any(k in tl for k in ("straw bale", "microgreens")):
+        return "Vertical Microgreens"
+
+    words = re.findall(r"[A-Za-z0-9]+", t)
+    words = [w for w in words if len(w) > 2][:4]
+    cap = " ".join(words).strip()
+    # Keep overlays short so they don't dominate the image.
+    return cap[:20] if cap else "DIY Garden Tip"
+
+
+def _overlay_caption_on_image(image_path: str, caption: str) -> None:
+    """Overlay a crisp caption onto an existing image using PIL."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    p = str(image_path or "").strip()
+    if not p or not os.path.isfile(p):
+        return
+
+    cap = str(caption or "").strip()
+    if not cap:
+        return
+
+    img = Image.open(p).convert("RGBA")
+    w, h = img.size
+
+    # Choose font (best-effort). Keep it readable but not huge.
+    # For 1500px height (Pinterest 2:3), this yields ~40-44px.
+    font_size = int(h * 0.035)
+    font_size = max(22, min(44, font_size))
+    font = None
+    for name in ("arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"):
+        try:
+            font = ImageFont.truetype(name, font_size)
+            break
+        except Exception:
+            font = None
+    if font is None:
+        font = ImageFont.load_default()
+
+    draw = ImageDraw.Draw(img)
+    # Measure text
+    bbox = draw.textbbox((0, 0), cap, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+
+    pad_x = int(font_size * 0.48)
+    pad_y = int(font_size * 0.26)
+    x = int((w - tw) / 2)
+    y = int(h * 0.075)
+
+    # Optional background rounded rectangle (OFF by default).
+    enable_bg = str(os.environ.get("VIRALOPS_IMAGE_CAPTION_BG", "0") or "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if enable_bg:
+        bg = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        bg_draw = ImageDraw.Draw(bg)
+        rx0 = max(0, x - pad_x)
+        ry0 = max(0, y - pad_y)
+        rx1 = min(w, x + tw + pad_x)
+        ry1 = min(h, y + th + pad_y)
+        radius = int(font_size * 0.40)
+        bg_draw.rounded_rectangle(
+            [rx0, ry0, rx1, ry1],
+            radius=radius,
+            fill=(0, 0, 0, 105),
+            outline=(0, 0, 0, 230),
+            width=max(2, int(font_size * 0.08)),
+        )
+        img = Image.alpha_composite(img, bg)
+        draw = ImageDraw.Draw(img)
+    # White text with strong black stroke for readability
+    try:
+        draw.text(
+            (x, y),
+            cap,
+            font=font,
+            fill=(255, 255, 255, 255),
+            stroke_width=max(3, int(font_size * 0.12)),
+            stroke_fill=(0, 0, 0, 255),
+        )
+    except TypeError:
+        draw.text((x, y), cap, font=font, fill=(255, 255, 255, 255))
+
+    img.convert("RGB").save(p, quality=95)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1073,7 +1452,7 @@ def generate_quality_post(
     print(f"  Score: {score}/10 | Location: {location} | Season: {season}")
     print(f"{'='*60}")
     
-    # ══ RETRY LOOP — generate → review → regenerate with feedback until 9.0+ ══
+    # ══ RETRY LOOP — generate → review → regenerate with feedback ══
     MAX_ATTEMPTS = 3
     try:
         MIN_SCORE = float(os.environ.get("VIRALOPS_TIKTOK_MIN_AVG", "9.0") or "9.0")
@@ -1086,6 +1465,21 @@ def generate_quality_post(
     best_pack = None
     best_metrics: tuple[float, float] = (0.0, 0.0)  # (rubric_total_100, tiktok_avg)
     prev_feedback = ""
+
+    # Opt-in: use a more natural "winner blog" style (less rigid than TikTok spec).
+    # This is intended for Shopify/Pinterest article-style posts.
+    natural_winner_style = str(os.environ.get("VIRALOPS_NATURAL_WINNER_STYLE", "") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+    # In natural mode, do NOT force rigid rubric gates (numbers/lists/ladder) that make content feel templated.
+    if natural_winner_style:
+        MAX_ATTEMPTS = 2
+        MIN_SCORE = min(MIN_SCORE, 8.7)
+        RUBRIC_MIN_100 = 0
 
     def _coerce_pack_from_raw(raw_text: str) -> Optional[Dict[str, Any]]:
         """Best-effort: convert a non-JSON / truncated-JSON LLM response into a valid pack JSON."""
@@ -1149,8 +1543,48 @@ PREVIOUS ATTEMPT FEEDBACK (fix these issues):
 Regenerate the content fixing ALL issues above. TikTok avg score MUST be higher than {_best_tiktok:.1f}.
 Also: the title/hook MUST NOT start with "Did you know" or "Do you know".
 """
-        
-        quality_prompt = f"""Answer this nano-niche topic like a Perplexity AI expert:
+
+        if natural_winner_style:
+            quality_prompt = f"""Answer this nano-niche topic like a real person who has done it, in a natural GenAI voice.
+
+TOPIC: {topic}
+LOCATION: {location}
+SEASON: {season}
+{feedback_block}
+
+Style to match (important):
+- Plain text only (no Markdown tokens like ** or ###)
+- Use \"\u2e3b\" separators between sections (like a winner blog)
+- Use emoji section headers (e.g., \ud83c\udf3f, \ud83d\udccf, \ud83d\uddf1\ufe0f, \ud83d\udea9, \ud83e\udde0)
+- Witty, specific, but NOT forced to include tons of numbers.
+- Include a few concrete numbers only where they matter (sizes, time, cost), not 15+.
+- No "Expansion Ladder" requirement. No 15-item list requirement.
+
+Output as JSON with this schema (same keys, keep it compatible):
+
+{{
+    "title": "1-line hook (natural, not clickbait; can be a confession/regret)",
+    "content_formatted": "Plain-text answer (aim 2200-3200 chars). Use \u2e3b separators + emoji headers. End with a short Practical Summary.",
+    "pain_point": "1 sentence",
+    "audiences": ["...", "...", "..."],
+    "steps": ["Step 1...", "Step 2..."],
+    "result": "Measurable outcome (1 line)",
+    "hashtags": ["NanoNiche1", "NanoNiche2", "NanoNiche3"],
+    "image_title": "Max 4 words",
+    "image_subtitle": "Max 5 words",
+    "image_steps": "Word1 \u2022 Word2 \u2022 Word3",
+    "colors": [[60, 80, 40], [120, 160, 80]]
+}}
+
+Rules:
+- content_formatted must read like a helpful blog answer, not a rigid template.
+- Keep the topic constraints (zone/soil/space/tech) intact.
+- Title must NOT start with "Did you know" or "Do you know".
+- Output ONLY valid JSON.
+"""
+
+        else:
+            quality_prompt = f"""Answer this nano-niche topic like a Perplexity AI expert:
 
 TOPIC: {topic}
 NICHE SCORE: {score}/10
@@ -1259,16 +1693,20 @@ CRITICAL:
             pack.setdefault("_idea_line", idea_line.strip())
             pack.setdefault("_topic", idea_line.strip())
         content_len = len(content)
-        print(f"  [QUALITY] Content length: {content_len} chars (target: 3500-4000)")
+        if natural_winner_style:
+            print(f"  [QUALITY] Content length: {content_len} chars (target: 2200-3200)")
+        else:
+            print(f"  [QUALITY] Content length: {content_len} chars (target: 3500-4000)")
         
-        # ── Iterative expansion (up to 2 passes) ──
-        for _exp_pass in range(2):
-            if content_len >= 3200:
-                break
-            print(f"  [QUALITY] Content short ({content_len} < 3200). Expansion pass {_exp_pass + 1}...")
-            
-            needed = 3700 - content_len  # aim for 3700 center of 3500-4000 range
-            expand_prompt = f"""Your answer is only {content_len} characters. It MUST be 3500-4000 characters (you need ~{needed} more chars).
+        # ── Iterative expansion (strict TikTok spec only) ──
+        if not natural_winner_style:
+            for _exp_pass in range(2):
+                if content_len >= 3200:
+                    break
+                print(f"  [QUALITY] Content short ({content_len} < 3200). Expansion pass {_exp_pass + 1}...")
+                
+                needed = 3700 - content_len  # aim for 3700 center of 3500-4000 range
+                expand_prompt = f"""Your answer is only {content_len} characters. It MUST be 3500-4000 characters (you need ~{needed} more chars).
 
 FORMATTING RULES (CRITICAL — TikTok shows raw text, NOT rendered Markdown):
 - ABSOLUTELY NEVER use **bold** markers
@@ -1293,17 +1731,17 @@ Current answer (EXPAND this, keep everything that's good):
 {content}
 
 Return the FULL expanded answer as PLAIN TEXT (3500-4000 chars). Count carefully. No JSON wrapper. No markdown."""
-            
-            expand_result = call_llm(expand_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=6000, temperature=0.5)
-            if expand_result.success and len(expand_result.text) > content_len:
-                pack["content_formatted"] = _ensure_section_breaks(_strip_markdown(expand_result.text.strip()))
-                content = pack["content_formatted"]
-                content_len = len(content)
-                print(f"  [QUALITY] Expanded to: {content_len} chars")
-            else:
-                break  # expansion failed, don't retry
+
+                expand_result = call_llm(expand_prompt, system=QUALITY_CONTENT_SYSTEM, max_tokens=6000, temperature=0.5)
+                if expand_result.success and len(expand_result.text) > content_len:
+                    pack["content_formatted"] = _ensure_section_breaks(_strip_markdown(expand_result.text.strip()))
+                    content = pack["content_formatted"]
+                    content_len = len(content)
+                    print(f"  [QUALITY] Expanded to: {content_len} chars")
+                else:
+                    break  # expansion failed, don't retry
         
-        if content_len > 4200:
+        if (not natural_winner_style) and content_len > 4200:
             # Too long — ask AI to trim to 3500-4000 without losing meaning
             print(f"  [QUALITY] Content long ({content_len} > 4200). Trimming...")
             def _hard_trim_plaintext(txt: str, *, min_len: int = 3200, max_len: int = 4000) -> str:
@@ -1414,7 +1852,7 @@ Return the TRIMMED answer as PLAIN TEXT (3500-4000 chars). No JSON wrapper. No m
         print(f"  [QUALITY] Provider: {result.provider}/{result.model}")
         print(f"  [QUALITY] Hashtags: {' '.join(pack['hashtags'])}")
 
-        # ── Deterministic repair pass (before review) ──
+        # ── Deterministic repair pass (before review) — strict spec only ──
         # If the caption misses required winner-pattern elements, patch the existing text
         # instead of regenerating from scratch. This improves pass rate under strict gates.
         def _count_numbered_items(txt: str) -> int:
@@ -1454,16 +1892,17 @@ Return the TRIMMED answer as PLAIN TEXT (3500-4000 chars). No JSON wrapper. No m
 
         repair_issues: list[str] = []
         content = str(pack.get("content_formatted", "") or "")
-        if _count_numbered_items(content) < 15:
-            repair_issues.append("Add/extend a numbered Variations/Layouts/Uses list to at least 15 items (each 1 short line).")
-        if not _has_regret_early(content):
-            repair_issues.append("Add a concrete trial-error regret line within the first 900 chars (use 'wish/regret/ruined/learned the hard way' + a number).")
-        if not _has_low_cost_zero_alt(content):
-            repair_issues.append("Add explicit low-cost + $0 alternative (reuse jar / no fancy gear) including at least one $ amount and one $0/free reuse line.")
-        if not _has_cta_ladder(content):
-            repair_issues.append("Add CTA + 3-step Expansion Ladder (Start tiny → weekly → monthly) near the end.")
-        if _emoji_headers(content) < 3:
-            repair_issues.append("Ensure emoji section headers exist on their own lines (at least 3 of: 🌿 🫙 ❌ ✅).")
+        if not natural_winner_style:
+            if _count_numbered_items(content) < 15:
+                repair_issues.append("Add/extend a numbered Variations/Layouts/Uses list to at least 15 items (each 1 short line).")
+            if not _has_regret_early(content):
+                repair_issues.append("Add a concrete trial-error regret line within the first 900 chars (use 'wish/regret/ruined/learned the hard way' + a number).")
+            if not _has_low_cost_zero_alt(content):
+                repair_issues.append("Add explicit low-cost + $0 alternative (reuse jar / no fancy gear) including at least one $ amount and one $0/free reuse line.")
+            if not _has_cta_ladder(content):
+                repair_issues.append("Add CTA + 3-step Expansion Ladder (Start tiny → weekly → monthly) near the end.")
+            if _emoji_headers(content) < 3:
+                repair_issues.append("Ensure emoji section headers exist on their own lines (at least 3 of: 🌿 🫙 ❌ ✅).")
 
         if repair_issues:
             print(f"  [QUALITY] Repair pass: {len(repair_issues)} missing elements — patching caption...")
@@ -1551,7 +1990,7 @@ Return PLAIN TEXT only."""
         # ── Deterministic safety-net: ensure low-cost/$0 survives trimming ──
         # Sometimes the LLM adds low-cost lines near the end and trim removes them.
         content = str(pack.get("content_formatted", "") or "")
-        if content and (not _has_low_cost_zero_alt(content)):
+        if (not natural_winner_style) and content and (not _has_low_cost_zero_alt(content)):
             lines = content.splitlines()
             insert_at = 1
             if len(lines) >= 2:
@@ -1672,6 +2111,171 @@ Return PLAIN TEXT only."""
     else:
         print(f"  [QUALITY] ℹ AI image skipped — will use PIL gradient at publish time")
     
+    return pack
+
+
+def clean_raw_genai_answer_text(text: str) -> str:
+    """Deterministically clean raw LLM text for publishing.
+
+    Intent: keep the author's natural wording, but remove common junk like:
+    - code fences
+    - meta labels (Title:, Hashtags:)
+    - prefacing fluff ("Sure!", "Here is...")
+
+    This function must NOT add content or rewrite sentences.
+    """
+
+    t = str(text or "")
+    t = t.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Hard strips: fences and obvious meta wrappers.
+    t = re.sub(r"(?s)```.*?```", "", t)
+    t = re.sub(r"(?im)^\s*(title|tittle|headline)\s*:\s*.*$", "", t)
+    t = re.sub(r"(?im)^\s*(hashtags|tags)\s*:\s*.*$", "", t)
+    t = re.sub(r"(?im)^\s*(meta description|seo description)\s*:\s*.*$", "", t)
+
+    # Remove common LLM prefacing fluff.
+    t = re.sub(
+        r"(?im)^\s*(sure|of course|absolutely|here\s*'?s|here\s+is|certainly)\b[.!:,\-\s]*",
+        "",
+        t,
+    )
+    t = re.sub(r"(?im)^\s*(as an ai|i can't|i cannot)\b.*$", "", t)
+
+    # Collapse blank lines.
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    lines = [ln.rstrip() for ln in t.split("\n")]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def generate_raw_genai_answer_pack(
+    topic: str,
+    *,
+    idea_line: str = "",
+    providers: list[str] | None = None,
+) -> Optional[Dict[str, Any]]:
+    """Generate a content pack whose body is the raw, natural GenAI answer.
+
+    Goal: avoid forcing the strict 'winner template' (numbers/ladders/15-item lists).
+    This is meant for Shopify/Pinterest blog posts where a natural answer can perform better.
+
+    Notes:
+    - Asks for plain text (no markdown) to avoid platform rendering artifacts.
+    - Does NOT run deterministic repair/expansion gates.
+    - Optional: a second LLM pass can delete off-topic / redundant lines (no rewrites).
+    """
+
+    topic = str(topic or "").strip()
+    if not topic:
+        return None
+
+    # Default provider preference for "UI-like" raw answers:
+    # - Prefer Gemini (strongest text/blog model via GEMINI_TEXT_MODELS cascade)
+    # - Fallback to GitHub Models (Copilot)
+    # - Do NOT require OpenAI API key
+    default_raw_providers = providers or ["gemini", "github_models"]
+
+    def _llm_trim_offtopic(*, original: str) -> str:
+        trim_enabled = str(os.environ.get("VIRALOPS_RAW_GENAI_TRIM", "1") or "1").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if not trim_enabled:
+            return original
+
+        system = "You are a careful editor. You only delete irrelevant text; you never add or rewrite."
+        prompt = f"""You will edit an answer by DELETING ONLY any sentences/lines that are off-topic, redundant, or not directly answering the topic.
+
+Topic:
+{topic}
+
+Rules:
+- Output ONLY the cleaned answer text (no title, no bullet headers, no meta).
+- Do NOT add new words or rewrite sentences. Only delete.
+- Keep the tone natural and conversational.
+- If everything is relevant, return the original text unchanged.
+
+Answer to clean:
+{original}
+"""
+
+        try:
+            res2 = call_llm(
+                prompt,
+                system=system,
+                max_tokens=2400,
+                # Keep deterministic-ish behavior (delete-only) but avoid provider quirks with 0.
+                temperature=0.15,
+                providers=default_raw_providers,
+                gemini_profile="blog",
+            )
+        except Exception:
+            return original
+        if not getattr(res2, "success", False):
+            return original
+        cleaned = str(getattr(res2, "text", "") or "").strip()
+        return cleaned or original
+
+    system = (
+        "You are a helpful expert writer. You sound like a human, not a template. "
+        "Plain text only."
+    )
+    prompt = f"""Answer this topic naturally, like a high-quality ChatGPT UI reply.
+
+Topic:
+{topic}
+
+Rules:
+- Output ONLY the answer text (no JSON, no markdown, no code fences).
+- No forced templates, no rigid lists, no SEO/meta labels.
+- Be practical: give steps + small tips people actually do.
+- Use numbers only when they truly help (e.g., time, ratios).
+- Keep it cohesive (no rambling). If a detail is off-topic, omit it.
+"""
+
+    res = call_llm(
+        prompt,
+        system=system,
+        max_tokens=2500,
+        temperature=0.65,
+        providers=default_raw_providers,
+        gemini_profile="blog",
+    )
+    if not res.success:
+        return None
+
+    body = clean_raw_genai_answer_text(res.text or "")
+    if not body:
+        return None
+
+    body2 = clean_raw_genai_answer_text(_llm_trim_offtopic(original=body))
+    if len(body2) >= 240:
+        body = body2
+
+    pack: Dict[str, Any] = {
+        "title": (idea_line or topic)[:120],
+        "content_formatted": body,
+        "universal_caption_block": body,
+        "hashtags": [],
+        "_source": f"raw_genai_{res.provider}",
+        "_topic": (idea_line or topic),
+        "_gen_provider": res.provider,
+        "_gen_model": res.model,
+        "_gen_tokens": res.tokens_used,
+        "_gen_cost": res.cost_usd,
+        "_review_pass": True,
+        "_review_score": 10.0,
+        "_rubric_total_100": 100.0,
+        "_raw_genai_trim": True,
+    }
+    if idea_line:
+        pack["_idea_line"] = idea_line.strip()
     return pack
 
 

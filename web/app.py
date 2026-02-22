@@ -2360,9 +2360,14 @@ async def _prepare_tiktok_content(content_pack: dict, platform: str = "tiktok") 
             logger.warning("tiktok.account_manager_error", error=str(e))
 
     # ── 3. Generate image if needed ──
-    media_url = (content_pack.get("media_url", "")
-                 or content_pack.get("image_url", "")
-                 or content_pack.get("_ai_image_path", ""))
+    media_url = (
+        content_pack.get("media_url", "")
+        or content_pack.get("image_url", "")
+        # When Shopify publish returns a CDN image URL, the batch script carries it here.
+        or content_pack.get("pinterest_image_url", "")
+        or content_pack.get("pinterest_media_url", "")
+        or content_pack.get("_ai_image_path", "")
+    )
     # Validate local file still exists
     if media_url and not media_url.startswith(("http://", "https://")) and not os.path.isfile(media_url):
         logger.warning("tiktok.stale_image_path", path=media_url)
@@ -2615,6 +2620,13 @@ async def _prepare_pinterest_content(content_pack: dict) -> dict:
     alt_text_override = ""
     hashtags_locked = False
 
+    disable_hashtags = str(os.environ.get("VIRALOPS_DISABLE_HASHTAGS", "") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
     # ── Pinterest-only: Master Prompt v2 formatting + runtime hashtag research ──
     # This is intentionally scoped to Pinterest and does NOT affect Shopify/TikTok/Facebook.
     use_master = str(os.environ.get("VIRALOPS_PINTEREST_MASTER_PROMPT", "1")).strip().lower() in ("1", "true", "yes", "on")
@@ -2638,6 +2650,56 @@ async def _prepare_pinterest_content(content_pack: dict) -> dict:
         s = _re.sub(r"www\.\S+", "", s)
         return _re.sub(r"\s+", " ", s).strip()
 
+    def _strip_micro_niche_idea_phrase(s: str) -> str:
+        """Pinterest-only: remove 'micro niche idea(s)' phrasing from metadata."""
+        s2 = str(s or "")
+        s2 = _re.sub(r"(?i)\bmicro\s*[- ]?niche\s*ideas?\b", "", s2)
+        s2 = _re.sub(r"\s{2,}", " ", s2)
+        s2 = _re.sub(r"\n{3,}", "\n\n", s2)
+        return s2.strip(" -\t\n")
+
+    def _is_direct_answer_sentence(s: str) -> bool:
+        ss = _re.sub(r"\s+", " ", str(s or "").strip())
+        if not ss:
+            return False
+        if len(ss) < 20 or len(ss) > 200:
+            return False
+        low = ss.lower()
+        if low.startswith(("title:", "description:", "alt text:", "hashtags:")):
+            return False
+
+        verbs = (
+            "use ", "start ", "mix ", "build ", "try ", "add ", "plant ", "layer ", "fill ",
+            "grow ", "soak ", "hang ", "place ", "cut ", "make ", "set ", "keep ", "apply ",
+        )
+        if low.startswith(verbs):
+            return True
+        if low.startswith(("start by ", "quick answer:", "do this:", "here's the quick answer")):
+            return True
+        return False
+
+    def _derive_direct_answer_lede(*, topic_text: str, source_text: str) -> str:
+        """Return a single-sentence direct answer lede for Pinterest description."""
+        src = _strip_micro_niche_idea_phrase(_strip_links(source_text))
+        src = _re.sub(r"\s+", " ", src).strip()
+        parts = _re.split(r"(?<=[.!?])\s+", src)
+        for p in parts[:12]:
+            cand = p.strip().strip("-• ")
+            if _is_direct_answer_sentence(cand):
+                return cand if cand.endswith((".", "!", "?")) else (cand + ".")
+
+        t = _strip_micro_niche_idea_phrase(str(topic_text or "")).strip()
+        t = _re.sub(r"\s+", " ", t)
+        if len(t) > 120:
+            t = t[:120].rsplit(" ", 1)[0]
+        t = t.strip(" .-—–\t\n")
+        if not t:
+            return "Quick answer: start with one small upgrade you can build today."
+        low = t.lower()
+        if low.startswith(("use ", "start ", "mix ", "build ", "try ", "add ", "plant ", "layer ", "fill ", "grow ", "soak ")):
+            return t if t.endswith((".", "!", "?")) else (t + ".")
+        return f"Quick answer: try {t}."
+
     def _extract_hashtags(text: str) -> list[str]:
         raw = _re.findall(r"#([A-Za-z][A-Za-z0-9_]{1,30})", str(text or ""))
         seen: set[str] = set()
@@ -2650,6 +2712,15 @@ async def _prepare_pinterest_content(content_pack: dict) -> dict:
             seen.add(k)
             out.append(tag)
         return out
+
+    def _strip_hashtag_tokens(text: str) -> str:
+        s = str(text or "")
+        if not s:
+            return s
+        s = _re.sub(r"(?<!\w)#\w+", "", s)
+        s = _re.sub(r"[ \t]{2,}", " ", s)
+        s = _re.sub(r"\n{3,}", "\n\n", s)
+        return s.strip()
 
     def _looks_ymyl(topic_text: str) -> bool:
         s = (topic_text or "").lower()
@@ -2805,6 +2876,9 @@ Rules:
         # Fall back to first sentence of content
         title = _first_sentence(universal_caption or content_formatted, max_len=100) or "Micro Niche Tip"
 
+    # Strip any leftover rubric phrase from the title (shouldn't happen in ideas mode, but safe).
+    title = _strip_micro_niche_idea_phrase(title) or title
+
     # Pinterest title: max 100 chars
     pin_title = title[:97] + "..." if len(title) > 100 else title
 
@@ -2867,14 +2941,23 @@ Rules:
             # enough tags, replace/augment with researched tags.
             tags = [str(x).strip() for x in hs2 if str(x).strip()]
             tags = [t if t.startswith("#") else ("#" + t.lstrip("#")) for t in tags]
-            if len(tags) < 3:
+            if (not disable_hashtags) and (len(tags) < 3):
                 tags = _pinterest_research_hashtags(topic_text)
-            if tags:
+            if (not disable_hashtags) and tags:
                 hashtags = tags[:tags_max]
                 hashtags_locked = True
 
     # Prevent duplicate title at the top and duplicate hashtag tails.
     long_content = _strip_duplicate_title_and_hashtags(title=title, text=long_content)
+
+    # If hashtags are disabled globally, strip any #tags from description text (even if LLM produced them).
+    if disable_hashtags:
+        hashtags = []
+        hashtags_locked = True
+        long_content = _strip_hashtag_tokens(long_content)
+
+    # Remove 'micro niche idea(s)' phrasing from the description (Pinterest growth hygiene).
+    long_content = _strip_micro_niche_idea_phrase(long_content)
 
     # Ensure we carry image alt text in the pin description (best-effort).
     # Pinterest/ Publer API may not expose a dedicated alt_text field; this keeps it visible.
@@ -2893,14 +2976,19 @@ Rules:
         # Keep it as a natural line, not an "ALT:" header.
         long_content = f"{long_content}\n\nImage: {alt_text}".strip()
 
-    # Pinterest UI can show an empty/missing "title" for API-created pins.
-    # To make the title reliably visible, prefix it as the first line of the
-    # description (best-effort), while avoiding duplication.
-    title_line = str(pin_title or title or "").strip()
-    if title_line:
-        norm = _re.sub(r"\s+", " ", str(long_content or "").strip()).lower()
-        if not norm.startswith(title_line.lower()):
-            long_content = f"{title_line}\n\n{long_content}".strip()
+    # Pinterest growth requirement: description must start with a direct-answer sentence.
+    # We do NOT prefix the title into the description; the pin title is sent separately.
+    try:
+        topic_text = str(content_pack.get("topic") or content_pack.get("title") or title or "").strip()
+        source_for_lede = str(universal_caption or content_formatted or long_content or "")
+        lede = _derive_direct_answer_lede(topic_text=topic_text, source_text=source_for_lede)
+        if lede:
+            flat = _re.sub(r"\s+", " ", str(long_content or "").strip())
+            first_sentence = (_re.split(r"(?<=[.!?])\s+", flat)[0].strip() if flat else "")
+            if not _is_direct_answer_sentence(first_sentence):
+                long_content = f"{lede}\n\n{long_content}".strip()
+    except Exception:
+        pass
 
     # Hashtags: either (A) researched/LLM-provided (locked) or (B) derived + existing.
     if hashtags_locked:
@@ -2944,24 +3032,13 @@ Rules:
     tag_str = " ".join(hashtags[:tags_max])
     max_desc = 500 - len(tag_str) - 2 if tag_str else 500
 
-    # Pinterest UI can show an empty/missing "title" for API-created pins.
-    # Bulletproof fallback: include the title as the first line of the description.
-    title_line = (pin_title or "").strip()
-    prefix = ""
-    if title_line:
-        norm_desc = _re.sub(r"\s+", " ", str(long_content or "").strip()).lower()
-        norm_title = _re.sub(r"\s+", " ", title_line).strip().lower()
-        if norm_title and not norm_desc.startswith(norm_title):
-            prefix = f"{title_line}\n\n"
-
-    # Reserve space for prefix within the 500-char budget.
-    body_budget = max_desc - len(prefix)
+    body_budget = max_desc
     if body_budget < 0:
         body_budget = 0
     body = long_content[:body_budget]
     if len(long_content) > body_budget:
         body = body.rsplit(" ", 1)[0]
-    desc = f"{prefix}{body}".strip()
+    desc = f"{body}".strip()
     if tag_str:
         desc = f"{desc} {tag_str}".strip()
 
@@ -2972,20 +3049,54 @@ Rules:
     if media_url and not media_url.startswith(("http://", "https://")) and not os.path.isfile(media_url):
         media_url = ""
     if not media_url:
-        image_prompt = content_pack.get("image_prompt", "")
+        image_prompt = str(
+            content_pack.get("image_prompt", "")
+            or content_pack.get("pinterest_image_prompt", "")
+            or ""
+        ).strip()
+
+        # Raw-genai packs sometimes don't include image_prompt; derive one so Pinterest never fails.
+        if not image_prompt:
+            topic_for_img = str(
+                content_pack.get("topic")
+                or content_pack.get("title")
+                or content_pack.get("_topic")
+                or title
+                or ""
+            ).strip()
+            topic_for_img = _strip_micro_niche_idea_phrase(topic_for_img)
+            topic_for_img = _re.sub(r"\s+", " ", topic_for_img).strip()
+            if topic_for_img:
+                image_prompt = (
+                    "Vertical 2:3 Pinterest photo, realistic, no text, no watermark, "
+                    f"{topic_for_img}. Soft natural lighting, clean background, high detail."
+                )
+
         if image_prompt:
             try:
                 output_dir = tempfile.mkdtemp(prefix="viralops_pin_")
                 output_path = os.path.join(output_dir, f"pin_{_uuid.uuid4().hex[:8]}.png")
                 from llm_content import generate_ai_image
-                img_path = await asyncio.to_thread(
-                    generate_ai_image, image_prompt, output_path
-                )
+
+                img_path = await asyncio.to_thread(generate_ai_image, image_prompt, output_path)
                 if img_path and os.path.isfile(img_path):
                     media_url = img_path
                     logger.info("pinterest.image_generated", path=img_path)
             except Exception as e:
-                logger.warning("pinterest.image_gen_error", error=str(e))
+                logger.warning("pinterest.image_gen_error", error=str(e)[:180])
+
+    # Last resort: generate a clean placeholder (no text overlay) so Pinterest doesn't fail.
+    if not media_url:
+        try:
+            from PIL import Image
+
+            out_dir = tempfile.mkdtemp(prefix="viralops_pin_placeholder_")
+            out_path = os.path.join(out_dir, f"pin_placeholder_{_uuid.uuid4().hex[:8]}.jpg")
+            Image.new("RGB", (1000, 1500), (245, 245, 245)).save(out_path, format="JPEG", quality=92)
+            media_url = out_path
+            logger.info("pinterest.placeholder_image_generated", path=out_path)
+        except Exception as e:
+            logger.warning("pinterest.placeholder_image_error", error=str(e)[:180])
 
     # Pinterest best practice: 2:3 aspect ratio (e.g., 1000x1500).
     # Best-effort: if we have a local image, center-crop to 2:3 and resize.

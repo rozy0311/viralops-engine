@@ -1,0 +1,16 @@
+{
+  "name": "viralops-ui-automation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "install:browsers": "playwright install --with-deps"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.1",
+    "@types/node": "^22.13.0",
+    "dotenv": "^16.4.7",
+    "typescript": "^5.8.2"
+  }
+}
