@@ -51,6 +51,7 @@ jobs:
           THIRD_FALLBACK_GEMINI_API_KEY: ${{ secrets.THIRD_FALLBACK_GEMINI_API_KEY }}
           PUBLER_API_KEY: ${{ secrets.PUBLER_API_KEY }}
           SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
           SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
           SHOPIFY_BLOG_ID: ${{ secrets.SHOPIFY_BLOG_ID }}
           SHOPIFY_PUBLIC_DOMAIN: ${{ secrets.SHOPIFY_PUBLIC_DOMAIN }}
