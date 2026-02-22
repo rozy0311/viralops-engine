@@ -111,8 +111,7 @@ jobs:
 
   ui:
     runs-on: ubuntu-latest
-    needs: [publish]
-    if: ${{ always() }}
+    if: ${{ inputs.publer_edit_url != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Download kit artifacts (if any)
