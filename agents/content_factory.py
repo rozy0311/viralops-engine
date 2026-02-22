@@ -77,16 +77,56 @@ def _get_gemini_api_keys() -> list[tuple[str, str]]:
     """Gather all available Gemini API keys (label, key) — deduped."""
     keys: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for label, env_var in [
-        ("primary", "GEMINI_API_KEY"),
-        ("fallback", "FALLBACK_GEMINI_API_KEY"),
-        ("fallback2", "SECOND_FALLBACK_GEMINI_API_KEY"),
-    ]:
-        k = os.getenv(env_var, "").strip()
+    env_pairs: list[tuple[str, list[str]]] = [
+        ("primary", ["GEMINI_API_KEY", "GOOGLE_AI_STUDIO_API_KEY"]),
+        ("fallback", ["FALLBACK_GEMINI_API_KEY", "FALLBACK_GOOGLE_AI_STUDIO_API_KEY"]),
+        ("fallback2", ["SECOND_FALLBACK_GEMINI_API_KEY", "SECOND_FALLBACK_GOOGLE_AI_STUDIO_API_KEY"]),
+        ("fallback3", ["THIRD_FALLBACK_GEMINI_API_KEY", "THIRD_FALLBACK_GOOGLE_AI_STUDIO_API_KEY"]),
+    ]
+
+    for label, env_vars in env_pairs:
+        k = ""
+        for env_var in env_vars:
+            k = os.getenv(env_var, "").strip()
+            if k:
+                break
         if k and k not in seen:
             keys.append((label, k))
             seen.add(k)
     return keys
+
+
+def _get_gemini_text_models() -> list[str]:
+    """Gemini text model cascade for Content Factory (env-overridable, deduped)."""
+    default_models: list[str] = [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash-lite",
+        "gemini-2.0-pro-exp",
+    ]
+
+    raw = str(os.getenv("VIRALOPS_GEMINI_TEXT_MODELS", "") or "").strip()
+    if raw:
+        import re
+        models = [m.strip() for m in re.split(r"[\n,;]+", raw) if m.strip()]
+    else:
+        models = list(default_models)
+
+    preferred = str(os.getenv("GEMINI_MODEL", "") or "").strip()
+    if preferred:
+        models = [preferred] + [m for m in models if m != preferred]
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in models:
+        mm = str(m or "").strip()
+        if not mm or mm in seen:
+            continue
+        seen.add(mm)
+        out.append(mm)
+    return out
 
 
 def _get_github_models_client():
@@ -158,67 +198,86 @@ def _call_gemini(system_prompt: str, user_prompt: str, temperature: float) -> tu
     if not api_keys:
         return None, ""
 
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     # Retry once with more tokens if JSON is truncated
     token_limits = [4096, 8192]
+    models_to_try = _get_gemini_text_models()
 
-    for key_label, api_key in api_keys:
-        client = _get_gemini_client(api_key)
-        if not client:
-            continue
+    for model_name in models_to_try:
+        for key_label, api_key in api_keys:
+            client = _get_gemini_client(api_key)
+            if not client:
+                continue
 
-        for attempt, max_tokens in enumerate(token_limits):
-            try:
-                from google.genai import types
+            for attempt, max_tokens in enumerate(token_limits):
+                try:
+                    from google.genai import types
 
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=user_prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        temperature=temperature,
-                        max_output_tokens=max_tokens,
-                        response_mime_type="application/json",
-                    ),
-                )
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=user_prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_prompt,
+                            temperature=temperature,
+                            max_output_tokens=max_tokens,
+                            response_mime_type="application/json",
+                        ),
+                    )
 
-                # Track usage
-                if hasattr(response, "usage_metadata") and response.usage_metadata:
-                    _track_cost(model_name, {
-                        "prompt_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
-                        "completion_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
-                    })
+                    # Track usage
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
+                        _track_cost(model_name, {
+                            "prompt_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
+                            "completion_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
+                        })
 
-                text = response.text.strip()
-                # Gemini sometimes wraps JSON in ```json ... ```
-                if text.startswith("```"):
-                    text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+                    text = response.text.strip()
+                    # Gemini sometimes wraps JSON in ```json ... ```
+                    if text.startswith("```"):
+                        text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-                parsed = json.loads(text)
-                logger.info("content_factory.gemini_success", model=model_name,
-                            key=key_label, attempt=attempt + 1)
-                return parsed, f"gemini/{model_name}"
+                    parsed = json.loads(text)
+                    logger.info(
+                        "content_factory.gemini_success",
+                        model=model_name,
+                        key=key_label,
+                        attempt=attempt + 1,
+                    )
+                    return parsed, f"gemini/{model_name}"
 
-            except json.JSONDecodeError as e:
-                # JSON truncation — retry with more tokens
-                if attempt < len(token_limits) - 1:
-                    logger.warning("content_factory.gemini_json_truncated",
-                                   model=model_name, key=key_label, attempt=attempt + 1,
-                                   max_tokens=max_tokens, error=str(e)[:80])
-                    continue
-                logger.warning("content_factory.gemini_error", model=model_name, error=str(e))
-                break  # Try next key
-
-            except Exception as e:
-                err_str = str(e).lower()
-                is_quota = ("resource_exhausted" in err_str or "429" in err_str
-                            or "quota" in err_str or "rate limit" in err_str)
-                if is_quota:
-                    logger.warning("content_factory.gemini_quota",
-                                   model=model_name, key=key_label, error=str(e)[:80])
+                except json.JSONDecodeError as e:
+                    # JSON truncation — retry with more tokens
+                    if attempt < len(token_limits) - 1:
+                        logger.warning(
+                            "content_factory.gemini_json_truncated",
+                            model=model_name,
+                            key=key_label,
+                            attempt=attempt + 1,
+                            max_tokens=max_tokens,
+                            error=str(e)[:80],
+                        )
+                        continue
+                    logger.warning("content_factory.gemini_error", model=model_name, error=str(e)[:120])
                     break  # Try next key
-                logger.warning("content_factory.gemini_error", model=model_name, error=str(e))
-                return None, ""
+
+                except Exception as e:
+                    err_str = str(e).lower()
+                    is_quota = (
+                        "resource_exhausted" in err_str
+                        or "429" in err_str
+                        or "quota" in err_str
+                        or "rate limit" in err_str
+                        or "rate_limit" in err_str
+                    )
+                    if is_quota:
+                        logger.warning(
+                            "content_factory.gemini_quota",
+                            model=model_name,
+                            key=key_label,
+                            error=str(e)[:120],
+                        )
+                        break  # Try next key
+                    logger.warning("content_factory.gemini_error", model=model_name, error=str(e)[:200])
+                    return None, ""
 
     return None, ""
 

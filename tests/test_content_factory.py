@@ -250,15 +250,21 @@ class TestGeminiRetryLogic:
         """Without GEMINI_API_KEY, _call_gemini should return (None, '')."""
         import os
         from agents.content_factory import _call_gemini
-        originals = {
-            "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY"),
-            "FALLBACK_GEMINI_API_KEY": os.environ.get("FALLBACK_GEMINI_API_KEY"),
-            "SECOND_FALLBACK_GEMINI_API_KEY": os.environ.get("SECOND_FALLBACK_GEMINI_API_KEY"),
-        }
+        keys = [
+            "GEMINI_API_KEY",
+            "FALLBACK_GEMINI_API_KEY",
+            "SECOND_FALLBACK_GEMINI_API_KEY",
+            "THIRD_FALLBACK_GEMINI_API_KEY",
+            # Alias env var names supported by the codebase
+            "GOOGLE_AI_STUDIO_API_KEY",
+            "FALLBACK_GOOGLE_AI_STUDIO_API_KEY",
+            "SECOND_FALLBACK_GOOGLE_AI_STUDIO_API_KEY",
+            "THIRD_FALLBACK_GOOGLE_AI_STUDIO_API_KEY",
+        ]
+        originals = {k: os.environ.get(k) for k in keys}
         try:
-            os.environ.pop("GEMINI_API_KEY", None)
-            os.environ.pop("FALLBACK_GEMINI_API_KEY", None)
-            os.environ.pop("SECOND_FALLBACK_GEMINI_API_KEY", None)
+            for k in keys:
+                os.environ.pop(k, None)
             result, name = _call_gemini("system", "user", 0.8)
             assert result is None
             assert name == ""

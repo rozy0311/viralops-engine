@@ -499,6 +499,9 @@ class ShopifyBlogPublisher:
                     "blog_handle": self._blog_handle,
                     "public_domain": self._public_domain,
                     "published": content.get("published", True),
+                    # Expose public image URL for downstream publishers (e.g., Pinterest Direct API).
+                    "image_url": uploaded_src,
+                    "image_alt": str(content.get("image_alt", title) or title)[:255],
                 },
             )
 

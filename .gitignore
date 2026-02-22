@@ -38,3 +38,14 @@ scripts/batch_mega.py
 scripts/batch_mega_r3.py
 scripts/check_recent_duplicates.py
 scripts/search_publer_posts.py
+
+# Generated publish/preview outputs
+artifacts/
+pinterest_manual_edit_last.txt
+preview_last.md
+preview_*.txt
+
+# UI automation (Playwright)
+ui-automation/node_modules/
+ui-automation/playwright-report/
+ui-automation/test-results/
