@@ -49,3 +49,6 @@ preview_*.txt
 ui-automation/node_modules/
 ui-automation/playwright-report/
 ui-automation/test-results/
+
+# Local ChatGPT UI auth state (never commit)
+ui-automation/.chatgpt-storageState.json

@@ -7,6 +7,10 @@ on:
         description: 'Run Python publish (Shopify + Pinterest) before UI automation'
         type: boolean
         default: false
+      use_self_hosted_for_publish:
+        description: 'Run publish job on self-hosted runner (recommended for ChatGPT UI)'
+        type: boolean
+        default: false
       force_topic:
         description: 'Force a specific topic (bypasses db picking). Leave empty to use default.'
         type: string
@@ -27,7 +31,7 @@ on:
 jobs:
   publish:
     if: ${{ inputs.do_publish }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.use_self_hosted_for_publish && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

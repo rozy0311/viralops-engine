@@ -36,6 +36,10 @@ function b64ToFile(b64, outPath) {
   return outPath;
 }
 
+function escapeRegex(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function main() {
   const prompt = (readStdin() || '').trim();
   if (!prompt) {
@@ -48,9 +52,9 @@ async function main() {
 
   const debugEnabled = String(process.env.CHATGPT_UI_DEBUG || '').trim().toLowerCase() in {
     '1': true,
-    'true': true,
-    'yes': true,
-    'on': true,
+    true: true,
+    yes: true,
+    on: true,
   };
   const debugDir = String(process.env.CHATGPT_UI_DEBUG_DIR || path.join(process.cwd(), 'artifacts')).trim();
 
@@ -66,25 +70,35 @@ async function main() {
   }
 
   const browser = await chromium.launch({ headless: true });
-  const context = statePath
-    ? await browser.newContext({ storageState: statePath })
-    : await browser.newContext();
+  const context = statePath ? await browser.newContext({ storageState: statePath }) : await browser.newContext();
 
   const page = await context.newPage();
-
-  // Best-effort: reduce flakiness.
   page.setDefaultTimeout(45_000);
 
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
 
-  // Fail fast if not authenticated.
-  // ChatGPT UI input has changed over time (textarea vs contenteditable).
   const textbox = page
     .locator('textarea, div[contenteditable="true"][role="textbox"], div[contenteditable="true"][aria-label]')
     .first();
+
   try {
     await textbox.waitFor({ state: 'visible', timeout: 20_000 });
   } catch {
+    let isCloudflareChallenge = false;
+    try {
+      const title = String((await page.title().catch(() => '')) || '').toLowerCase();
+      const url = String(page.url() || '').toLowerCase();
+      const html = String((await page.content().catch(() => '')) || '').toLowerCase();
+      isCloudflareChallenge =
+        title.includes('just a moment') ||
+        url.includes('__cf_chl') ||
+        html.includes('cdn-cgi/challenge-platform') ||
+        html.includes('challenges.cloudflare.com') ||
+        html.includes('turnstile');
+    } catch {
+      // ignore
+    }
+
     if (debugEnabled) {
       try {
         const ts = Date.now();
@@ -100,22 +114,28 @@ async function main() {
         // ignore debug failures
       }
     }
+
     await browser.close();
+
+    if (isCloudflareChallenge) {
+      writeErr(
+        'ChatGPT UI blocked by Cloudflare/Turnstile challenge on this runner/IP. Use a self-hosted runner or expect fallback providers.',
+      );
+    }
     writeErr('Not authenticated (no chat textbox). Provide CHATGPT_UI_STORAGE_STATE_B64.');
     process.exit(10);
   }
 
-  // Best-effort model selection.
   if (modelLabel) {
     try {
       const maybeSwitcher = page.getByRole('button', { name: /model|gpt/i }).first();
       if (await maybeSwitcher.count()) {
         await maybeSwitcher.click({ timeout: 3_000 });
-        const option = page.getByRole('menuitem', { name: new RegExp(modelLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }).first();
+        const option = page.getByRole('menuitem', { name: new RegExp(escapeRegex(modelLabel), 'i') }).first();
+
         if (await option.count()) {
           await option.click({ timeout: 3_000 });
         } else {
-          // Fallback: click any element containing the label.
           const any = page.getByText(modelLabel, { exact: false }).first();
           if (await any.count()) {
             await any.click({ timeout: 3_000 });
@@ -123,14 +143,13 @@ async function main() {
         }
       }
     } catch {
-      // ignore UI changes; continue with whatever default model is selected
+      // ignore UI changes; continue with default model
     }
   }
 
   await textbox.click();
 
-  // If it's a textarea, we can fill(); if contenteditable, type().
-  const tag = (await textbox.evaluate((el) => el?.tagName || '').catch(() => '') || '').toLowerCase();
+  const tag = String((await textbox.evaluate((el) => el?.tagName || '').catch(() => '')) || '').toLowerCase();
   if (tag === 'textarea') {
     await textbox.fill(prompt);
     await textbox.press('Enter');
@@ -139,16 +158,14 @@ async function main() {
     await page.keyboard.press('Enter');
   }
 
-  // Wait for an assistant message to appear.
   const assistantMsgs = page.locator('[data-message-author-role="assistant"]');
   await assistantMsgs.first().waitFor({ state: 'visible', timeout: 60_000 });
 
-  // Grab the last assistant message and wait for it to stabilize.
   const last = assistantMsgs.last();
   let prev = '';
   let stableCount = 0;
   for (let i = 0; i < 20; i++) {
-    const txt = (await last.innerText().catch(() => ''))?.trim() || '';
+    const txt = String((await last.innerText().catch(() => '')) || '').trim();
     if (txt && txt === prev) {
       stableCount += 1;
       if (stableCount >= 2) break;
@@ -159,7 +176,7 @@ async function main() {
     await page.waitForTimeout(800);
   }
 
-  const out = (await last.innerText().catch(() => ''))?.trim() || '';
+  const out = String((await last.innerText().catch(() => '')) || '').trim();
   await browser.close();
 
   if (!out) {
