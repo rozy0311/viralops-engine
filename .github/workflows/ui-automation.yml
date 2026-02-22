@@ -30,18 +30,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install Playwright (for ChatGPT UI provider)
+        working-directory: ui-automation
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Publish 1 item (raw-genai)
         env:
-          # Prefer strongest free text provider chain
-          LLM_PROVIDER_ORDER: gemini,github_models,perplexity,openai
+          # Provider chain:
+          #   1) ChatGPT UI (Playwright) — model GPT-5.2
+          #   2) Gemini blog (2.5 Pro first)
+          #   3) Other fallbacks
+          LLM_PROVIDER_ORDER: chatgpt_ui,gemini,github_models,perplexity,openai
           DISABLE_OPENAI: 'true'
+          CHATGPT_UI_ENABLED: 'true'
+          CHATGPT_UI_MODEL_LABEL: 'GPT-5.2'
+          CHATGPT_UI_STORAGE_STATE_B64: ${{ secrets.CHATGPT_UI_STORAGE_STATE_B64 }}
+          # Ensure blog/text uses strongest Gemini first
+          GEMINI_BLOG_MODEL: gemini-2.5-pro
           VIRALOPS_PINTEREST_ALBUM_NAME: blogs
           # Secrets (set these in repo Settings → Actions → Secrets)
           GH_MODELS_API_KEY: ${{ secrets.GH_MODELS_API_KEY }}

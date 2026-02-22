@@ -21,6 +21,7 @@ import json
 import time
 import httpx
 import sys
+import subprocess
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
 from dotenv import load_dotenv
@@ -142,7 +143,13 @@ def _get_gemini_text_models(profile: str = "text") -> List[str]:
     if raw:
         models = [m.strip() for m in re.split(r"[\n,;]+", raw) if m.strip()]
     else:
-        models = list(GEMINI_TEXT_MODELS)
+        # Defaults:
+        # - text: fast/reliable first
+        # - blog: strongest first (then fast fallbacks)
+        if profile == "blog":
+            models = ["gemini-2.5-pro"] + list(GEMINI_TEXT_MODELS)
+        else:
+            models = list(GEMINI_TEXT_MODELS)
 
     # Optional: force a preferred model to be tried first (common for blog quality).
     if profile == "blog":
@@ -201,6 +208,16 @@ def _get_gemini_client(api_key: str):
 
 # Provider cascade — user-preference first (override with env LLM_PROVIDER_ORDER)
 PROVIDERS = [
+    ProviderConfig(
+        name="chatgpt_ui",
+        api_key_env="",  # UI automation uses Playwright + storage state, not API keys
+        base_url="",
+        model="chatgpt-ui",
+        cost_per_1k_input=0.0,
+        cost_per_1k_output=0.0,
+        is_openai_compatible=False,
+        is_gemini=False,
+    ),
     ProviderConfig(
         name="openai",
         api_key_env="OPENAI_API_KEY",
@@ -293,7 +310,11 @@ def call_llm(
         if pconfig.name == "openai" and os.environ.get("DISABLE_OPENAI", "").lower() == "true":
             continue
 
-        if pconfig.is_gemini:
+        if pconfig.name == "chatgpt_ui":
+            # UI automation provider doesn't require API keys; it will fail fast
+            # if storage state isn't configured, allowing fallback to other providers.
+            pass
+        elif pconfig.is_gemini:
             # Multi-key rotation for Gemini
             gemini_keys = _get_gemini_api_keys()
             if not gemini_keys:
@@ -306,7 +327,9 @@ def call_llm(
         start_time = time.time()
         
         try:
-            if pconfig.is_gemini:
+            if pconfig.name == "chatgpt_ui":
+                result = _call_chatgpt_ui(prompt, system, max_tokens=max_tokens)
+            elif pconfig.is_gemini:
                 result = _call_gemini(
                     pconfig,
                     gemini_keys,
@@ -362,6 +385,110 @@ def call_llm(
         model="none",
         success=False,
         error=f"All providers failed: {'; '.join(errors)}",
+    )
+
+
+def _call_chatgpt_ui(
+    prompt: str,
+    system: str,
+    *,
+    max_tokens: int = 2500,
+) -> ProviderResult:
+    """Call ChatGPT via UI automation (Playwright) and return the raw text.
+
+    Expected env vars:
+      - CHATGPT_UI_ENABLED=1 (optional; if set to 0/false, provider is disabled)
+      - CHATGPT_UI_MODEL_LABEL (e.g., "GPT-5.2")
+      - CHATGPT_UI_BASE_URL (default: https://chatgpt.com/)
+      - CHATGPT_UI_STORAGE_STATE_B64 (recommended for CI)
+
+    This provider is intentionally best-effort and fails fast so the
+    cascade can fall back to Gemini/GitHub Models.
+    """
+    enabled = str(os.environ.get("CHATGPT_UI_ENABLED", "1") or "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if not enabled:
+        return ProviderResult(
+            text="",
+            provider="chatgpt_ui",
+            model="chatgpt-ui-disabled",
+            success=False,
+            error="chatgpt_ui disabled",
+        )
+
+    script_path = str(os.environ.get("CHATGPT_UI_NODE_SCRIPT", "ui-automation/scripts/chatgpt_ui.mjs") or "").strip()
+    if not script_path or not os.path.isfile(script_path):
+        return ProviderResult(
+            text="",
+            provider="chatgpt_ui",
+            model="chatgpt-ui-missing-script",
+            success=False,
+            error=f"Missing ChatGPT UI script: {script_path}",
+        )
+
+    full_prompt = f"{system}\n\n{prompt}" if system else prompt
+    try:
+        p = subprocess.run(
+            ["node", script_path],
+            input=full_prompt,
+            text=True,
+            capture_output=True,
+            timeout=180,
+        )
+    except FileNotFoundError:
+        return ProviderResult(
+            text="",
+            provider="chatgpt_ui",
+            model="chatgpt-ui-no-node",
+            success=False,
+            error="node not found (install Node.js / setup-node in CI)",
+        )
+    except subprocess.TimeoutExpired:
+        return ProviderResult(
+            text="",
+            provider="chatgpt_ui",
+            model="chatgpt-ui-timeout",
+            success=False,
+            error="chatgpt_ui timeout",
+        )
+
+    if p.returncode != 0:
+        err = (p.stderr or p.stdout or "").strip()
+        err = err[-400:] if len(err) > 400 else err
+        return ProviderResult(
+            text="",
+            provider="chatgpt_ui",
+            model=str(os.environ.get("CHATGPT_UI_MODEL_LABEL", "GPT") or "GPT"),
+            success=False,
+            error=f"chatgpt_ui failed: {err}",
+        )
+
+    out = (p.stdout or "").strip()
+    if not out:
+        return ProviderResult(
+            text="",
+            provider="chatgpt_ui",
+            model=str(os.environ.get("CHATGPT_UI_MODEL_LABEL", "GPT") or "GPT"),
+            success=False,
+            error="chatgpt_ui returned empty",
+        )
+
+    # Soft cap (UI provider doesn't support token control). Keep it safe for downstream.
+    if len(out) > 40_000:
+        out = out[:40_000]
+
+    return ProviderResult(
+        text=out,
+        provider="chatgpt_ui",
+        model=str(os.environ.get("CHATGPT_UI_MODEL_LABEL", "GPT") or "GPT"),
+        tokens_used=0,
+        cost_usd=0.0,
+        success=True,
+        error="",
     )
 
 
