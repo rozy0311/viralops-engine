@@ -40,11 +40,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install Playwright (for ChatGPT UI provider)
+      - name: Install Playwright browsers (for ChatGPT UI provider)
         working-directory: ui-automation
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
+      - name: Install Playwright OS deps (Linux only)
+        if: runner.os == 'Linux'
+        working-directory: ui-automation
+        run: |
+          npx playwright install-deps chromium
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
@@ -125,7 +130,13 @@ jobs:
         working-directory: ui-automation
         run: |
           npm ci
-          npx playwright install --with-deps
+          npx playwright install
+
+      - name: Install Playwright OS deps (Linux only)
+        if: runner.os == 'Linux'
+        working-directory: ui-automation
+        run: |
+          npx playwright install-deps
 
       - name: Run Playwright
         working-directory: ui-automation
