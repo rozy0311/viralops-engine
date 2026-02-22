@@ -7,6 +7,14 @@ on:
         description: 'Run Python publish (Shopify + Pinterest) before UI automation'
         type: boolean
         default: false
+      force_topic:
+        description: 'Force a specific topic (bypasses db picking). Leave empty to use default.'
+        type: string
+        default: ''
+      simulate_gemini_failure:
+        description: 'Force Gemini to fail so pipeline falls back to GitHub Models'
+        type: boolean
+        default: false
       publer_edit_url:
         description: 'Publer edit URL to open (required for UI edit)'
         type: string
@@ -47,7 +55,20 @@ jobs:
           SHOPIFY_BLOG_ID: ${{ secrets.SHOPIFY_BLOG_ID }}
           SHOPIFY_PUBLIC_DOMAIN: ${{ secrets.SHOPIFY_PUBLIC_DOMAIN }}
         run: |
-          python scripts/batch_auto_niche_topics.py --publish --no-publer-dedup --limit 1 --platforms shopify_blog,pinterest --shopify --raw-genai --no-hashtags
+          FORCE_TOPIC="${{ inputs.force_topic }}"
+          if [ -z "$FORCE_TOPIC" ]; then
+            FORCE_TOPIC="How to start a windowsill herb garden in a small apartment"
+          fi
+
+          if [ "${{ inputs.simulate_gemini_failure }}" = "true" ]; then
+            echo "Simulating Gemini failure (forcing fallback to GitHub Models)"
+            export GEMINI_API_KEY="invalid"
+            export FALLBACK_GEMINI_API_KEY="invalid"
+            export SECOND_FALLBACK_GEMINI_API_KEY="invalid"
+            export THIRD_FALLBACK_GEMINI_API_KEY="invalid"
+          fi
+
+          python scripts/batch_auto_niche_topics.py --publish --no-publer-dedup --limit 1 --platforms shopify_blog,pinterest --shopify --raw-genai --no-hashtags --force-topic "$FORCE_TOPIC"
       - name: Upload kit + image artifacts
         uses: actions/upload-artifact@v4
         with:
