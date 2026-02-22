@@ -59,8 +59,11 @@ async function main() {
 
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
 
-  // Fail fast if not authenticated (textarea won't appear on logged-out screens).
-  const textbox = page.locator('textarea').first();
+  // Fail fast if not authenticated.
+  // ChatGPT UI input has changed over time (textarea vs contenteditable).
+  const textbox = page
+    .locator('textarea, div[contenteditable="true"][role="textbox"], div[contenteditable="true"][aria-label]')
+    .first();
   try {
     await textbox.waitFor({ state: 'visible', timeout: 20_000 });
   } catch {
@@ -92,8 +95,16 @@ async function main() {
   }
 
   await textbox.click();
-  await textbox.fill(prompt);
-  await textbox.press('Enter');
+
+  // If it's a textarea, we can fill(); if contenteditable, type().
+  const tag = (await textbox.evaluate((el) => el?.tagName || '').catch(() => '') || '').toLowerCase();
+  if (tag === 'textarea') {
+    await textbox.fill(prompt);
+    await textbox.press('Enter');
+  } else {
+    await textbox.type(prompt, { delay: 5 });
+    await page.keyboard.press('Enter');
+  }
 
   // Wait for an assistant message to appear.
   const assistantMsgs = page.locator('[data-message-author-role="assistant"]');
