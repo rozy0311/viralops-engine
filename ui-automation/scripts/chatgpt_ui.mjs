@@ -85,6 +85,22 @@ async function main() {
   try {
     await textbox.waitFor({ state: 'visible', timeout: 20_000 });
   } catch {
+    // Common CI failure: Cloudflare/Turnstile challenge on datacenter IPs.
+    let isCloudflareChallenge = false;
+    try {
+      const title = String(await page.title().catch(() => '') || '').toLowerCase();
+      const url = String(page.url() || '').toLowerCase();
+      const html = String(await page.content().catch(() => '') || '').toLowerCase();
+      isCloudflareChallenge =
+        title.includes('just a moment') ||
+        url.includes('__cf_chl') ||
+        html.includes('cdn-cgi/challenge-platform') ||
+        html.includes('challenges.cloudflare.com') ||
+        html.includes('turnstile');
+    } catch {
+      // ignore
+    }
+
     if (debugEnabled) {
       try {
         const ts = Date.now();
@@ -101,6 +117,9 @@ async function main() {
       }
     }
     await browser.close();
+    if (isCloudflareChallenge) {
+      writeErr('ChatGPT UI blocked by Cloudflare/Turnstile challenge on this runner/IP. Use a self-hosted runner or expect fallback providers.');
+    }
     writeErr('Not authenticated (no chat textbox). Provide CHATGPT_UI_STORAGE_STATE_B64.');
     process.exit(10);
   }
