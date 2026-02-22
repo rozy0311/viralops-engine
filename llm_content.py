@@ -284,7 +284,7 @@ def call_llm(
         ProviderResult with text and metadata
     """
     provider_order = os.environ.get("LLM_PROVIDER_ORDER", "openai,github_models,perplexity,gemini")
-    allowed = providers or provider_order.split(",")
+    allowed = [p.strip() for p in (providers or provider_order.split(",")) if str(p).strip()]
     
     errors = []
     
@@ -301,10 +301,14 @@ def call_llm(
                 out = ProviderConfig(**{**cfg.__dict__, "model": m})
         return out
 
-    for pconfig0 in PROVIDERS:
-        pconfig = _runtime_model_override(pconfig0)
-        if pconfig.name not in allowed:
+    # Respect the requested provider order (allowed list), not the registry order.
+    registry = {cfg.name: cfg for cfg in PROVIDERS}
+    for pname in allowed:
+        pconfig0 = registry.get(pname)
+        if not pconfig0:
             continue
+
+        pconfig = _runtime_model_override(pconfig0)
             
         # Check if provider is disabled
         if pconfig.name == "openai" and os.environ.get("DISABLE_OPENAI", "").lower() == "true":
@@ -2300,11 +2304,16 @@ def generate_raw_genai_answer_pack(
     if not topic:
         return None
 
-    # Default provider preference for "UI-like" raw answers:
-    # - Prefer Gemini (strongest text/blog model via GEMINI_TEXT_MODELS cascade)
-    # - Fallback to GitHub Models (Copilot)
-    # - Do NOT require OpenAI API key
-    default_raw_providers = providers or ["gemini", "github_models"]
+    # Default provider preference for "UI-like" raw answers.
+    # If user configured chatgpt_ui in env order, respect it.
+    env_order = str(os.environ.get("LLM_PROVIDER_ORDER", "") or "").lower()
+    if providers is not None:
+        default_raw_providers = providers
+    elif "chatgpt_ui" in env_order:
+        default_raw_providers = None  # use LLM_PROVIDER_ORDER
+    else:
+        # Historical default: Gemini first, then GitHub Models.
+        default_raw_providers = ["gemini", "github_models"]
 
     def _llm_trim_offtopic(*, original: str) -> str:
         trim_enabled = str(os.environ.get("VIRALOPS_RAW_GENAI_TRIM", "1") or "1").strip().lower() in (
