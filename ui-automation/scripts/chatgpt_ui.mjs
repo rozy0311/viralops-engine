@@ -20,6 +20,16 @@ function writeErr(msg) {
   }
 }
 
+function safeWriteFile(filePath, content) {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function b64ToFile(b64, outPath) {
   const buf = Buffer.from(String(b64 || ''), 'base64');
   fs.writeFileSync(outPath, buf);
@@ -35,6 +45,14 @@ async function main() {
 
   const baseUrl = String(process.env.CHATGPT_UI_BASE_URL || 'https://chatgpt.com/').trim();
   const modelLabel = String(process.env.CHATGPT_UI_MODEL_LABEL || 'GPT-5.2').trim();
+
+  const debugEnabled = String(process.env.CHATGPT_UI_DEBUG || '').trim().toLowerCase() in {
+    '1': true,
+    'true': true,
+    'yes': true,
+    'on': true,
+  };
+  const debugDir = String(process.env.CHATGPT_UI_DEBUG_DIR || path.join(process.cwd(), 'artifacts')).trim();
 
   const storageStateB64 = String(process.env.CHATGPT_UI_STORAGE_STATE_B64 || '').trim();
   const storageStatePath = String(process.env.CHATGPT_UI_STORAGE_STATE_PATH || '').trim();
@@ -67,6 +85,21 @@ async function main() {
   try {
     await textbox.waitFor({ state: 'visible', timeout: 20_000 });
   } catch {
+    if (debugEnabled) {
+      try {
+        const ts = Date.now();
+        const shot = path.join(debugDir, `chatgpt_ui_auth_fail_${ts}.png`);
+        const html = path.join(debugDir, `chatgpt_ui_auth_fail_${ts}.html`);
+        await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
+        const content = await page.content().catch(() => '');
+        safeWriteFile(html, content || '');
+        writeErr(`Debug saved: ${shot}`);
+        writeErr(`Debug saved: ${html}`);
+        writeErr(`Current URL: ${page.url()}`);
+      } catch {
+        // ignore debug failures
+      }
+    }
     await browser.close();
     writeErr('Not authenticated (no chat textbox). Provide CHATGPT_UI_STORAGE_STATE_B64.');
     process.exit(10);

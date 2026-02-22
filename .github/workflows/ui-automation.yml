@@ -56,6 +56,8 @@ jobs:
           CHATGPT_UI_ENABLED: 'true'
           CHATGPT_UI_MODEL_LABEL: 'GPT-5.2'
           CHATGPT_UI_STORAGE_STATE_B64: ${{ secrets.CHATGPT_UI_STORAGE_STATE_B64 }}
+          CHATGPT_UI_DEBUG: 'true'
+          CHATGPT_UI_DEBUG_DIR: ${{ github.workspace }}/artifacts
           # Ensure blog/text uses strongest Gemini first
           GEMINI_BLOG_MODEL: gemini-2.5-pro
           VIRALOPS_PINTEREST_ALBUM_NAME: blogs
@@ -94,6 +96,8 @@ jobs:
             pinterest_manual_edit_last.txt
             artifacts/last_pinterest_pin.jpg
             artifacts/last_pinterest_pin.png
+            artifacts/chatgpt_ui_*.png
+            artifacts/chatgpt_ui_*.html
           if-no-files-found: warn
 
   ui:
