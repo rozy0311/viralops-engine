@@ -28,3 +28,33 @@ npm ci
 npx playwright install --with-deps
 npm test
 ```
+
+## ChatGPT UI (GPT-5.2) login for Actions
+
+GitHub Actions cannot complete interactive login (SSO/2FA/CAPTCHA). To run the
+`chatgpt_ui` provider, export a Playwright `storageState.json` locally and store
+it as a base64 GitHub Actions secret.
+
+### 1) Export storageState locally (headful)
+
+From `ui-automation/`:
+
+```bash
+npm ci
+npm run install:browsers
+npm run chatgpt:login
+```
+
+This opens a real browser window. Login manually. When the chat textbox appears,
+the script saves `.chatgpt-storageState.json`.
+
+### 2) Set GitHub Secret
+
+PowerShell (Windows):
+
+```powershell
+$b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes(".chatgpt-storageState.json"))
+gh secret set CHATGPT_UI_STORAGE_STATE_B64 -R rozy0311/viralops-engine -b $b64
+```
+
+Or set it via GitHub UI: Repo → Settings → Secrets and variables → Actions.
